@@ -1,0 +1,218 @@
+name: Redis Cloud Create
+
+on:
+  workflow_dispatch:
+    inputs:
+      subscription_name:
+        description: New Redis Cloud subscription name.
+        required: true
+        type: string
+      database_name:
+        description: Initial Redis Cloud database name.
+        required: true
+        type: string
+      subscription_dataset_size_in_gb:
+        description: Subscription creation-plan dataset size in GB.
+        required: true
+        type: number
+        default: 1
+      subscription_throughput_ops_per_second:
+        description: Subscription creation-plan throughput in ops/sec.
+        required: true
+        type: number
+        default: 5000
+      subscription_region:
+        description: Redis Cloud subscription region.
+        required: true
+        type: string
+        default: us-east-1
+      subscription_public_endpoint_access:
+        description: Allow public endpoints for databases in this subscription.
+        required: true
+        type: boolean
+        default: false
+      database_dataset_size_in_gb:
+        description: Initial database dataset size in GB.
+        required: true
+        type: number
+        default: 1
+      database_throughput_ops_per_second:
+        description: Initial database throughput in ops/sec.
+        required: true
+        type: number
+        default: 5000
+      persistence_mode:
+        description: Initial database persistence mode.
+        required: true
+        type: choice
+        options:
+          - none
+          - aof-every-1-second
+          - aof-every-write
+          - snapshot-every-1-hour
+          - snapshot-every-6-hours
+          - snapshot-every-12-hours
+        default: snapshot-every-6-hours
+      data_eviction:
+        description: Initial database eviction policy.
+        required: true
+        type: choice
+        options:
+          - allkeys-lru
+          - allkeys-lfu
+          - allkeys-random
+          - volatile-lru
+          - volatile-lfu
+          - volatile-random
+          - volatile-ttl
+          - noeviction
+        default: allkeys-lru
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: rediscloud-create-${{ inputs.subscription_name }}-${{ inputs.database_name }}
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  REDISCLOUD_ACCESS_KEY: ${{ secrets.REDISCLOUD_ACCESS_KEY }}
+  REDISCLOUD_SECRET_KEY: ${{ secrets.REDISCLOUD_SECRET_KEY }}
+  TF_STATE_BUCKET_NAME: ${{ secrets.TF_STATE_BUCKET }}
+  TF_STATE_REGION_NAME: ${{ secrets.TF_STATE_REGION }}
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials for Terraform state
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.TF_STATE_REGION_NAME }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Write subscription tfvars
+        env:
+          SUBSCRIPTION_NAME: ${{ inputs.subscription_name }}
+          SUBSCRIPTION_DATASET_SIZE_IN_GB: ${{ inputs.subscription_dataset_size_in_gb }}
+          SUBSCRIPTION_THROUGHPUT_OPS_PER_SECOND: ${{ inputs.subscription_throughput_ops_per_second }}
+          SUBSCRIPTION_REGION: ${{ inputs.subscription_region }}
+          SUBSCRIPTION_PUBLIC_ENDPOINT_ACCESS: ${{ inputs.subscription_public_endpoint_access }}
+        run: |
+          jq -n \
+            --arg subscription_name "${SUBSCRIPTION_NAME}" \
+            --arg region "${SUBSCRIPTION_REGION}" \
+            --argjson dataset_size_in_gb "${SUBSCRIPTION_DATASET_SIZE_IN_GB}" \
+            --argjson throughput_ops_per_second "${SUBSCRIPTION_THROUGHPUT_OPS_PER_SECOND}" \
+            --argjson public_endpoint_access "${SUBSCRIPTION_PUBLIC_ENDPOINT_ACCESS}" \
+            '{
+              subscription_name: $subscription_name,
+              dataset_size_in_gb: $dataset_size_in_gb,
+              throughput_ops_per_second: $throughput_ops_per_second,
+              region: $region,
+              public_endpoint_access: $public_endpoint_access
+            }' > stacks/subscription/request.auto.tfvars.json
+
+      - name: Write database tfvars
+        env:
+          SUBSCRIPTION_NAME: ${{ inputs.subscription_name }}
+          DATABASE_NAME: ${{ inputs.database_name }}
+          DATABASE_DATASET_SIZE_IN_GB: ${{ inputs.database_dataset_size_in_gb }}
+          DATABASE_THROUGHPUT_OPS_PER_SECOND: ${{ inputs.database_throughput_ops_per_second }}
+          PERSISTENCE_MODE: ${{ inputs.persistence_mode }}
+          DATA_EVICTION: ${{ inputs.data_eviction }}
+        run: |
+          jq -n \
+            --arg subscription_name "${SUBSCRIPTION_NAME}" \
+            --arg database_name "${DATABASE_NAME}" \
+            --arg persistence_mode "${PERSISTENCE_MODE}" \
+            --arg data_eviction "${DATA_EVICTION}" \
+            --argjson dataset_size_in_gb "${DATABASE_DATASET_SIZE_IN_GB}" \
+            --argjson throughput_ops_per_second "${DATABASE_THROUGHPUT_OPS_PER_SECOND}" \
+            '{
+              subscription_name: $subscription_name,
+              database_name: $database_name,
+              dataset_size_in_gb: $dataset_size_in_gb,
+              throughput_ops_per_second: $throughput_ops_per_second,
+              persistence_mode: $persistence_mode,
+              data_eviction: $data_eviction
+            }' > stacks/database/request.auto.tfvars.json
+
+      - name: Prepare subscription backend
+        working-directory: stacks/subscription
+        run: |
+          printf '%s\n' \
+            'terraform {' \
+            '  backend "s3" {' \
+            '    use_lockfile = true' \
+            '  }' \
+            '}' > backend.generated.tf
+
+          terraform init -reconfigure \
+            -backend-config="bucket=${TF_STATE_BUCKET_NAME}" \
+            -backend-config="region=${TF_STATE_REGION_NAME}" \
+            -backend-config="key=subscriptions/${{ inputs.subscription_name }}.tfstate"
+
+      - name: Apply subscription
+        working-directory: stacks/subscription
+        run: terraform apply -input=false -auto-approve
+
+      - name: Prepare database backend
+        working-directory: stacks/database
+        run: |
+          printf '%s\n' \
+            'terraform {' \
+            '  backend "s3" {' \
+            '    use_lockfile = true' \
+            '  }' \
+            '}' > backend.generated.tf
+
+          terraform init -reconfigure \
+            -backend-config="bucket=${TF_STATE_BUCKET_NAME}" \
+            -backend-config="region=${TF_STATE_REGION_NAME}" \
+            -backend-config="key=databases/${{ inputs.subscription_name }}/${{ inputs.database_name }}.tfstate"
+
+      - name: Apply database
+        working-directory: stacks/database
+        run: terraform apply -input=false -auto-approve
+
+      - name: Capture database outputs
+        id: database_outputs
+        working-directory: stacks/database
+        run: |
+          capture_output() {
+            terraform output -raw "$1" 2>/dev/null || true
+          }
+
+          echo "database_id=$(capture_output database_id)" >> "$GITHUB_OUTPUT"
+          echo "private_endpoint=$(capture_output private_endpoint)" >> "$GITHUB_OUTPUT"
+          echo "public_endpoint=$(capture_output public_endpoint)" >> "$GITHUB_OUTPUT"
+          echo "acl_user_name=$(capture_output acl_user_name)" >> "$GITHUB_OUTPUT"
+
+      - name: Write summary
+        env:
+          DATABASE_ID: ${{ steps.database_outputs.outputs.database_id }}
+          PRIVATE_ENDPOINT: ${{ steps.database_outputs.outputs.private_endpoint }}
+          PUBLIC_ENDPOINT: ${{ steps.database_outputs.outputs.public_endpoint }}
+          ACL_USER_NAME: ${{ steps.database_outputs.outputs.acl_user_name }}
+        run: |
+          {
+            echo "## Redis Cloud create"
+            echo
+            echo "- Subscription: \`${{ inputs.subscription_name }}\`"
+            echo "- Database: \`${{ inputs.database_name }}\`"
+            echo "- Database ID: \`${DATABASE_ID}\`"
+            echo "- Private endpoint: \`${PRIVATE_ENDPOINT}\`"
+            echo "- Public endpoint: \`${PUBLIC_ENDPOINT}\`"
+            echo "- ACL user: \`${ACL_USER_NAME}\`"
+            echo "- ACL password: sensitive Terraform output, not written to workflow summary"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -74,7 +74,7 @@ AWS_GITHUB_ACTIONS_ROLE_ARN
 
 Set it to the `managed_github_actions_role_arns.prod` output, or to an existing OIDC role ARN if the customer manages roles separately.
 
-Create a GitHub environment named `prod`. Add required reviewers if the customer wants manual approval before apply or destroy jobs.
+The workflows assume a single GitHub Actions OIDC role, stored in `AWS_GITHUB_ACTIONS_ROLE_ARN`. GitHub environments are not required for OIDC.
 
 ## 5. Validate the Repository
 
@@ -89,96 +89,50 @@ for stack in stacks/state-backend stacks/subscription stacks/database; do
 done
 ```
 
-## 6. Create or Update a Subscription and Database
+## 6. Create a Subscription and Initial Database
 
-Run **Actions > Redis Cloud Manage > Run workflow** with:
+Run **Actions > Redis Cloud Create > Run workflow**.
+
+Use this workflow when Terraform should manage both the subscription state and the initial database state.
+
+Common inputs:
+
+- `subscription_name`
+- `database_name`
+- `subscription_dataset_size_in_gb`
+- `subscription_throughput_ops_per_second`
+- `subscription_region`
+- `subscription_public_endpoint_access`
+- `database_dataset_size_in_gb`
+- `database_throughput_ops_per_second`
+- `persistence_mode`
+- `data_eviction`
+
+The workflow stores state in both paths:
 
 ```text
-operation = apply
-github_environment = prod
-subscription_mode = create-or-update-subscription
-subscription_name = customer-prod
-database_name = rewards-cache
-```
-
-Common database inputs:
-
-The workflow keeps the manual form under the GitHub Actions `workflow_dispatch`
-input limit by grouping less-common settings into JSON objects.
-
-Example `subscription_config_json`:
-
-```json
-{
-  "dataset_size_in_gb": 1,
-  "throughput_ops_per_second": 5000,
-  "region": "us-east-1",
-  "networking_deployment_cidr": "10.80.0.0/24",
-  "public_endpoint_access": false,
-  "multiple_availability_zones": false,
-  "preferred_availability_zones": [],
-  "maintenance_windows": null,
-  "tags": {}
-}
-```
-
-Example `database_config_json`:
-
-```json
-{
-  "dataset_size_in_gb": 1,
-  "throughput_ops_per_second": 5000,
-  "redis_version": "8.2",
-  "persistence_mode": "snapshot-every-6-hours",
-  "data_eviction": "allkeys-lru",
-  "replication": true,
-  "enable_tls": true,
-  "enable_default_user": false,
-  "source_ips": null,
-  "alerts": [
-    { "name": "dataset-size", "value": 80 },
-    { "name": "latency", "value": 10 }
-  ],
-  "remote_backup": null,
-  "acl_rule_string": "+@all -@dangerous +info ~*",
-  "tags": {}
-}
-```
-
-Example `remote_backup` value inside `database_config_json`:
-
-```json
-{
-  "interval": "every-24-hours",
-  "time_utc": "03:00",
-  "storage_type": "aws-s3",
-  "storage_path": "s3://customer-redis-backups/rewards-cache"
-}
-```
-
-For database-only changes in an existing subscription, keep `subscription_config_json` at its default value. The workflow ignores it when `subscription_mode = existing-subscription`.
-
-Minimal `database_config_json` is also valid. Missing keys use secure defaults:
-
-```json
-{
-  "dataset_size_in_gb": 5,
-  "throughput_ops_per_second": 10000
-}
+subscriptions/<subscription_name>.tfstate
+databases/<subscription_name>/<database_name>.tfstate
 ```
 
 ## 7. Add or Update a Database in an Existing Subscription
 
-Use this mode when Redis Cloud already has the subscription and Terraform should manage only the database and ACL resources:
+Run **Actions > Redis Cloud Database > Run workflow**.
 
-```text
-operation = apply
-subscription_mode = existing-subscription
-subscription_name = existing-subscription-name
-database_name = new-database-name
-```
+Use this workflow when Redis Cloud already has the subscription and Terraform should manage only the database and ACL resources.
 
-The workflow skips the subscription stack and stores only database state under:
+Common inputs:
+
+- `subscription_name`
+- `database_name`
+- `dataset_size_in_gb`
+- `throughput_ops_per_second`
+- `redis_version`
+- `persistence_mode`
+- `data_eviction`
+- `source_ips_csv`
+
+Leave `source_ips_csv` empty unless public endpoint allowlisting is required. The workflow stores only database state under:
 
 ```text
 databases/<subscription_name>/<database_name>.tfstate
@@ -186,25 +140,23 @@ databases/<subscription_name>/<database_name>.tfstate
 
 ## 8. Destroy Managed Resources
 
+Run **Actions > Redis Cloud Destroy > Run workflow**.
+
 Destroy only the database and its ACL resources:
 
 ```text
-operation = destroy
 destroy_scope = database-only
-subscription_mode = existing-subscription
 confirm_destroy = true
 ```
 
 Destroy a database and a subscription that were both managed by this repository:
 
 ```text
-operation = destroy
 destroy_scope = database-and-subscription
-subscription_mode = create-or-update-subscription
 confirm_destroy = true
 ```
 
-The workflow destroys the database first, then the subscription.
+The workflow always destroys the database first. It destroys the subscription only when `destroy_scope = database-and-subscription`. Only choose that scope for subscriptions created through **Redis Cloud Create** and managed by this repository.
 
 ## 9. Future Agent Memory Support
 
@@ -213,5 +165,5 @@ When Redis Cloud Agent Memory Terraform/API support is available:
 1. Add a dedicated stack under `stacks/agent-memory`.
 2. Store state under `agent-memory/<resource-name>.tfstate`.
 3. Add the stack to `.github/workflows/terraform-validate.yml`.
-4. Add a manual GitHub Actions workflow or extend `rediscloud-manage.yml` with a separate Agent Memory operation.
+4. Add a manual GitHub Actions workflow for Agent Memory operations.
 5. Keep Agent Memory inputs separate from database inputs so customers can provision, update, and destroy it independently.
