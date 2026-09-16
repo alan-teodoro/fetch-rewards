@@ -103,29 +103,49 @@ database_name = rewards-cache
 
 Common database inputs:
 
-- `database_dataset_size_in_gb`
-- `database_throughput_ops_per_second`
-- `database_redis_version`
-- `database_persistence_mode`
-- `database_data_eviction`
-- `database_replication`
-- `database_enable_tls`
-- `database_enable_default_user`
-- `database_source_ips_json`
-- `database_alerts_json`
-- `database_remote_backup_json`
-- `database_acl_rule_string`
+The workflow keeps the manual form under the GitHub Actions `workflow_dispatch`
+input limit by grouping less-common settings into JSON objects.
 
-Example alert input:
+Example `subscription_config_json`:
 
 ```json
-[
-  { "name": "dataset-size", "value": 80 },
-  { "name": "latency", "value": 10 }
-]
+{
+  "dataset_size_in_gb": 1,
+  "throughput_ops_per_second": 5000,
+  "region": "us-east-1",
+  "networking_deployment_cidr": "10.80.0.0/24",
+  "public_endpoint_access": false,
+  "multiple_availability_zones": false,
+  "preferred_availability_zones": [],
+  "maintenance_windows": null,
+  "tags": {}
+}
 ```
 
-Example backup input:
+Example `database_config_json`:
+
+```json
+{
+  "dataset_size_in_gb": 1,
+  "throughput_ops_per_second": 5000,
+  "redis_version": "8.2",
+  "persistence_mode": "snapshot-every-6-hours",
+  "data_eviction": "allkeys-lru",
+  "replication": true,
+  "enable_tls": true,
+  "enable_default_user": false,
+  "source_ips": null,
+  "alerts": [
+    { "name": "dataset-size", "value": 80 },
+    { "name": "latency", "value": 10 }
+  ],
+  "remote_backup": null,
+  "acl_rule_string": "+@all -@dangerous +info ~*",
+  "tags": {}
+}
+```
+
+Example `remote_backup` value inside `database_config_json`:
 
 ```json
 {
@@ -133,6 +153,17 @@ Example backup input:
   "time_utc": "03:00",
   "storage_type": "aws-s3",
   "storage_path": "s3://customer-redis-backups/rewards-cache"
+}
+```
+
+For database-only changes in an existing subscription, keep `subscription_config_json` at its default value. The workflow ignores it when `subscription_mode = existing-subscription`.
+
+Minimal `database_config_json` is also valid. Missing keys use secure defaults:
+
+```json
+{
+  "dataset_size_in_gb": 5,
+  "throughput_ops_per_second": 10000
 }
 ```
 
@@ -161,6 +192,7 @@ Destroy only the database and its ACL resources:
 operation = destroy
 destroy_scope = database-only
 subscription_mode = existing-subscription
+confirm_destroy = true
 ```
 
 Destroy a database and a subscription that were both managed by this repository:
@@ -169,6 +201,7 @@ Destroy a database and a subscription that were both managed by this repository:
 operation = destroy
 destroy_scope = database-and-subscription
 subscription_mode = create-or-update-subscription
+confirm_destroy = true
 ```
 
 The workflow destroys the database first, then the subscription.

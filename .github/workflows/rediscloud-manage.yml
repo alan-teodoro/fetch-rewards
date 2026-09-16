@@ -38,136 +38,25 @@ on:
         description: Redis Cloud subscription name.
         required: true
         type: string
-      subscription_dataset_size_in_gb:
-        description: Subscription creation-plan dataset size in GB.
-        required: true
-        type: number
-        default: 1
-      subscription_throughput_ops_per_second:
-        description: Subscription creation-plan throughput in ops/sec.
-        required: true
-        type: number
-        default: 5000
-      subscription_region:
-        description: Redis Cloud subscription region.
-        required: true
-        type: string
-        default: us-east-1
-      subscription_networking_cidr:
-        description: Redis Cloud deployment CIDR for the subscription.
-        required: true
-        type: string
-        default: 10.80.0.0/24
-      subscription_public_endpoint_access:
-        description: Allow public endpoints for databases in this subscription.
-        required: true
-        type: boolean
-        default: false
-      subscription_multi_az:
-        description: Deploy the subscription across multiple availability zones.
-        required: true
-        type: boolean
-        default: false
-      subscription_preferred_azs_json:
-        description: JSON array of preferred availability zones.
-        required: true
-        type: string
-        default: "[]"
-      subscription_maintenance_windows_json:
-        description: JSON maintenance window object, or null.
-        required: true
-        type: string
-        default: "null"
-      subscription_tags_json:
-        description: JSON object of extra subscription resource tags.
-        required: true
-        type: string
-        default: "{}"
       database_name:
         description: Redis Cloud database name.
         required: true
         type: string
-      database_dataset_size_in_gb:
-        description: Database dataset size in GB.
-        required: true
-        type: number
-        default: 1
-      database_throughput_ops_per_second:
-        description: Database throughput in ops/sec.
-        required: true
-        type: number
-        default: 5000
-      database_redis_version:
-        description: Redis version requested for the database.
+      subscription_config_json:
+        description: JSON object with subscription creation/update parameters.
         required: true
         type: string
-        default: "8.2"
-      database_persistence_mode:
-        description: Database persistence mode.
+        default: '{"dataset_size_in_gb":1,"throughput_ops_per_second":5000,"region":"us-east-1","networking_deployment_cidr":"10.80.0.0/24","public_endpoint_access":false,"multiple_availability_zones":false,"preferred_availability_zones":[],"maintenance_windows":null,"tags":{}}'
+      database_config_json:
+        description: JSON object with database, ACL, alerts, and backup parameters.
         required: true
-        type: choice
-        options:
-          - none
-          - aof-every-1-second
-          - aof-every-write
-          - snapshot-every-1-hour
-          - snapshot-every-6-hours
-          - snapshot-every-12-hours
-        default: snapshot-every-6-hours
-      database_data_eviction:
-        description: Data eviction policy.
-        required: true
-        type: choice
-        options:
-          - allkeys-lru
-          - allkeys-lfu
-          - allkeys-random
-          - volatile-lru
-          - volatile-lfu
-          - volatile-random
-          - volatile-ttl
-          - noeviction
-        default: allkeys-lru
-      database_replication:
-        description: Enable database replication.
-        required: true
-        type: boolean
-        default: true
-      database_enable_tls:
-        description: Require TLS for database connections.
-        required: true
-        type: boolean
-        default: true
-      database_enable_default_user:
-        description: Keep the Redis Cloud default user enabled.
+        type: string
+        default: '{"dataset_size_in_gb":1,"throughput_ops_per_second":5000,"redis_version":"8.2","persistence_mode":"snapshot-every-6-hours","data_eviction":"allkeys-lru","replication":true,"enable_tls":true,"enable_default_user":false,"source_ips":null,"alerts":[],"remote_backup":null,"acl_rule_string":"+@all -@dangerous +info ~*","tags":{}}'
+      confirm_destroy:
+        description: Must be true when operation is destroy.
         required: true
         type: boolean
         default: false
-      database_source_ips_json:
-        description: JSON array of source CIDRs, or null for Redis Cloud defaults.
-        required: true
-        type: string
-        default: "null"
-      database_alerts_json:
-        description: JSON alert array, for example [{"name":"dataset-size","value":80}].
-        required: true
-        type: string
-        default: "[]"
-      database_remote_backup_json:
-        description: JSON remote backup object, or null.
-        required: true
-        type: string
-        default: "null"
-      database_acl_rule_string:
-        description: Redis ACL rule string for the generated service user.
-        required: true
-        type: string
-        default: "+@all -@dangerous +info ~*"
-      database_tags_json:
-        description: JSON object of extra database tags.
-        required: true
-        type: string
-        default: "{}"
 
 permissions:
   contents: read
@@ -207,115 +96,81 @@ jobs:
           OPERATION: ${{ inputs.operation }}
           SUBSCRIPTION_MODE: ${{ inputs.subscription_mode }}
           DESTROY_SCOPE: ${{ inputs.destroy_scope }}
-          SUBSCRIPTION_PREFERRED_AZS_JSON: ${{ inputs.subscription_preferred_azs_json }}
-          SUBSCRIPTION_MAINTENANCE_WINDOWS_JSON: ${{ inputs.subscription_maintenance_windows_json }}
-          SUBSCRIPTION_TAGS_JSON: ${{ inputs.subscription_tags_json }}
-          DATABASE_SOURCE_IPS_JSON: ${{ inputs.database_source_ips_json }}
-          DATABASE_ALERTS_JSON: ${{ inputs.database_alerts_json }}
-          DATABASE_REMOTE_BACKUP_JSON: ${{ inputs.database_remote_backup_json }}
-          DATABASE_TAGS_JSON: ${{ inputs.database_tags_json }}
+          CONFIRM_DESTROY: ${{ inputs.confirm_destroy }}
+          SUBSCRIPTION_CONFIG_JSON: ${{ inputs.subscription_config_json }}
+          DATABASE_CONFIG_JSON: ${{ inputs.database_config_json }}
         run: |
+          if [ "${OPERATION}" = "destroy" ] && [ "${CONFIRM_DESTROY}" != "true" ]; then
+            echo "confirm_destroy must be true when operation=destroy."
+            exit 1
+          fi
+
           if [ "${OPERATION}" = "destroy" ] && [ "${DESTROY_SCOPE}" = "database-and-subscription" ] && [ "${SUBSCRIPTION_MODE}" = "existing-subscription" ]; then
             echo "database-and-subscription destroy requires subscription_mode=create-or-update-subscription."
             exit 1
           fi
 
-          printf '%s' "${SUBSCRIPTION_PREFERRED_AZS_JSON}" | jq -e 'if type == "array" then . else error("subscription_preferred_azs_json must be a JSON array") end' >/dev/null
-          printf '%s' "${SUBSCRIPTION_MAINTENANCE_WINDOWS_JSON}" | jq -e 'if . == null or type == "object" then . else error("subscription_maintenance_windows_json must be null or a JSON object") end' >/dev/null
-          printf '%s' "${SUBSCRIPTION_TAGS_JSON}" | jq -e 'if type == "object" then . else error("subscription_tags_json must be a JSON object") end' >/dev/null
-          printf '%s' "${DATABASE_SOURCE_IPS_JSON}" | jq -e 'if . == null or type == "array" then . else error("database_source_ips_json must be null or a JSON array") end' >/dev/null
-          printf '%s' "${DATABASE_ALERTS_JSON}" | jq -e 'if type == "array" then . else error("database_alerts_json must be a JSON array") end' >/dev/null
-          printf '%s' "${DATABASE_REMOTE_BACKUP_JSON}" | jq -e 'if . == null or type == "object" then . else error("database_remote_backup_json must be null or a JSON object") end' >/dev/null
-          printf '%s' "${DATABASE_TAGS_JSON}" | jq -e 'if type == "object" then . else error("database_tags_json must be a JSON object") end' >/dev/null
+          printf '%s' "${SUBSCRIPTION_CONFIG_JSON}" | jq -e '
+            type == "object" and
+            ((.preferred_availability_zones // []) | type == "array") and
+            ((.maintenance_windows // null) == null or ((.maintenance_windows // null) | type == "object")) and
+            ((.tags // {}) | type == "object")
+          ' >/dev/null
+
+          printf '%s' "${DATABASE_CONFIG_JSON}" | jq -e '
+            type == "object" and
+            ((.source_ips // null) == null or ((.source_ips // null) | type == "array")) and
+            ((.alerts // []) | type == "array") and
+            ((.remote_backup // null) == null or ((.remote_backup // null) | type == "object")) and
+            ((.tags // {}) | type == "object")
+          ' >/dev/null
 
       - name: Write subscription tfvars
         if: inputs.subscription_mode == 'create-or-update-subscription'
         env:
           SUBSCRIPTION_NAME: ${{ inputs.subscription_name }}
-          SUBSCRIPTION_DATASET_SIZE_IN_GB: ${{ inputs.subscription_dataset_size_in_gb }}
-          SUBSCRIPTION_THROUGHPUT_OPS_PER_SECOND: ${{ inputs.subscription_throughput_ops_per_second }}
-          SUBSCRIPTION_REGION: ${{ inputs.subscription_region }}
-          SUBSCRIPTION_NETWORKING_CIDR: ${{ inputs.subscription_networking_cidr }}
-          SUBSCRIPTION_PUBLIC_ENDPOINT_ACCESS: ${{ inputs.subscription_public_endpoint_access }}
-          SUBSCRIPTION_MULTI_AZ: ${{ inputs.subscription_multi_az }}
-          SUBSCRIPTION_PREFERRED_AZS_JSON: ${{ inputs.subscription_preferred_azs_json }}
-          SUBSCRIPTION_MAINTENANCE_WINDOWS_JSON: ${{ inputs.subscription_maintenance_windows_json }}
-          SUBSCRIPTION_TAGS_JSON: ${{ inputs.subscription_tags_json }}
+          SUBSCRIPTION_CONFIG_JSON: ${{ inputs.subscription_config_json }}
         run: |
-          jq -n \
+          printf '%s' "${SUBSCRIPTION_CONFIG_JSON}" | jq \
             --arg subscription_name "${SUBSCRIPTION_NAME}" \
-            --arg region "${SUBSCRIPTION_REGION}" \
-            --arg networking_deployment_cidr "${SUBSCRIPTION_NETWORKING_CIDR}" \
-            --argjson dataset_size_in_gb "${SUBSCRIPTION_DATASET_SIZE_IN_GB}" \
-            --argjson throughput_ops_per_second "${SUBSCRIPTION_THROUGHPUT_OPS_PER_SECOND}" \
-            --argjson public_endpoint_access "${SUBSCRIPTION_PUBLIC_ENDPOINT_ACCESS}" \
-            --argjson multiple_availability_zones "${SUBSCRIPTION_MULTI_AZ}" \
-            --argjson preferred_availability_zones "${SUBSCRIPTION_PREFERRED_AZS_JSON}" \
-            --argjson maintenance_windows "${SUBSCRIPTION_MAINTENANCE_WINDOWS_JSON}" \
-            --argjson tags "${SUBSCRIPTION_TAGS_JSON}" \
             '{
               subscription_name: $subscription_name,
-              dataset_size_in_gb: $dataset_size_in_gb,
-              throughput_ops_per_second: $throughput_ops_per_second,
-              region: $region,
-              networking_deployment_cidr: $networking_deployment_cidr,
-              public_endpoint_access: $public_endpoint_access,
-              multiple_availability_zones: $multiple_availability_zones,
-              preferred_availability_zones: $preferred_availability_zones,
-              maintenance_windows: $maintenance_windows,
-              tags: $tags
+              dataset_size_in_gb: (.dataset_size_in_gb // 1),
+              throughput_ops_per_second: (.throughput_ops_per_second // 5000),
+              region: (.region // "us-east-1"),
+              networking_deployment_cidr: (.networking_deployment_cidr // "10.80.0.0/24"),
+              public_endpoint_access: (.public_endpoint_access // false),
+              multiple_availability_zones: (.multiple_availability_zones // false),
+              preferred_availability_zones: (.preferred_availability_zones // []),
+              maintenance_windows: (.maintenance_windows // null),
+              tags: (.tags // {})
             }' > stacks/subscription/request.auto.tfvars.json
 
       - name: Write database tfvars
         env:
           SUBSCRIPTION_NAME: ${{ inputs.subscription_name }}
           DATABASE_NAME: ${{ inputs.database_name }}
-          DATABASE_DATASET_SIZE_IN_GB: ${{ inputs.database_dataset_size_in_gb }}
-          DATABASE_THROUGHPUT_OPS_PER_SECOND: ${{ inputs.database_throughput_ops_per_second }}
-          DATABASE_REDIS_VERSION: ${{ inputs.database_redis_version }}
-          DATABASE_PERSISTENCE_MODE: ${{ inputs.database_persistence_mode }}
-          DATABASE_DATA_EVICTION: ${{ inputs.database_data_eviction }}
-          DATABASE_REPLICATION: ${{ inputs.database_replication }}
-          DATABASE_ENABLE_TLS: ${{ inputs.database_enable_tls }}
-          DATABASE_ENABLE_DEFAULT_USER: ${{ inputs.database_enable_default_user }}
-          DATABASE_SOURCE_IPS_JSON: ${{ inputs.database_source_ips_json }}
-          DATABASE_ALERTS_JSON: ${{ inputs.database_alerts_json }}
-          DATABASE_REMOTE_BACKUP_JSON: ${{ inputs.database_remote_backup_json }}
-          DATABASE_ACL_RULE_STRING: ${{ inputs.database_acl_rule_string }}
-          DATABASE_TAGS_JSON: ${{ inputs.database_tags_json }}
+          DATABASE_CONFIG_JSON: ${{ inputs.database_config_json }}
         run: |
-          jq -n \
+          printf '%s' "${DATABASE_CONFIG_JSON}" | jq \
             --arg subscription_name "${SUBSCRIPTION_NAME}" \
             --arg database_name "${DATABASE_NAME}" \
-            --arg redis_version "${DATABASE_REDIS_VERSION}" \
-            --arg persistence_mode "${DATABASE_PERSISTENCE_MODE}" \
-            --arg data_eviction "${DATABASE_DATA_EVICTION}" \
-            --arg acl_rule_string "${DATABASE_ACL_RULE_STRING}" \
-            --argjson dataset_size_in_gb "${DATABASE_DATASET_SIZE_IN_GB}" \
-            --argjson throughput_ops_per_second "${DATABASE_THROUGHPUT_OPS_PER_SECOND}" \
-            --argjson replication "${DATABASE_REPLICATION}" \
-            --argjson enable_tls "${DATABASE_ENABLE_TLS}" \
-            --argjson enable_default_user "${DATABASE_ENABLE_DEFAULT_USER}" \
-            --argjson source_ips "${DATABASE_SOURCE_IPS_JSON}" \
-            --argjson alerts "${DATABASE_ALERTS_JSON}" \
-            --argjson remote_backup "${DATABASE_REMOTE_BACKUP_JSON}" \
-            --argjson tags "${DATABASE_TAGS_JSON}" \
             '{
               subscription_name: $subscription_name,
               database_name: $database_name,
-              dataset_size_in_gb: $dataset_size_in_gb,
-              throughput_ops_per_second: $throughput_ops_per_second,
-              redis_version: $redis_version,
-              persistence_mode: $persistence_mode,
-              data_eviction: $data_eviction,
-              replication: $replication,
-              enable_tls: $enable_tls,
-              enable_default_user: $enable_default_user,
-              source_ips: $source_ips,
-              alerts: $alerts,
-              remote_backup: $remote_backup,
-              acl_rule_string: $acl_rule_string,
-              tags: $tags
+              dataset_size_in_gb: (.dataset_size_in_gb // 1),
+              throughput_ops_per_second: (.throughput_ops_per_second // 5000),
+              redis_version: (.redis_version // "8.2"),
+              persistence_mode: (.persistence_mode // "snapshot-every-6-hours"),
+              data_eviction: (.data_eviction // "allkeys-lru"),
+              replication: (.replication // true),
+              enable_tls: (.enable_tls // true),
+              enable_default_user: (.enable_default_user // false),
+              source_ips: (.source_ips // null),
+              alerts: (.alerts // []),
+              remote_backup: (.remote_backup // null),
+              acl_rule_string: (.acl_rule_string // "+@all -@dangerous +info ~*"),
+              tags: (.tags // {})
             }' > stacks/database/request.auto.tfvars.json
 
       - name: Prepare subscription backend
