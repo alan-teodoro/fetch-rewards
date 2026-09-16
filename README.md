@@ -74,7 +74,7 @@ Use one of the focused manual workflows:
 - **Redis Cloud Database** creates or updates a database in an existing subscription.
 - **Redis Cloud Destroy** destroys the managed database, and optionally the managed subscription.
 
-The workflows expose only the most common inputs. Less common settings stay as Terraform defaults in `stacks/subscription/variables.tf` and `stacks/database/variables.tf`. Generated tfvars are written at runtime and never committed. Sensitive values such as the generated ACL password remain Terraform-sensitive and are not written to the GitHub summary.
+The database workflow checks Redis Cloud first so misspelled subscription names fail before Terraform runs, and the summary shows whether the database already exists. The workflows expose only the most common inputs. Less common settings stay as Terraform defaults in `stacks/subscription/variables.tf` and `stacks/database/variables.tf`. Generated tfvars are written at runtime and never committed. Sensitive values such as the generated ACL password remain Terraform-sensitive and are not written to the GitHub summary.
 
 ## Future Agent Memory Resources
 

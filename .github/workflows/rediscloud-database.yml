@@ -68,6 +68,7 @@ concurrency:
 
 env:
   TF_IN_AUTOMATION: "true"
+  REDISCLOUD_API_BASE: https://api.redislabs.com/v1
   REDISCLOUD_ACCESS_KEY: ${{ secrets.REDISCLOUD_ACCESS_KEY }}
   REDISCLOUD_SECRET_KEY: ${{ secrets.REDISCLOUD_SECRET_KEY }}
   TF_STATE_BUCKET_NAME: ${{ secrets.TF_STATE_BUCKET }}
@@ -89,6 +90,26 @@ jobs:
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
+
+      - name: Look up Redis Cloud resources
+        id: lookup
+        run: |
+          python3 scripts/rediscloud_lookup.py \
+            --subscription-name "${{ inputs.subscription_name }}" \
+            --database-name "${{ inputs.database_name }}" \
+            --api-base "${REDISCLOUD_API_BASE}"
+
+      - name: Write discovery summary
+        run: |
+          {
+            echo "## Redis Cloud discovery"
+            echo
+            echo "- Subscription exists: \`${{ steps.lookup.outputs.subscription_exists }}\`"
+            echo "- Subscription ID: \`${{ steps.lookup.outputs.subscription_id }}\`"
+            echo "- Database exists: \`${{ steps.lookup.outputs.database_exists }}\`"
+            echo "- Database ID: \`${{ steps.lookup.outputs.database_id || 'n/a' }}\`"
+            echo "- Current database count in subscription: \`${{ steps.lookup.outputs.subscription_database_count }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Write database tfvars
         env:

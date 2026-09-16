@@ -138,6 +138,12 @@ Leave `source_ips_csv` empty unless public endpoint allowlisting is required. Th
 databases/<subscription_name>/<database_name>.tfstate
 ```
 
+Before running Terraform, the workflow queries the Redis Cloud API:
+
+- If the subscription name is wrong or does not exist, the workflow fails before Terraform runs.
+- If the database already exists, the summary shows that it is an update path.
+- If the database does not exist, Terraform creates it.
+
 ## 8. Destroy Managed Resources
 
 Run **Actions > Redis Cloud Destroy > Run workflow**.

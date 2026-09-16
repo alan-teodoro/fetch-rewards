@@ -7,6 +7,7 @@ tfplan
 *.tfplan
 crash.log
 outputs.json
+__pycache__/
 backend.generated.tf
 override.tf
 override.tf.json
