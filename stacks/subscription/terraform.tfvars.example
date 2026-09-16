@@ -1,0 +1,23 @@
+subscription_name          = "fetch-rewards-demo"
+dataset_size_in_gb         = 1
+throughput_ops_per_second  = 5000
+cloud_provider             = "AWS"
+region                     = "us-east-1"
+networking_deployment_cidr = "10.80.0.0/24"
+public_endpoint_access     = false
+memory_storage             = "ram"
+replication                = true
+
+# Optional multi-AZ settings.
+# multiple_availability_zones  = true
+# preferred_availability_zones = ["use1-az1", "use1-az2", "use1-az3"]
+
+# Optional maintenance window. Leave null to use Redis Cloud defaults.
+# maintenance_windows = {
+#   mode = "manual"
+#   window = {
+#     start_hour        = 22
+#     duration_in_hours = 8
+#     days              = ["Tuesday", "Friday"]
+#   }
+# }

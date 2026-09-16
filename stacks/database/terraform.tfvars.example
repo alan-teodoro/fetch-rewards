@@ -1,0 +1,34 @@
+subscription_name         = "fetch-rewards-demo"
+database_name             = "fetch-rewards-cache"
+dataset_size_in_gb        = 1
+redis_version             = "8.2"
+throughput_ops_per_second = 5000
+persistence_mode          = "snapshot-every-6-hours"
+data_eviction             = "allkeys-lru"
+replication               = true
+enable_tls                = true
+enable_default_user       = false
+
+# Optional network allowlist. Leave null to use the Redis Cloud default for the
+# subscription public endpoint setting.
+# source_ips = ["10.0.0.0/8", "172.16.0.0/12"]
+
+# Optional database alerts.
+# alerts = [
+#   {
+#     name  = "dataset-size"
+#     value = 80
+#   },
+#   {
+#     name  = "latency"
+#     value = 10
+#   }
+# ]
+
+# Optional remote backup configuration.
+# remote_backup = {
+#   interval     = "every-24-hours"
+#   time_utc     = "03:00"
+#   storage_type = "aws-s3"
+#   storage_path = "s3://customer-redis-backups/fetch-rewards-cache"
+# }

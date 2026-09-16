@@ -1,0 +1,26 @@
+# One-time backend bootstrap example for the customer repository.
+aws_region  = "us-east-1"
+bucket_name = "fetch-rewards-rediscloud-terraform-state"
+
+# Mode 1: attach backend access to pre-existing GitHub Actions roles.
+github_actions_role_arns = [
+  "arn:aws:iam::111122223333:role/GitHubActionsOIDCRedisCloudProd"
+]
+
+# Mode 2: create the GitHub Actions OIDC provider and role from this stack.
+# Use this when the target AWS account does not already have the standard
+# token.actions.githubusercontent.com OIDC provider and repository role.
+# create_github_oidc_provider = true
+# create_github_actions_roles = true
+# github_actions_role_arns    = []
+# github_repository_owner     = "customer-github-org"
+# github_repository_name      = "redis-cloud-automation"
+# github_allowed_branches     = ["main"]
+#
+# github_actions_role_names_by_environment = {
+#   prod = "GitHubActionsOIDCRedisCloudProd"
+# }
+
+# Optional:
+# kms_key_arn = "arn:aws:kms:us-east-1:111122223333:key/12345678-1234-1234-1234-123456789012"
+# allowed_state_prefixes = ["subscriptions/*", "databases/*", "agent-memory/*"]
