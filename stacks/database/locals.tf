@@ -12,7 +12,7 @@ locals {
 
   acl_user_password = coalesce(var.acl_user_password_override, local.generated_acl_user_password)
 
-  tags = {
+  tags = var.enable_resource_tags ? {
     for key, value in merge(
       {
         managed_by = "terraform"
@@ -21,5 +21,5 @@ locals {
       },
       var.tags
     ) : lower(key) => lower(tostring(value))
-  }
+  } : null
 }

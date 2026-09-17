@@ -10,6 +10,7 @@ replication                = true
 payment_method             = "credit-card"
 payment_card_type          = "Mastercard"
 payment_card_last_four     = "1006"
+enable_resource_tags       = false
 
 # Optional multi-AZ settings.
 # multiple_availability_zones  = true
@@ -18,6 +19,12 @@ payment_card_last_four     = "1006"
 # Optional direct payment method ID override. Use this when the card lookup is
 # not suitable for the Redis Cloud account.
 # payment_method_id = "replace-me"
+
+# Optional Redis Cloud resource tags. Keep disabled for internal cloud accounts.
+# enable_resource_tags = true
+# tags = {
+#   environment = "prod"
+# }
 
 # Optional maintenance window. Leave null to use Redis Cloud defaults.
 # maintenance_windows = {

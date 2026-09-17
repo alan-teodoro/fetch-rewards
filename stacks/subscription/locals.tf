@@ -15,7 +15,7 @@ locals {
   support_oss_cluster_api      = var.support_oss_cluster_api
   modules                      = var.modules
 
-  tags = {
+  tags = var.enable_resource_tags ? {
     for key, value in merge(
       {
         managed_by = "terraform"
@@ -24,5 +24,5 @@ locals {
       },
       var.tags
     ) : lower(key) => lower(tostring(value))
-  }
+  } : null
 }

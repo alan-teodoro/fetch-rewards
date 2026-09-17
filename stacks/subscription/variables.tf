@@ -158,7 +158,13 @@ variable "maintenance_windows" {
 }
 
 variable "tags" {
-  description = "Additional tags for supported resources."
+  description = "Additional tags for Redis Cloud resources when enable_resource_tags is true."
   type        = map(string)
   default     = {}
+}
+
+variable "enable_resource_tags" {
+  description = "Whether to send Redis Cloud resource tags. Keep false for internal Redis Cloud accounts."
+  type        = bool
+  default     = false
 }

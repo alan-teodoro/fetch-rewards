@@ -91,6 +91,8 @@ REDISCLOUD_PAYMENT_CARD_LAST_FOUR
 
 For credit-card billing, either set `REDISCLOUD_PAYMENT_METHOD_ID` to the Redis Cloud payment method ID, or set `REDISCLOUD_PAYMENT_CARD_TYPE` and `REDISCLOUD_PAYMENT_CARD_LAST_FOUR` so Terraform can look it up. Leave these unset only for direct contract or invoiced accounts when Redis Cloud does not require payment information.
 
+Redis Cloud resource tags are disabled by default because internal Redis Cloud cloud accounts do not allow them. Enable `enable_resource_tags` only for customer accounts where Redis Cloud supports resource tagging.
+
 ## 5. Validate the Repository
 
 Run the validation workflow, or run locally:

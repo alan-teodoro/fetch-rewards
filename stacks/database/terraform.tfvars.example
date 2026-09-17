@@ -8,6 +8,7 @@ data_eviction             = "allkeys-lru"
 replication               = true
 enable_tls                = true
 enable_default_user       = false
+enable_resource_tags      = false
 
 # Optional network allowlist. Leave null to use the Redis Cloud default for the
 # subscription public endpoint setting.
@@ -31,4 +32,10 @@ enable_default_user       = false
 #   time_utc     = "03:00"
 #   storage_type = "aws-s3"
 #   storage_path = "s3://customer-redis-backups/fetch-rewards-cache"
+# }
+
+# Optional Redis Cloud resource tags. Keep disabled for internal cloud accounts.
+# enable_resource_tags = true
+# tags = {
+#   environment = "prod"
 # }
