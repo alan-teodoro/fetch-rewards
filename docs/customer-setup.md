@@ -121,6 +121,8 @@ Common inputs:
 - `persistence_mode`
 - `data_eviction`
 
+Use lowercase, hyphen-separated names for `subscription_name` and `database_name`, for example `fetch-rewards-prod` and `session-cache`.
+
 The workflow stores state in both paths:
 
 ```text
@@ -144,6 +146,8 @@ Common inputs:
 - `persistence_mode`
 - `data_eviction`
 - `source_ips_csv`
+
+Use lowercase, hyphen-separated names for `subscription_name` and `database_name`, for example `fetch-rewards-prod` and `session-cache`.
 
 Leave `source_ips_csv` empty unless public endpoint allowlisting is required. The workflow stores only database state under:
 

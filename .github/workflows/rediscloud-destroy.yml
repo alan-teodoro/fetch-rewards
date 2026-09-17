@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       subscription_name:
-        description: Redis Cloud subscription name.
+        description: Redis Cloud subscription name, lowercase hyphen-separated.
         required: true
         type: string
       database_name:
-        description: Redis Cloud database name.
+        description: Redis Cloud database name, lowercase hyphen-separated.
         required: true
         type: string
       destroy_scope:
