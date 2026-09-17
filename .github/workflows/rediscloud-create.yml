@@ -109,6 +109,9 @@ jobs:
           validate_name "subscription_name" "${SUBSCRIPTION_NAME}"
           validate_name "database_name" "${DATABASE_NAME}"
 
+      - name: Validate Redis Cloud credentials
+        run: python3 scripts/rediscloud_auth_check.py
+
       - name: Configure AWS credentials for Terraform state
         uses: aws-actions/configure-aws-credentials@v4
         with:
