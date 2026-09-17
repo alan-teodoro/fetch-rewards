@@ -7,10 +7,17 @@ networking_deployment_cidr = "10.80.0.0/24"
 public_endpoint_access     = false
 memory_storage             = "ram"
 replication                = true
+payment_method             = "credit-card"
+payment_card_type          = "Mastercard"
+payment_card_last_four     = "1006"
 
 # Optional multi-AZ settings.
 # multiple_availability_zones  = true
 # preferred_availability_zones = ["use1-az1", "use1-az2", "use1-az3"]
+
+# Optional direct payment method ID override. Use this when the card lookup is
+# not suitable for the Redis Cloud account.
+# payment_method_id = "replace-me"
 
 # Optional maintenance window. Leave null to use Redis Cloud defaults.
 # maintenance_windows = {

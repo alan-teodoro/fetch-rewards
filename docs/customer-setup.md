@@ -78,16 +78,18 @@ Set it to the `managed_github_actions_role_arns.prod` output, or to an existing 
 
 The workflows assume a single GitHub Actions OIDC role, stored in `AWS_GITHUB_ACTIONS_ROLE_ARN`. GitHub environments are not required for OIDC.
 
-If the Redis Cloud account requires an explicit billing reference, set `payment_method` and `payment_method_id` in the subscription stack defaults or in a customer-specific tfvars file. Do not store full credit-card information in this repository.
+The subscription stack defaults to Redis Cloud credit-card billing and looks up the saved payment method by card type and last four digits, matching the current PS test account baseline. For a customer account, update the defaults in `stacks/subscription/variables.tf` or override them with repository variables.
 
 For the GitHub workflow path, use optional repository variables instead:
 
 ```text
 REDISCLOUD_PAYMENT_METHOD
 REDISCLOUD_PAYMENT_METHOD_ID
+REDISCLOUD_PAYMENT_CARD_TYPE
+REDISCLOUD_PAYMENT_CARD_LAST_FOUR
 ```
 
-For credit-card billing, set `REDISCLOUD_PAYMENT_METHOD` to `credit-card` and `REDISCLOUD_PAYMENT_METHOD_ID` to the Redis Cloud payment method ID. Leave both unset for direct contract or invoiced accounts when Redis Cloud does not require a payment method.
+For credit-card billing, either set `REDISCLOUD_PAYMENT_METHOD_ID` to the Redis Cloud payment method ID, or set `REDISCLOUD_PAYMENT_CARD_TYPE` and `REDISCLOUD_PAYMENT_CARD_LAST_FOUR` so Terraform can look it up. Leave these unset only for direct contract or invoiced accounts when Redis Cloud does not require payment information.
 
 ## 5. Validate the Repository
 

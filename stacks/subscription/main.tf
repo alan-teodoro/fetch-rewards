@@ -1,7 +1,14 @@
+data "rediscloud_payment_method" "card" {
+  count = local.can_lookup_payment_card ? 1 : 0
+
+  card_type         = var.payment_card_type
+  last_four_numbers = var.payment_card_last_four
+}
+
 resource "rediscloud_subscription" "this" {
   name                   = var.subscription_name
-  payment_method         = local.payment_method
-  payment_method_id      = local.payment_method_id
+  payment_method         = local.use_marketplace ? "marketplace" : null
+  payment_method_id      = local.resolved_payment_method_id
   public_endpoint_access = local.public_endpoint_access
   memory_storage         = local.memory_storage
 
@@ -42,6 +49,13 @@ resource "rediscloud_subscription" "this" {
           days              = window.value.days
         }
       }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = !local.use_credit_card || local.resolved_payment_method_id != null
+      error_message = "When payment_method is credit-card, provide payment_method_id or a valid payment_card_type and payment_card_last_four pair."
     }
   }
 }

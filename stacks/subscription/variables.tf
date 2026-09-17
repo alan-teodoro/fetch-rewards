@@ -77,9 +77,9 @@ variable "memory_storage" {
 }
 
 variable "payment_method" {
-  description = "Optional Redis Cloud payment method. Leave null for direct contract or invoiced billing."
+  description = "Optional Redis Cloud payment method. Use credit-card for standard account billing or marketplace for marketplace billing."
   type        = string
-  default     = null
+  default     = "credit-card"
 
   validation {
     condition     = var.payment_method == null || contains(["credit-card", "marketplace"], var.payment_method)
@@ -88,9 +88,26 @@ variable "payment_method" {
 }
 
 variable "payment_method_id" {
-  description = "Optional Redis Cloud payment method ID. Required by Redis Cloud when payment_method is credit-card."
+  description = "Optional Redis Cloud payment method ID. If omitted for credit-card billing, Terraform looks up the payment method by card type and last four digits."
   type        = string
   default     = null
+}
+
+variable "payment_card_type" {
+  description = "Credit card type used to look up the Redis Cloud payment method when payment_method_id is omitted."
+  type        = string
+  default     = "Mastercard"
+}
+
+variable "payment_card_last_four" {
+  description = "Last four digits used to look up the Redis Cloud payment method when payment_method_id is omitted."
+  type        = string
+  default     = "1006"
+
+  validation {
+    condition     = var.payment_card_last_four == null || can(regex("^\\d{4}$", var.payment_card_last_four))
+    error_message = "payment_card_last_four must contain exactly 4 digits."
+  }
 }
 
 variable "throughput_ops_per_second" {

@@ -128,14 +128,18 @@ jobs:
           SUBSCRIPTION_THROUGHPUT_OPS_PER_SECOND: ${{ inputs.subscription_throughput_ops_per_second }}
           SUBSCRIPTION_REGION: ${{ inputs.subscription_region }}
           SUBSCRIPTION_PUBLIC_ENDPOINT_ACCESS: ${{ inputs.subscription_public_endpoint_access }}
-          REDISCLOUD_PAYMENT_METHOD: ${{ vars.REDISCLOUD_PAYMENT_METHOD }}
+          REDISCLOUD_PAYMENT_METHOD: ${{ vars.REDISCLOUD_PAYMENT_METHOD || 'credit-card' }}
           REDISCLOUD_PAYMENT_METHOD_ID: ${{ vars.REDISCLOUD_PAYMENT_METHOD_ID }}
+          REDISCLOUD_PAYMENT_CARD_TYPE: ${{ vars.REDISCLOUD_PAYMENT_CARD_TYPE || 'Mastercard' }}
+          REDISCLOUD_PAYMENT_CARD_LAST_FOUR: ${{ vars.REDISCLOUD_PAYMENT_CARD_LAST_FOUR || '1006' }}
         run: |
           jq -n \
             --arg subscription_name "${SUBSCRIPTION_NAME}" \
             --arg region "${SUBSCRIPTION_REGION}" \
             --arg payment_method "${REDISCLOUD_PAYMENT_METHOD}" \
             --arg payment_method_id "${REDISCLOUD_PAYMENT_METHOD_ID}" \
+            --arg payment_card_type "${REDISCLOUD_PAYMENT_CARD_TYPE}" \
+            --arg payment_card_last_four "${REDISCLOUD_PAYMENT_CARD_LAST_FOUR}" \
             --argjson dataset_size_in_gb "${SUBSCRIPTION_DATASET_SIZE_IN_GB}" \
             --argjson throughput_ops_per_second "${SUBSCRIPTION_THROUGHPUT_OPS_PER_SECOND}" \
             --argjson public_endpoint_access "${SUBSCRIPTION_PUBLIC_ENDPOINT_ACCESS}" \
@@ -146,7 +150,9 @@ jobs:
               region: $region,
               public_endpoint_access: $public_endpoint_access,
               payment_method: (if $payment_method == "" then null else $payment_method end),
-              payment_method_id: (if $payment_method_id == "" then null else $payment_method_id end)
+              payment_method_id: (if $payment_method_id == "" then null else $payment_method_id end),
+              payment_card_type: (if $payment_card_type == "" then null else $payment_card_type end),
+              payment_card_last_four: (if $payment_card_last_four == "" then null else $payment_card_last_four end)
             }' > stacks/subscription/request.auto.tfvars.json
 
       - name: Write database tfvars
