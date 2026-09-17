@@ -9,8 +9,13 @@ output "bucket_arn" {
 }
 
 output "backend_access_policy_name" {
-  description = "Inline IAM policy name attached to the GitHub Actions roles."
+  description = "Managed IAM policy name attached to the GitHub Actions roles."
   value       = module.state_backend.backend_access_policy_name
+}
+
+output "backend_access_policy_arn" {
+  description = "Managed IAM policy ARN attached to the GitHub Actions roles."
+  value       = module.state_backend.backend_access_policy_arn
 }
 
 output "aws_region" {

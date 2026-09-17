@@ -226,10 +226,22 @@ data "aws_iam_policy_document" "backend_access" {
   }
 }
 
-resource "aws_iam_role_policy" "backend_access" {
+resource "aws_iam_policy" "backend_access" {
+  name        = "terraform-state-${substr(sha1(var.bucket_name), 0, 12)}"
+  description = "Terraform state access for ${var.bucket_name}."
+  policy      = data.aws_iam_policy_document.backend_access.json
+
+  tags = merge(
+    var.tags,
+    {
+      component = "terraform-state-access-policy"
+    }
+  )
+}
+
+resource "aws_iam_role_policy_attachment" "backend_access" {
   for_each = local.role_names
 
-  name   = "terraform-state-${substr(sha1(var.bucket_name), 0, 12)}"
-  role   = each.value
-  policy = data.aws_iam_policy_document.backend_access.json
+  role       = each.value
+  policy_arn = aws_iam_policy.backend_access.arn
 }
