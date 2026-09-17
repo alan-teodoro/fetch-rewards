@@ -41,6 +41,11 @@ on:
         required: true
         type: number
         default: 5000
+      database_redis_version:
+        description: Optional initial database Redis version. Leave blank for Redis Cloud default.
+        required: false
+        type: string
+        default: ""
       persistence_mode:
         description: Initial database persistence mode.
         required: true
@@ -161,12 +166,14 @@ jobs:
           DATABASE_NAME: ${{ inputs.database_name }}
           DATABASE_DATASET_SIZE_IN_GB: ${{ inputs.database_dataset_size_in_gb }}
           DATABASE_THROUGHPUT_OPS_PER_SECOND: ${{ inputs.database_throughput_ops_per_second }}
+          DATABASE_REDIS_VERSION: ${{ inputs.database_redis_version }}
           PERSISTENCE_MODE: ${{ inputs.persistence_mode }}
           DATA_EVICTION: ${{ inputs.data_eviction }}
         run: |
           jq -n \
             --arg subscription_name "${SUBSCRIPTION_NAME}" \
             --arg database_name "${DATABASE_NAME}" \
+            --arg redis_version "${DATABASE_REDIS_VERSION}" \
             --arg persistence_mode "${PERSISTENCE_MODE}" \
             --arg data_eviction "${DATA_EVICTION}" \
             --argjson dataset_size_in_gb "${DATABASE_DATASET_SIZE_IN_GB}" \
@@ -174,6 +181,7 @@ jobs:
             '{
               subscription_name: $subscription_name,
               database_name: $database_name,
+              redis_version: (if $redis_version == "" then null else $redis_version end),
               dataset_size_in_gb: $dataset_size_in_gb,
               throughput_ops_per_second: $throughput_ops_per_second,
               persistence_mode: $persistence_mode,
@@ -227,6 +235,7 @@ jobs:
           }
 
           echo "database_id=$(capture_output database_id)" >> "$GITHUB_OUTPUT"
+          echo "redis_version_actual=$(capture_output redis_version_actual)" >> "$GITHUB_OUTPUT"
           echo "private_endpoint=$(capture_output private_endpoint)" >> "$GITHUB_OUTPUT"
           echo "public_endpoint=$(capture_output public_endpoint)" >> "$GITHUB_OUTPUT"
           echo "acl_user_name=$(capture_output acl_user_name)" >> "$GITHUB_OUTPUT"
@@ -234,6 +243,7 @@ jobs:
       - name: Write summary
         env:
           DATABASE_ID: ${{ steps.database_outputs.outputs.database_id }}
+          REDIS_VERSION_ACTUAL: ${{ steps.database_outputs.outputs.redis_version_actual }}
           PRIVATE_ENDPOINT: ${{ steps.database_outputs.outputs.private_endpoint }}
           PUBLIC_ENDPOINT: ${{ steps.database_outputs.outputs.public_endpoint }}
           ACL_USER_NAME: ${{ steps.database_outputs.outputs.acl_user_name }}
@@ -244,6 +254,7 @@ jobs:
             echo "- Subscription: \`${{ inputs.subscription_name }}\`"
             echo "- Database: \`${{ inputs.database_name }}\`"
             echo "- Database ID: \`${DATABASE_ID}\`"
+            echo "- Redis version: \`${REDIS_VERSION_ACTUAL}\`"
             echo "- Private endpoint: \`${PRIVATE_ENDPOINT}\`"
             echo "- Public endpoint: \`${PUBLIC_ENDPOINT}\`"
             echo "- ACL user: \`${ACL_USER_NAME}\`"

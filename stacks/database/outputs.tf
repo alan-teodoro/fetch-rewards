@@ -18,6 +18,16 @@ output "database_id" {
   value       = rediscloud_subscription_database.this.db_id
 }
 
+output "redis_version_requested" {
+  description = "Requested Redis version for the database."
+  value       = rediscloud_subscription_database.this.redis_version
+}
+
+output "redis_version_actual" {
+  description = "Actual Redis version used by Redis Cloud."
+  value       = rediscloud_subscription_database.this.redis_version_actual
+}
+
 output "private_endpoint" {
   description = "Redis Cloud private endpoint."
   value       = rediscloud_subscription_database.this.private_endpoint

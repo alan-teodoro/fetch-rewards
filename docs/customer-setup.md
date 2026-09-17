@@ -122,6 +122,7 @@ Common inputs:
 - `subscription_public_endpoint_access`
 - `database_dataset_size_in_gb`
 - `database_throughput_ops_per_second`
+- `database_redis_version` (optional; leave blank for the Redis Cloud default)
 - `persistence_mode`
 - `data_eviction`
 
@@ -146,12 +147,14 @@ Common inputs:
 - `database_name`
 - `dataset_size_in_gb`
 - `throughput_ops_per_second`
-- `redis_version`
+- `redis_version` (optional; leave blank for the Redis Cloud default)
 - `persistence_mode`
 - `data_eviction`
 - `source_ips_csv`
 
 Use lowercase, hyphen-separated names for `subscription_name` and `database_name`, for example `fetch-rewards-prod` and `session-cache`.
+
+Leave `redis_version` blank to let Redis Cloud choose its current default for new databases. Set an explicit value such as `8.6` when you need to request a specific version or upgrade an existing managed database.
 
 Leave `source_ips_csv` empty unless public endpoint allowlisting is required. The workflow stores only database state under:
 

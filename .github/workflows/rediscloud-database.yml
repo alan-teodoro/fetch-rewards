@@ -22,10 +22,10 @@ on:
         type: number
         default: 5000
       redis_version:
-        description: Redis version requested for the database.
-        required: true
+        description: Optional Redis version requested for the database. Leave blank for Redis Cloud default.
+        required: false
         type: string
-        default: "8.2"
+        default: ""
       persistence_mode:
         description: Database persistence mode.
         required: true
@@ -165,7 +165,7 @@ jobs:
               database_name: $database_name,
               dataset_size_in_gb: $dataset_size_in_gb,
               throughput_ops_per_second: $throughput_ops_per_second,
-              redis_version: $redis_version,
+              redis_version: (if $redis_version == "" then null else $redis_version end),
               persistence_mode: $persistence_mode,
               data_eviction: $data_eviction,
               source_ips: $source_ips
@@ -199,6 +199,7 @@ jobs:
           }
 
           echo "database_id=$(capture_output database_id)" >> "$GITHUB_OUTPUT"
+          echo "redis_version_actual=$(capture_output redis_version_actual)" >> "$GITHUB_OUTPUT"
           echo "private_endpoint=$(capture_output private_endpoint)" >> "$GITHUB_OUTPUT"
           echo "public_endpoint=$(capture_output public_endpoint)" >> "$GITHUB_OUTPUT"
           echo "acl_user_name=$(capture_output acl_user_name)" >> "$GITHUB_OUTPUT"
@@ -206,6 +207,7 @@ jobs:
       - name: Write summary
         env:
           DATABASE_ID: ${{ steps.database_outputs.outputs.database_id }}
+          REDIS_VERSION_ACTUAL: ${{ steps.database_outputs.outputs.redis_version_actual }}
           PRIVATE_ENDPOINT: ${{ steps.database_outputs.outputs.private_endpoint }}
           PUBLIC_ENDPOINT: ${{ steps.database_outputs.outputs.public_endpoint }}
           ACL_USER_NAME: ${{ steps.database_outputs.outputs.acl_user_name }}
@@ -216,6 +218,7 @@ jobs:
             echo "- Subscription: \`${{ inputs.subscription_name }}\`"
             echo "- Database: \`${{ inputs.database_name }}\`"
             echo "- Database ID: \`${DATABASE_ID}\`"
+            echo "- Redis version: \`${REDIS_VERSION_ACTUAL}\`"
             echo "- Private endpoint: \`${PRIVATE_ENDPOINT}\`"
             echo "- Public endpoint: \`${PUBLIC_ENDPOINT}\`"
             echo "- ACL user: \`${ACL_USER_NAME}\`"

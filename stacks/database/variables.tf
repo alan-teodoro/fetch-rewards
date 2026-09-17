@@ -30,9 +30,9 @@ variable "dataset_size_in_gb" {
 }
 
 variable "redis_version" {
-  description = "Redis database version requested for this database."
+  description = "Optional Redis database version requested for this database. Leave null to use the Redis Cloud default."
   type        = string
-  default     = "8.2"
+  default     = null
 }
 
 variable "throughput_ops_per_second" {

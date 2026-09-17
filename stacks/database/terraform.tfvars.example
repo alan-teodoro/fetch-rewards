@@ -1,7 +1,6 @@
 subscription_name         = "fetch-rewards-demo"
 database_name             = "fetch-rewards-cache"
 dataset_size_in_gb        = 1
-redis_version             = "8.2"
 throughput_ops_per_second = 5000
 persistence_mode          = "snapshot-every-6-hours"
 data_eviction             = "allkeys-lru"
@@ -13,6 +12,10 @@ enable_resource_tags      = false
 # Optional network allowlist. Leave null to use the Redis Cloud default for the
 # subscription public endpoint setting.
 # source_ips = ["10.0.0.0/8", "172.16.0.0/12"]
+
+# Optional Redis version. Leave null to use the Redis Cloud default, or set a
+# value such as "8.6" when you need to request or upgrade to a specific version.
+# redis_version = "8.6"
 
 # Optional database alerts.
 # alerts = [
