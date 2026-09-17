@@ -107,7 +107,7 @@ def write_outputs(outputs: dict[str, Any]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Look up Redis Cloud subscription and database names.")
     parser.add_argument("--subscription-name", required=True)
-    parser.add_argument("--database-name", required=True)
+    parser.add_argument("--database-name")
     parser.add_argument("--api-base", default=API_BASE_DEFAULT)
     args = parser.parse_args()
 
@@ -148,6 +148,7 @@ def main() -> None:
                 "database_exists": "false",
                 "database_id": "",
                 "subscription_database_count": "0",
+                "subscription_database_names": "",
             }
         )
         sys.exit(1)
@@ -170,7 +171,7 @@ def main() -> None:
         sys.exit(1)
 
     databases = extract_databases(databases_payload)
-    database = next((item for item in databases if item["name"] == args.database_name), None)
+    database = next((item for item in databases if item["name"] == args.database_name), None) if args.database_name else None
 
     write_outputs(
         {
@@ -179,6 +180,7 @@ def main() -> None:
             "database_exists": str(database is not None).lower(),
             "database_id": database["id"] if database else "",
             "subscription_database_count": str(len(databases)),
+            "subscription_database_names": ",".join(sorted(item["name"] for item in databases)),
         }
     )
 

@@ -6,7 +6,8 @@ This repository delivers Redis Cloud automation through Terraform and manually t
 
 - `.github/workflows/rediscloud-create.yml`: manual subscription plus initial database creation workflow.
 - `.github/workflows/rediscloud-database.yml`: manual database create/update workflow for existing subscriptions.
-- `.github/workflows/rediscloud-destroy.yml`: manual destroy workflow for managed databases and optional managed subscriptions.
+- `.github/workflows/rediscloud-database-destroy.yml`: manual destroy workflow for managed databases.
+- `.github/workflows/rediscloud-subscription-destroy.yml`: manual destroy workflow for managed subscriptions.
 - `.github/workflows/terraform-validate.yml`: Terraform format and validation workflow.
 - `stacks/state-backend`: one-time AWS S3 state bucket and GitHub OIDC bootstrap.
 - `stacks/subscription`: Redis Cloud Pro subscription stack.

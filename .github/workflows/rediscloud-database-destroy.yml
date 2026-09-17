@@ -1,4 +1,4 @@
-name: Redis Cloud Destroy
+name: Redis Cloud Database Destroy
 
 on:
   workflow_dispatch:
@@ -11,16 +11,8 @@ on:
         description: Redis Cloud database name, lowercase hyphen-separated.
         required: true
         type: string
-      destroy_scope:
-        description: Destroy database only, or database and managed subscription.
-        required: true
-        type: choice
-        options:
-          - database-only
-          - database-and-subscription
-        default: database-only
       confirm_destroy:
-        description: Must be true to run destroy.
+        description: Must be true to destroy the database.
         required: true
         type: boolean
         default: false
@@ -30,7 +22,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: rediscloud-destroy-${{ inputs.subscription_name }}-${{ inputs.database_name }}
+  group: rediscloud-database-destroy-${{ inputs.subscription_name }}-${{ inputs.database_name }}
   cancel-in-progress: false
 
 env:
@@ -66,6 +58,15 @@ jobs:
           validate_name "subscription_name" "${SUBSCRIPTION_NAME}"
           validate_name "database_name" "${DATABASE_NAME}"
 
+      - name: Validate destroy confirmation
+        env:
+          CONFIRM_DESTROY: ${{ inputs.confirm_destroy }}
+        run: |
+          if [ "${CONFIRM_DESTROY}" != "true" ]; then
+            echo "confirm_destroy must be true to run this workflow."
+            exit 1
+          fi
+
       - name: Validate Redis Cloud credentials
         run: python3 scripts/rediscloud_auth_check.py
 
@@ -77,15 +78,6 @@ jobs:
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
-
-      - name: Validate destroy confirmation
-        env:
-          CONFIRM_DESTROY: ${{ inputs.confirm_destroy }}
-        run: |
-          if [ "${CONFIRM_DESTROY}" != "true" ]; then
-            echo "confirm_destroy must be true to run this workflow."
-            exit 1
-          fi
 
       - name: Write database tfvars
         env:
@@ -99,17 +91,6 @@ jobs:
               subscription_name: $subscription_name,
               database_name: $database_name
             }' > stacks/database/request.auto.tfvars.json
-
-      - name: Write subscription tfvars
-        if: inputs.destroy_scope == 'database-and-subscription'
-        env:
-          SUBSCRIPTION_NAME: ${{ inputs.subscription_name }}
-        run: |
-          jq -n \
-            --arg subscription_name "${SUBSCRIPTION_NAME}" \
-            '{
-              subscription_name: $subscription_name
-            }' > stacks/subscription/request.auto.tfvars.json
 
       - name: Prepare database backend
         working-directory: stacks/database
@@ -130,33 +111,11 @@ jobs:
         working-directory: stacks/database
         run: terraform destroy -input=false -auto-approve
 
-      - name: Prepare subscription backend
-        if: inputs.destroy_scope == 'database-and-subscription'
-        working-directory: stacks/subscription
-        run: |
-          printf '%s\n' \
-            'terraform {' \
-            '  backend "s3" {' \
-            '    use_lockfile = true' \
-            '  }' \
-            '}' > backend.generated.tf
-
-          terraform init -reconfigure \
-            -backend-config="bucket=${TF_STATE_BUCKET_NAME}" \
-            -backend-config="region=${TF_STATE_REGION_NAME}" \
-            -backend-config="key=subscriptions/${{ inputs.subscription_name }}.tfstate"
-
-      - name: Destroy subscription
-        if: inputs.destroy_scope == 'database-and-subscription'
-        working-directory: stacks/subscription
-        run: terraform destroy -input=false -auto-approve
-
       - name: Write summary
         run: |
           {
-            echo "## Redis Cloud destroy"
+            echo "## Redis Cloud database destroy"
             echo
             echo "- Subscription: \`${{ inputs.subscription_name }}\`"
             echo "- Database: \`${{ inputs.database_name }}\`"
-            echo "- Destroy scope: \`${{ inputs.destroy_scope }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

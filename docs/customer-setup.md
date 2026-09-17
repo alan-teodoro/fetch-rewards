@@ -154,6 +154,8 @@ Common inputs:
 
 Use lowercase, hyphen-separated names for `subscription_name` and `database_name`, for example `fetch-rewards-prod` and `session-cache`.
 
+This workflow is an apply operation. To update an existing managed database, run the same workflow again with the same `subscription_name` and `database_name`, and provide the desired final values for every exposed setting. Treat the inputs as desired state, not as a partial patch.
+
 Leave `redis_version` blank to let Redis Cloud choose its current default for new databases. Set an explicit value such as `8.6` when you need to request a specific version or upgrade an existing managed database.
 
 Leave `source_ips_csv` empty unless public endpoint allowlisting is required. The workflow stores only database state under:
@@ -168,27 +170,36 @@ Before running Terraform, the workflow queries the Redis Cloud API:
 - If the database already exists, the summary shows that it is an update path.
 - If the database does not exist, Terraform creates it.
 
-## 8. Destroy Managed Resources
+## 8. Destroy a Managed Database
 
-Run **Actions > Redis Cloud Destroy > Run workflow**.
+Run **Actions > Redis Cloud Database Destroy > Run workflow**.
 
-Destroy only the database and its ACL resources:
+Destroy the database and its ACL resources:
 
 ```text
-destroy_scope = database-only
+subscription_name = fetch-rewards-prod
+database_name = session-cache
 confirm_destroy = true
 ```
 
-Destroy a database and a subscription that were both managed by this repository:
+This workflow only requires the database name because database state is stored under:
 
 ```text
-destroy_scope = database-and-subscription
+databases/<subscription_name>/<database_name>.tfstate
+```
+
+## 9. Destroy a Managed Subscription
+
+Run **Actions > Redis Cloud Subscription Destroy > Run workflow**.
+
+```text
+subscription_name = fetch-rewards-prod
 confirm_destroy = true
 ```
 
-The workflow always destroys the database first. It destroys the subscription only when `destroy_scope = database-and-subscription`. Only choose that scope for subscriptions created through **Redis Cloud Create** and managed by this repository.
+This workflow does not require a database name. It checks Redis Cloud before running Terraform and fails if the subscription still has databases. Destroy managed databases first, then destroy the subscription. Only use this workflow for subscriptions created through **Redis Cloud Create** and managed by this repository.
 
-## 9. Future Agent Memory Support
+## 10. Future Agent Memory Support
 
 When Redis Cloud Agent Memory Terraform/API support is available:
 

@@ -15,7 +15,8 @@ The workflows are manually triggered by the customer from GitHub Actions. They s
 ```text
 .github/workflows/rediscloud-create.yml     # Create subscription and initial database
 .github/workflows/rediscloud-database.yml   # Create/update database in an existing subscription
-.github/workflows/rediscloud-destroy.yml    # Destroy managed database and optional subscription
+.github/workflows/rediscloud-database-destroy.yml      # Destroy a managed database
+.github/workflows/rediscloud-subscription-destroy.yml  # Destroy a managed subscription
 .github/workflows/terraform-validate.yml    # Terraform fmt/init/validate checks
 docs/customer-setup.md                      # Customer onboarding runbook
 modules/terraform_state_backend             # Reusable S3/OIDC backend module
@@ -72,9 +73,10 @@ Use one of the focused manual workflows:
 
 - **Redis Cloud Create** creates a new subscription and initial database.
 - **Redis Cloud Database** creates or updates a database in an existing subscription.
-- **Redis Cloud Destroy** destroys the managed database, and optionally the managed subscription.
+- **Redis Cloud Database Destroy** destroys a managed database.
+- **Redis Cloud Subscription Destroy** destroys a managed subscription after its databases are gone.
 
-The database workflow checks Redis Cloud first so misspelled subscription names fail before Terraform runs, and the summary shows whether the database already exists. The workflows expose only the most common inputs. Less common settings stay as Terraform defaults in `stacks/subscription/variables.tf` and `stacks/database/variables.tf`. Generated tfvars are written at runtime and never committed. Sensitive values such as the generated ACL password remain Terraform-sensitive and are not written to the GitHub summary.
+The database workflow checks Redis Cloud first so misspelled subscription names fail before Terraform runs, and the summary shows whether the database already exists. Re-running it with the same subscription and database names updates the managed database to match the provided inputs. The workflows expose only the most common inputs. Less common settings stay as Terraform defaults in `stacks/subscription/variables.tf` and `stacks/database/variables.tf`. Generated tfvars are written at runtime and never committed. Sensitive values such as the generated ACL password remain Terraform-sensitive and are not written to the GitHub summary.
 
 ## Future Agent Memory Resources
 
