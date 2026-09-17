@@ -62,8 +62,8 @@ terraform apply
 
 Use the outputs to configure the customer repository:
 
-- secret `TF_STATE_BUCKET`
-- secret `TF_STATE_REGION`
+- variable `TF_STATE_BUCKET`
+- variable `TF_STATE_REGION`
 - variable `AWS_GITHUB_ACTIONS_ROLE_ARN`
 
 ## Manual Workflows

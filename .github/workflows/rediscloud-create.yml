@@ -80,8 +80,8 @@ env:
   TF_IN_AUTOMATION: "true"
   REDISCLOUD_ACCESS_KEY: ${{ secrets.REDISCLOUD_ACCESS_KEY }}
   REDISCLOUD_SECRET_KEY: ${{ secrets.REDISCLOUD_SECRET_KEY }}
-  TF_STATE_BUCKET_NAME: ${{ secrets.TF_STATE_BUCKET }}
-  TF_STATE_REGION_NAME: ${{ secrets.TF_STATE_REGION }}
+  TF_STATE_BUCKET_NAME: ${{ vars.TF_STATE_BUCKET }}
+  TF_STATE_REGION_NAME: ${{ vars.TF_STATE_REGION }}
 
 jobs:
   create:
@@ -107,10 +107,14 @@ jobs:
           SUBSCRIPTION_THROUGHPUT_OPS_PER_SECOND: ${{ inputs.subscription_throughput_ops_per_second }}
           SUBSCRIPTION_REGION: ${{ inputs.subscription_region }}
           SUBSCRIPTION_PUBLIC_ENDPOINT_ACCESS: ${{ inputs.subscription_public_endpoint_access }}
+          REDISCLOUD_PAYMENT_METHOD: ${{ vars.REDISCLOUD_PAYMENT_METHOD }}
+          REDISCLOUD_PAYMENT_METHOD_ID: ${{ vars.REDISCLOUD_PAYMENT_METHOD_ID }}
         run: |
           jq -n \
             --arg subscription_name "${SUBSCRIPTION_NAME}" \
             --arg region "${SUBSCRIPTION_REGION}" \
+            --arg payment_method "${REDISCLOUD_PAYMENT_METHOD}" \
+            --arg payment_method_id "${REDISCLOUD_PAYMENT_METHOD_ID}" \
             --argjson dataset_size_in_gb "${SUBSCRIPTION_DATASET_SIZE_IN_GB}" \
             --argjson throughput_ops_per_second "${SUBSCRIPTION_THROUGHPUT_OPS_PER_SECOND}" \
             --argjson public_endpoint_access "${SUBSCRIPTION_PUBLIC_ENDPOINT_ACCESS}" \
@@ -119,7 +123,9 @@ jobs:
               dataset_size_in_gb: $dataset_size_in_gb,
               throughput_ops_per_second: $throughput_ops_per_second,
               region: $region,
-              public_endpoint_access: $public_endpoint_access
+              public_endpoint_access: $public_endpoint_access,
+              payment_method: (if $payment_method == "" then null else $payment_method end),
+              payment_method_id: (if $payment_method_id == "" then null else $payment_method_id end)
             }' > stacks/subscription/request.auto.tfvars.json
 
       - name: Write database tfvars

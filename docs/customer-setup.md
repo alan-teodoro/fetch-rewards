@@ -57,7 +57,7 @@ If the AWS account already has the standard GitHub OIDC provider, set `create_gi
 
 ## 4. Configure GitHub Repository Settings
 
-Add these GitHub repository secrets:
+Add these GitHub repository variables:
 
 ```text
 TF_STATE_BUCKET
@@ -75,6 +75,17 @@ AWS_GITHUB_ACTIONS_ROLE_ARN
 Set it to the `managed_github_actions_role_arns.prod` output, or to an existing OIDC role ARN if the customer manages roles separately.
 
 The workflows assume a single GitHub Actions OIDC role, stored in `AWS_GITHUB_ACTIONS_ROLE_ARN`. GitHub environments are not required for OIDC.
+
+If the Redis Cloud account requires an explicit billing reference, set `payment_method` and `payment_method_id` in the subscription stack defaults or in a customer-specific tfvars file. Do not store full credit-card information in this repository.
+
+For the GitHub workflow path, use optional repository variables instead:
+
+```text
+REDISCLOUD_PAYMENT_METHOD
+REDISCLOUD_PAYMENT_METHOD_ID
+```
+
+For credit-card billing, set `REDISCLOUD_PAYMENT_METHOD` to `credit-card` and `REDISCLOUD_PAYMENT_METHOD_ID` to the Redis Cloud payment method ID. Leave both unset for direct contract or invoiced accounts when Redis Cloud does not require a payment method.
 
 ## 5. Validate the Repository
 
