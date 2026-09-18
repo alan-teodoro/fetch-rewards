@@ -153,6 +153,8 @@ Before running Terraform, the workflow queries the Redis Cloud API:
 - If the database already exists, Terraform imports it into the selected state when needed, then applies the requested settings.
 - If the database does not exist, Terraform creates it.
 
+Before each apply, the workflow writes a Terraform plan summary to the GitHub Actions summary and then applies the saved plan file.
+
 ## 7. Destroy Managed Resources
 
 Run **Actions > Redis Cloud Destroy > Run workflow**.
@@ -177,7 +179,7 @@ confirm_destroy = true
 
 The workflow checks Redis Cloud before running Terraform. If `destroy_subscription` is true, it blocks when the subscription has more than one database or when the requested database is not the last database in that subscription. The subscription destroy path waits for approval on the `dev` environment.
 
-Database state is stored under `databases/<normalized_subscription_name>/<normalized_database_name>.tfstate`. Subscription state is stored under `subscriptions/<normalized_subscription_name>.tfstate`. Only use `destroy_subscription = true` for subscriptions managed by this repository.
+Before each destroy, the workflow writes a Terraform destroy plan summary to the GitHub Actions summary and then applies the saved destroy plan file. Database state is stored under `databases/<normalized_subscription_name>/<normalized_database_name>.tfstate`. Subscription state is stored under `subscriptions/<normalized_subscription_name>.tfstate`. Only use `destroy_subscription = true` for subscriptions managed by this repository.
 
 ## 8. Future Agent Memory Support
 

@@ -260,10 +260,44 @@ jobs:
             -backend-config="region=${TF_STATE_REGION_NAME}" \
             -backend-config="key=subscriptions/${{ needs.discover.outputs.subscription_name }}.tfstate"
 
+      - name: Plan subscription
+        if: needs.discover.outputs.subscription_exists == 'false'
+        working-directory: stacks/subscription
+        run: |
+          terraform plan -input=false -out=subscription.tfplan
+          terraform show -json subscription.tfplan > subscription.tfplan.json
+
+          {
+            echo "## Terraform plan: subscription"
+            echo
+            jq -r '
+              def action:
+                if (.change.actions | index("delete") and index("create")) then "replace"
+                else (.change.actions | join(","))
+                end;
+              [ .resource_changes[]? | select(.change.actions != ["no-op"]) | action ] as $actions |
+              "- Create: \($actions | map(select(. == "create")) | length)",
+              "- Update: \($actions | map(select(. == "update")) | length)",
+              "- Replace: \($actions | map(select(. == "replace")) | length)",
+              "- Delete: \($actions | map(select(. == "delete")) | length)"
+            ' subscription.tfplan.json
+            echo
+            echo "| Action | Resource |"
+            echo "| --- | --- |"
+            jq -r '
+              def action:
+                if (.change.actions | index("delete") and index("create")) then "replace"
+                else (.change.actions | join(","))
+                end;
+              [ .resource_changes[]? | select(.change.actions != ["no-op"]) | "| `\(action)` | `\(.address)` |" ] |
+              if length == 0 then "| `no-op` | No resource changes |" else .[] end
+            ' subscription.tfplan.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Apply subscription
         if: needs.discover.outputs.subscription_exists == 'false'
         working-directory: stacks/subscription
-        run: terraform apply -input=false -auto-approve
+        run: terraform apply -input=false -auto-approve subscription.tfplan
 
       - name: Write database tfvars
         env:
@@ -321,9 +355,42 @@ jobs:
               "${{ needs.discover.outputs.subscription_id }}/${{ needs.discover.outputs.database_id }}"
           fi
 
+      - name: Plan database
+        working-directory: stacks/database
+        run: |
+          terraform plan -input=false -out=database.tfplan
+          terraform show -json database.tfplan > database.tfplan.json
+
+          {
+            echo "## Terraform plan: database"
+            echo
+            jq -r '
+              def action:
+                if (.change.actions | index("delete") and index("create")) then "replace"
+                else (.change.actions | join(","))
+                end;
+              [ .resource_changes[]? | select(.change.actions != ["no-op"]) | action ] as $actions |
+              "- Create: \($actions | map(select(. == "create")) | length)",
+              "- Update: \($actions | map(select(. == "update")) | length)",
+              "- Replace: \($actions | map(select(. == "replace")) | length)",
+              "- Delete: \($actions | map(select(. == "delete")) | length)"
+            ' database.tfplan.json
+            echo
+            echo "| Action | Resource |"
+            echo "| --- | --- |"
+            jq -r '
+              def action:
+                if (.change.actions | index("delete") and index("create")) then "replace"
+                else (.change.actions | join(","))
+                end;
+              [ .resource_changes[]? | select(.change.actions != ["no-op"]) | "| `\(action)` | `\(.address)` |" ] |
+              if length == 0 then "| `no-op` | No resource changes |" else .[] end
+            ' database.tfplan.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Apply database
         working-directory: stacks/database
-        run: terraform apply -input=false -auto-approve
+        run: terraform apply -input=false -auto-approve database.tfplan
 
       - name: Capture database outputs
         id: database_outputs
