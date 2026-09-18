@@ -1,4 +1,4 @@
-name: Redis Cloud Database Create
+name: Redis Cloud Create
 
 on:
   workflow_dispatch:

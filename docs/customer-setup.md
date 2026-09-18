@@ -78,7 +78,7 @@ Set it to the `managed_github_actions_role_arns.prod` output, or to an existing 
 
 The workflows assume a single GitHub Actions OIDC role, stored in `AWS_GITHUB_ACTIONS_ROLE_ARN`. GitHub environments are not required for OIDC.
 
-Create a GitHub environment named `dev` and configure required reviewers for it. The **Redis Cloud Database Create** workflow uses this environment only when the requested subscription does not already exist. The **Redis Cloud Destroy** workflow uses the same environment only when `destroy_subscription` is true. Database-only updates and destroys continue without this checkpoint.
+Create a GitHub environment named `dev` and configure required reviewers for it. The **Redis Cloud Create** workflow uses this environment only when the requested subscription does not already exist. The **Redis Cloud Destroy** workflow uses the same environment only when `destroy_subscription` is true. Database-only updates and destroys continue without this checkpoint.
 
 The subscription stack defaults to Redis Cloud credit-card billing and looks up the saved payment method by card type and last four digits, matching the current PS test account baseline. For a customer account, update the defaults in `stacks/subscription/variables.tf` or override them with repository variables.
 
@@ -110,7 +110,7 @@ done
 
 ## 6. Provision or Update a Database
 
-Run **Actions > Redis Cloud Database Create > Run workflow**.
+Run **Actions > Redis Cloud Create > Run workflow**.
 
 Use this workflow for both common provisioning paths:
 
