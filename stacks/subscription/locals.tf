@@ -1,4 +1,13 @@
 locals {
+  subscription_name = trim(
+    replace(
+      replace(lower(trimspace(var.subscription_name)), "/[^a-z0-9]+/", "-"),
+      "/-+/",
+      "-"
+    ),
+    "-"
+  )
+
   cloud_provider               = var.cloud_provider
   region                       = var.region
   networking_deployment_cidr   = var.networking_deployment_cidr

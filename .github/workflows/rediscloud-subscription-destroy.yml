@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       subscription_name:
-        description: Redis Cloud subscription name, lowercase hyphen-separated.
+        description: Redis Cloud subscription name.
         required: true
         type: string
       confirm_destroy:
@@ -37,14 +37,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Validate workflow inputs
+      - name: Normalize resource name
+        id: names
         env:
-          SUBSCRIPTION_NAME: ${{ inputs.subscription_name }}
+          RAW_SUBSCRIPTION_NAME: ${{ inputs.subscription_name }}
         run: |
-          if [[ ! "${SUBSCRIPTION_NAME}" =~ ^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$ ]]; then
-            echo "::error title=Invalid subscription_name::subscription_name must be lowercase, hyphen-separated, and 3 to 63 characters long. Example: fetch-rewards-prod"
-            exit 1
-          fi
+          subscription_name="$(
+            python3 scripts/normalize_rediscloud_name.py \
+              --field subscription_name \
+              --value "${RAW_SUBSCRIPTION_NAME}"
+          )"
+
+          echo "subscription_name=${subscription_name}" >> "$GITHUB_OUTPUT"
 
       - name: Validate destroy confirmation
         env:
@@ -62,7 +66,7 @@ jobs:
         id: lookup
         run: |
           python3 scripts/rediscloud_lookup.py \
-            --subscription-name "${{ inputs.subscription_name }}" \
+            --subscription-name "${{ steps.names.outputs.subscription_name }}" \
             --api-base "${REDISCLOUD_API_BASE}"
 
       - name: Refuse destroy when databases exist
@@ -86,7 +90,7 @@ jobs:
 
       - name: Write subscription tfvars
         env:
-          SUBSCRIPTION_NAME: ${{ inputs.subscription_name }}
+          SUBSCRIPTION_NAME: ${{ steps.names.outputs.subscription_name }}
         run: |
           jq -n \
             --arg subscription_name "${SUBSCRIPTION_NAME}" \
@@ -108,7 +112,7 @@ jobs:
           terraform init -reconfigure \
             -backend-config="bucket=${TF_STATE_BUCKET_NAME}" \
             -backend-config="region=${TF_STATE_REGION_NAME}" \
-            -backend-config="key=subscriptions/${{ inputs.subscription_name }}.tfstate"
+            -backend-config="key=subscriptions/${{ steps.names.outputs.subscription_name }}.tfstate"
 
       - name: Destroy subscription
         working-directory: stacks/subscription
@@ -119,5 +123,6 @@ jobs:
           {
             echo "## Redis Cloud subscription destroy"
             echo
-            echo "- Subscription: \`${{ inputs.subscription_name }}\`"
+            echo "- Requested subscription: \`${{ inputs.subscription_name }}\`"
+            echo "- Normalized subscription: \`${{ steps.names.outputs.subscription_name }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -108,6 +108,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Look up Redis Cloud subscription and database names.")
     parser.add_argument("--subscription-name", required=True)
     parser.add_argument("--database-name")
+    parser.add_argument("--allow-missing-subscription", action="store_true")
     parser.add_argument("--api-base", default=API_BASE_DEFAULT)
     args = parser.parse_args()
 
@@ -137,10 +138,6 @@ def main() -> None:
     subscription = next((item for item in subscriptions if item["name"] == args.subscription_name), None)
 
     if not subscription:
-        known_names = ", ".join(sorted(item["name"] for item in subscriptions)) or "none returned by Redis Cloud"
-        print(f'Subscription "{args.subscription_name}" was not found.', file=sys.stderr)
-        print("Use Redis Cloud Create first or check the spelling.", file=sys.stderr)
-        print(f"Known subscriptions: {known_names}", file=sys.stderr)
         write_outputs(
             {
                 "subscription_exists": "false",
@@ -151,6 +148,15 @@ def main() -> None:
                 "subscription_database_names": "",
             }
         )
+
+        if args.allow_missing_subscription:
+            print(f'Subscription "{args.subscription_name}" was not found. The workflow will create it.')
+            sys.exit(0)
+
+        known_names = ", ".join(sorted(item["name"] for item in subscriptions)) or "none returned by Redis Cloud"
+        print(f'Subscription "{args.subscription_name}" was not found.', file=sys.stderr)
+        print("Check the spelling or use the database workflow to create the subscription first.", file=sys.stderr)
+        print(f"Known subscriptions: {known_names}", file=sys.stderr)
         sys.exit(1)
 
     try:

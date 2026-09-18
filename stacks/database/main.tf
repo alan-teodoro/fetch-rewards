@@ -1,6 +1,16 @@
 resource "terraform_data" "validation" {
   lifecycle {
     precondition {
+      condition     = can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", local.subscription_name))
+      error_message = "subscription_name must normalize to a lowercase, hyphen-separated name that is 3 to 63 characters long."
+    }
+
+    precondition {
+      condition     = can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", local.database_name))
+      error_message = "database_name must normalize to a lowercase, hyphen-separated name that is 3 to 63 characters long."
+    }
+
+    precondition {
       condition     = !var.external_endpoint_for_oss_cluster_api || var.support_oss_cluster_api
       error_message = "external_endpoint_for_oss_cluster_api requires support_oss_cluster_api to be true."
     }
@@ -8,7 +18,7 @@ resource "terraform_data" "validation" {
 }
 
 data "rediscloud_subscription" "target" {
-  name = var.subscription_name
+  name = local.subscription_name
 }
 
 # Use random_password for generated credentials so Terraform treats the result
@@ -33,7 +43,7 @@ resource "rediscloud_subscription_database" "this" {
   depends_on = [terraform_data.validation]
 
   subscription_id                       = data.rediscloud_subscription.target.id
-  name                                  = var.database_name
+  name                                  = local.database_name
   dataset_size_in_gb                    = var.dataset_size_in_gb
   redis_version                         = var.redis_version
   throughput_measurement_by             = local.throughput_measurement_by

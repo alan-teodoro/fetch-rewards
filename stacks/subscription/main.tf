@@ -5,8 +5,19 @@ data "rediscloud_payment_method" "card" {
   last_four_numbers = var.payment_card_last_four
 }
 
+resource "terraform_data" "validation" {
+  lifecycle {
+    precondition {
+      condition     = can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", local.subscription_name))
+      error_message = "subscription_name must normalize to a lowercase, hyphen-separated name that is 3 to 63 characters long."
+    }
+  }
+}
+
 resource "rediscloud_subscription" "this" {
-  name                   = var.subscription_name
+  depends_on = [terraform_data.validation]
+
+  name                   = local.subscription_name
   payment_method         = local.use_marketplace ? "marketplace" : null
   payment_method_id      = local.resolved_payment_method_id
   public_endpoint_access = local.public_endpoint_access

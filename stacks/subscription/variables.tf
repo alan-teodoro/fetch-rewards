@@ -1,11 +1,6 @@
 variable "subscription_name" {
-  description = "Redis Cloud subscription name."
+  description = "Redis Cloud subscription name. Terraform normalizes this to lowercase hyphen-separated format."
   type        = string
-
-  validation {
-    condition     = can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", var.subscription_name))
-    error_message = "subscription_name must be lowercase, hyphen-separated, and 3 to 63 characters long."
-  }
 }
 
 variable "dataset_size_in_gb" {

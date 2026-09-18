@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       subscription_name:
-        description: Redis Cloud subscription name, lowercase hyphen-separated.
+        description: Redis Cloud subscription name.
         required: true
         type: string
       database_name:
-        description: Redis Cloud database name, lowercase hyphen-separated.
+        description: Redis Cloud database name.
         required: true
         type: string
       confirm_destroy:
@@ -40,23 +40,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Validate workflow inputs
+      - name: Normalize resource names
+        id: names
         env:
-          SUBSCRIPTION_NAME: ${{ inputs.subscription_name }}
-          DATABASE_NAME: ${{ inputs.database_name }}
+          RAW_SUBSCRIPTION_NAME: ${{ inputs.subscription_name }}
+          RAW_DATABASE_NAME: ${{ inputs.database_name }}
         run: |
-          validate_name() {
-            local field="$1"
-            local value="$2"
+          subscription_name="$(
+            python3 scripts/normalize_rediscloud_name.py \
+              --field subscription_name \
+              --value "${RAW_SUBSCRIPTION_NAME}"
+          )"
 
-            if [[ ! "${value}" =~ ^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$ ]]; then
-              echo "::error title=Invalid ${field}::${field} must be lowercase, hyphen-separated, and 3 to 63 characters long. Example: fetch-rewards-prod"
-              exit 1
-            fi
-          }
+          database_name="$(
+            python3 scripts/normalize_rediscloud_name.py \
+              --field database_name \
+              --value "${RAW_DATABASE_NAME}"
+          )"
 
-          validate_name "subscription_name" "${SUBSCRIPTION_NAME}"
-          validate_name "database_name" "${DATABASE_NAME}"
+          echo "subscription_name=${subscription_name}" >> "$GITHUB_OUTPUT"
+          echo "database_name=${database_name}" >> "$GITHUB_OUTPUT"
 
       - name: Validate destroy confirmation
         env:
@@ -81,8 +84,8 @@ jobs:
 
       - name: Write database tfvars
         env:
-          SUBSCRIPTION_NAME: ${{ inputs.subscription_name }}
-          DATABASE_NAME: ${{ inputs.database_name }}
+          SUBSCRIPTION_NAME: ${{ steps.names.outputs.subscription_name }}
+          DATABASE_NAME: ${{ steps.names.outputs.database_name }}
         run: |
           jq -n \
             --arg subscription_name "${SUBSCRIPTION_NAME}" \
@@ -105,7 +108,7 @@ jobs:
           terraform init -reconfigure \
             -backend-config="bucket=${TF_STATE_BUCKET_NAME}" \
             -backend-config="region=${TF_STATE_REGION_NAME}" \
-            -backend-config="key=databases/${{ inputs.subscription_name }}/${{ inputs.database_name }}.tfstate"
+            -backend-config="key=databases/${{ steps.names.outputs.subscription_name }}/${{ steps.names.outputs.database_name }}.tfstate"
 
       - name: Destroy database
         working-directory: stacks/database
@@ -116,6 +119,8 @@ jobs:
           {
             echo "## Redis Cloud database destroy"
             echo
-            echo "- Subscription: \`${{ inputs.subscription_name }}\`"
-            echo "- Database: \`${{ inputs.database_name }}\`"
+            echo "- Requested subscription: \`${{ inputs.subscription_name }}\`"
+            echo "- Normalized subscription: \`${{ steps.names.outputs.subscription_name }}\`"
+            echo "- Requested database: \`${{ inputs.database_name }}\`"
+            echo "- Normalized database: \`${{ steps.names.outputs.database_name }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

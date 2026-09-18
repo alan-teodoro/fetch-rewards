@@ -4,8 +4,8 @@ This repository provides a customer-ready Terraform and GitHub Actions reference
 
 The workflows are manually triggered by the customer from GitHub Actions. They support:
 
-- creating a Redis Cloud subscription and initial database together;
-- creating or updating a database in an existing Redis Cloud subscription;
+- creating a Redis Cloud subscription and database together;
+- creating or updating a database, including creating the subscription first when it does not exist;
 - destroying only a managed database;
 - destroying a managed database and its managed subscription state;
 - bootstrapping the S3 remote state bucket and GitHub Actions OIDC access in AWS.
@@ -13,8 +13,7 @@ The workflows are manually triggered by the customer from GitHub Actions. They s
 ## Repository Layout
 
 ```text
-.github/workflows/rediscloud-create.yml     # Create subscription and initial database
-.github/workflows/rediscloud-database.yml   # Create/update database in an existing subscription
+.github/workflows/rediscloud-database.yml   # Create/update database; creates subscription first when missing
 .github/workflows/rediscloud-database-destroy.yml      # Destroy a managed database
 .github/workflows/rediscloud-subscription-destroy.yml  # Destroy a managed subscription
 .github/workflows/terraform-validate.yml    # Terraform fmt/init/validate checks
@@ -71,12 +70,11 @@ Use the outputs to configure the customer repository:
 
 Use one of the focused manual workflows:
 
-- **Redis Cloud Create** creates a new subscription and initial database.
-- **Redis Cloud Database** creates or updates a database in an existing subscription.
+- **Redis Cloud Database** creates or updates a database. If the subscription name is not found in Redis Cloud, the workflow creates the subscription first and then creates the database.
 - **Redis Cloud Database Destroy** destroys a managed database.
 - **Redis Cloud Subscription Destroy** destroys a managed subscription after its databases are gone.
 
-The database workflow checks Redis Cloud first so misspelled subscription names fail before Terraform runs, and the summary shows whether the database already exists. Re-running it with the same subscription and database names updates the managed database to match the provided inputs. The workflows expose only the most common inputs. Less common settings stay as Terraform defaults in `stacks/subscription/variables.tf` and `stacks/database/variables.tf`. Generated tfvars are written at runtime and never committed. Sensitive values such as the generated ACL password remain Terraform-sensitive and are not written to the GitHub summary.
+The database workflow checks Redis Cloud first and shows the requested names, normalized Terraform names, and whether the subscription or database already exists. New subscription creation pauses on the `rediscloud-subscription-create` GitHub environment when that environment has required reviewers configured. Re-running it with the same normalized subscription and database names updates the managed database to match the provided inputs. The workflows expose only the most common inputs. Less common settings stay as Terraform defaults in `stacks/subscription/variables.tf` and `stacks/database/variables.tf`. Generated tfvars are written at runtime and never committed. Sensitive values such as the generated ACL password remain Terraform-sensitive and are not written to the GitHub summary.
 
 ## Future Agent Memory Resources
 

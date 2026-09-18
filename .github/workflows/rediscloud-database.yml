@@ -4,33 +4,55 @@ on:
   workflow_dispatch:
     inputs:
       subscription_name:
-        description: Existing Redis Cloud subscription name, lowercase hyphen-separated.
+        description: Redis Cloud subscription name.
         required: true
         type: string
       database_name:
-        description: Redis Cloud database name, lowercase hyphen-separated.
+        description: Redis Cloud database name.
         required: true
         type: string
+      subscription_region:
+        description: Redis Cloud subscription region. Used only when the subscription does not exist.
+        required: true
+        type: choice
+        options:
+          - us-east-1
+          - us-east-2
+          - us-west-1
+          - us-west-2
+        default: us-east-1
+      subscription_multi_az:
+        description: Enable Multi-AZ for a newly created subscription.
+        required: true
+        type: boolean
+        default: true
       dataset_size_in_gb:
-        description: Database dataset size in GB.
+        description: Database size in GB.
         required: true
         type: number
         default: 1
-      throughput_ops_per_second:
-        description: Database throughput in ops/sec.
-        required: true
-        type: number
-        default: 1000
       high_availability:
         description: Enable high availability for the database.
         required: true
         type: boolean
         default: true
+      throughput_ops_per_second:
+        description: Database throughput in ops/sec.
+        required: true
+        type: number
+        default: 1000
       redis_version:
-        description: Optional Redis version requested for the database. Leave blank for Redis Cloud default.
-        required: false
-        type: string
-        default: ""
+        description: Redis version requested for the database.
+        required: true
+        type: choice
+        options:
+          - "6.2"
+          - "7.2"
+          - "7.4"
+          - "8.2"
+          - "8.4"
+          - "8.6"
+        default: "8.6"
       persistence_mode:
         description: Database persistence mode.
         required: true
@@ -43,6 +65,20 @@ on:
           - snapshot-every-6-hours
           - snapshot-every-12-hours
         default: aof-every-1-second
+      data_eviction:
+        description: Database eviction policy.
+        required: true
+        type: choice
+        options:
+          - allkeys-lru
+          - allkeys-lfu
+          - allkeys-random
+          - volatile-lru
+          - volatile-lfu
+          - volatile-random
+          - volatile-ttl
+          - noeviction
+        default: allkeys-lru
 
 permissions:
   contents: read
@@ -61,30 +97,102 @@ env:
   TF_STATE_REGION_NAME: ${{ vars.TF_STATE_REGION }}
 
 jobs:
-  database:
+  discover:
     runs-on: ubuntu-latest
+    outputs:
+      subscription_name: ${{ steps.names.outputs.subscription_name }}
+      database_name: ${{ steps.names.outputs.database_name }}
+      subscription_exists: ${{ steps.lookup.outputs.subscription_exists }}
+      subscription_id: ${{ steps.lookup.outputs.subscription_id }}
+      database_exists: ${{ steps.lookup.outputs.database_exists }}
+      database_id: ${{ steps.lookup.outputs.database_id }}
+      subscription_database_count: ${{ steps.lookup.outputs.subscription_database_count }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Validate workflow inputs
+      - name: Normalize resource names
+        id: names
         env:
-          SUBSCRIPTION_NAME: ${{ inputs.subscription_name }}
-          DATABASE_NAME: ${{ inputs.database_name }}
+          RAW_SUBSCRIPTION_NAME: ${{ inputs.subscription_name }}
+          RAW_DATABASE_NAME: ${{ inputs.database_name }}
         run: |
-          validate_name() {
-            local field="$1"
-            local value="$2"
+          subscription_name="$(
+            python3 scripts/normalize_rediscloud_name.py \
+              --field subscription_name \
+              --value "${RAW_SUBSCRIPTION_NAME}"
+          )"
 
-            if [[ ! "${value}" =~ ^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$ ]]; then
-              echo "::error title=Invalid ${field}::${field} must be lowercase, hyphen-separated, and 3 to 63 characters long. Example: fetch-rewards-prod"
-              exit 1
-            fi
-          }
+          database_name="$(
+            python3 scripts/normalize_rediscloud_name.py \
+              --field database_name \
+              --value "${RAW_DATABASE_NAME}"
+          )"
 
-          validate_name "subscription_name" "${SUBSCRIPTION_NAME}"
-          validate_name "database_name" "${DATABASE_NAME}"
+          echo "subscription_name=${subscription_name}" >> "$GITHUB_OUTPUT"
+          echo "database_name=${database_name}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Redis Cloud credentials
+        run: python3 scripts/rediscloud_auth_check.py
+
+      - name: Look up Redis Cloud resources
+        id: lookup
+        run: |
+          python3 scripts/rediscloud_lookup.py \
+            --subscription-name "${{ steps.names.outputs.subscription_name }}" \
+            --database-name "${{ steps.names.outputs.database_name }}" \
+            --allow-missing-subscription \
+            --api-base "${REDISCLOUD_API_BASE}"
+
+      - name: Write discovery summary
+        run: |
+          {
+            echo "## Redis Cloud discovery"
+            echo
+            echo "- Requested subscription: \`${{ inputs.subscription_name }}\`"
+            echo "- Normalized subscription: \`${{ steps.names.outputs.subscription_name }}\`"
+            echo "- Requested database: \`${{ inputs.database_name }}\`"
+            echo "- Normalized database: \`${{ steps.names.outputs.database_name }}\`"
+            echo "- Subscription exists: \`${{ steps.lookup.outputs.subscription_exists }}\`"
+            echo "- Subscription ID: \`${{ steps.lookup.outputs.subscription_id || 'n/a' }}\`"
+            echo "- Database exists: \`${{ steps.lookup.outputs.database_exists }}\`"
+            echo "- Database ID: \`${{ steps.lookup.outputs.database_id || 'n/a' }}\`"
+            echo "- Current database count in subscription: \`${{ steps.lookup.outputs.subscription_database_count }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  approve_subscription:
+    needs: discover
+    if: needs.discover.outputs.subscription_exists == 'false'
+    runs-on: ubuntu-latest
+    environment:
+      name: rediscloud-subscription-create
+
+    steps:
+      - name: Confirm new subscription request
+        run: |
+          {
+            echo "## New Redis Cloud subscription approval"
+            echo
+            echo "- Subscription: \`${{ needs.discover.outputs.subscription_name }}\`"
+            echo "- Region: \`${{ inputs.subscription_region }}\`"
+            echo "- Multi-AZ: \`${{ inputs.subscription_multi_az }}\`"
+            echo "- Database: \`${{ needs.discover.outputs.database_name }}\`"
+            echo "- Database size: \`${{ inputs.dataset_size_in_gb }} GB\`"
+            echo "- High availability: \`${{ inputs.high_availability }}\`"
+            echo "- Throughput: \`${{ inputs.throughput_ops_per_second }} ops/sec\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  apply:
+    needs:
+      - discover
+      - approve_subscription
+    if: always() && needs.discover.result == 'success' && (needs.discover.outputs.subscription_exists == 'true' || needs.approve_subscription.result == 'success')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Validate Redis Cloud credentials
         run: python3 scripts/rediscloud_auth_check.py
@@ -98,41 +206,82 @@ jobs:
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
 
-      - name: Look up Redis Cloud resources
-        id: lookup
+      - name: Write subscription tfvars
+        if: needs.discover.outputs.subscription_exists == 'false'
+        env:
+          SUBSCRIPTION_NAME: ${{ needs.discover.outputs.subscription_name }}
+          SUBSCRIPTION_REGION: ${{ inputs.subscription_region }}
+          SUBSCRIPTION_MULTI_AZ: ${{ inputs.subscription_multi_az }}
+          DATASET_SIZE_IN_GB: ${{ inputs.dataset_size_in_gb }}
+          HIGH_AVAILABILITY: ${{ inputs.high_availability }}
+          THROUGHPUT_OPS_PER_SECOND: ${{ inputs.throughput_ops_per_second }}
+          REDISCLOUD_PAYMENT_METHOD: ${{ vars.REDISCLOUD_PAYMENT_METHOD || 'credit-card' }}
+          REDISCLOUD_PAYMENT_METHOD_ID: ${{ vars.REDISCLOUD_PAYMENT_METHOD_ID }}
+          REDISCLOUD_PAYMENT_CARD_TYPE: ${{ vars.REDISCLOUD_PAYMENT_CARD_TYPE || 'Mastercard' }}
+          REDISCLOUD_PAYMENT_CARD_LAST_FOUR: ${{ vars.REDISCLOUD_PAYMENT_CARD_LAST_FOUR || '1006' }}
         run: |
-          python3 scripts/rediscloud_lookup.py \
-            --subscription-name "${{ inputs.subscription_name }}" \
-            --database-name "${{ inputs.database_name }}" \
-            --api-base "${REDISCLOUD_API_BASE}"
+          jq -n \
+            --arg subscription_name "${SUBSCRIPTION_NAME}" \
+            --arg region "${SUBSCRIPTION_REGION}" \
+            --arg payment_method "${REDISCLOUD_PAYMENT_METHOD}" \
+            --arg payment_method_id "${REDISCLOUD_PAYMENT_METHOD_ID}" \
+            --arg payment_card_type "${REDISCLOUD_PAYMENT_CARD_TYPE}" \
+            --arg payment_card_last_four "${REDISCLOUD_PAYMENT_CARD_LAST_FOUR}" \
+            --argjson dataset_size_in_gb "${DATASET_SIZE_IN_GB}" \
+            --argjson multiple_availability_zones "${SUBSCRIPTION_MULTI_AZ}" \
+            --argjson replication "${HIGH_AVAILABILITY}" \
+            --argjson throughput_ops_per_second "${THROUGHPUT_OPS_PER_SECOND}" \
+            '{
+              subscription_name: $subscription_name,
+              dataset_size_in_gb: $dataset_size_in_gb,
+              throughput_ops_per_second: $throughput_ops_per_second,
+              replication: $replication,
+              region: $region,
+              multiple_availability_zones: $multiple_availability_zones,
+              payment_method: (if $payment_method == "" then null else $payment_method end),
+              payment_method_id: (if $payment_method_id == "" then null else $payment_method_id end),
+              payment_card_type: (if $payment_card_type == "" then null else $payment_card_type end),
+              payment_card_last_four: (if $payment_card_last_four == "" then null else $payment_card_last_four end)
+            }' > stacks/subscription/request.auto.tfvars.json
 
-      - name: Write discovery summary
+      - name: Prepare subscription backend
+        if: needs.discover.outputs.subscription_exists == 'false'
+        working-directory: stacks/subscription
         run: |
-          {
-            echo "## Redis Cloud discovery"
-            echo
-            echo "- Subscription exists: \`${{ steps.lookup.outputs.subscription_exists }}\`"
-            echo "- Subscription ID: \`${{ steps.lookup.outputs.subscription_id }}\`"
-            echo "- Database exists: \`${{ steps.lookup.outputs.database_exists }}\`"
-            echo "- Database ID: \`${{ steps.lookup.outputs.database_id || 'n/a' }}\`"
-            echo "- Current database count in subscription: \`${{ steps.lookup.outputs.subscription_database_count }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' \
+            'terraform {' \
+            '  backend "s3" {' \
+            '    use_lockfile = true' \
+            '  }' \
+            '}' > backend.generated.tf
+
+          terraform init -reconfigure \
+            -backend-config="bucket=${TF_STATE_BUCKET_NAME}" \
+            -backend-config="region=${TF_STATE_REGION_NAME}" \
+            -backend-config="key=subscriptions/${{ needs.discover.outputs.subscription_name }}.tfstate"
+
+      - name: Apply subscription
+        if: needs.discover.outputs.subscription_exists == 'false'
+        working-directory: stacks/subscription
+        run: terraform apply -input=false -auto-approve
 
       - name: Write database tfvars
         env:
-          SUBSCRIPTION_NAME: ${{ inputs.subscription_name }}
-          DATABASE_NAME: ${{ inputs.database_name }}
+          SUBSCRIPTION_NAME: ${{ needs.discover.outputs.subscription_name }}
+          DATABASE_NAME: ${{ needs.discover.outputs.database_name }}
           DATASET_SIZE_IN_GB: ${{ inputs.dataset_size_in_gb }}
           HIGH_AVAILABILITY: ${{ inputs.high_availability }}
           THROUGHPUT_OPS_PER_SECOND: ${{ inputs.throughput_ops_per_second }}
           REDIS_VERSION: ${{ inputs.redis_version }}
           PERSISTENCE_MODE: ${{ inputs.persistence_mode }}
+          DATA_EVICTION: ${{ inputs.data_eviction }}
         run: |
           jq -n \
             --arg subscription_name "${SUBSCRIPTION_NAME}" \
             --arg database_name "${DATABASE_NAME}" \
             --arg redis_version "${REDIS_VERSION}" \
             --arg persistence_mode "${PERSISTENCE_MODE}" \
+            --arg data_eviction "${DATA_EVICTION}" \
             --argjson dataset_size_in_gb "${DATASET_SIZE_IN_GB}" \
             --argjson replication "${HIGH_AVAILABILITY}" \
             --argjson throughput_ops_per_second "${THROUGHPUT_OPS_PER_SECOND}" \
@@ -142,8 +291,9 @@ jobs:
               dataset_size_in_gb: $dataset_size_in_gb,
               replication: $replication,
               throughput_ops_per_second: $throughput_ops_per_second,
-              redis_version: (if $redis_version == "" then null else $redis_version end),
-              persistence_mode: $persistence_mode
+              redis_version: $redis_version,
+              persistence_mode: $persistence_mode,
+              data_eviction: $data_eviction
             }' > stacks/database/request.auto.tfvars.json
 
       - name: Prepare database backend
@@ -159,7 +309,17 @@ jobs:
           terraform init -reconfigure \
             -backend-config="bucket=${TF_STATE_BUCKET_NAME}" \
             -backend-config="region=${TF_STATE_REGION_NAME}" \
-            -backend-config="key=databases/${{ inputs.subscription_name }}/${{ inputs.database_name }}.tfstate"
+            -backend-config="key=databases/${{ needs.discover.outputs.subscription_name }}/${{ needs.discover.outputs.database_name }}.tfstate"
+
+      - name: Import existing database when needed
+        if: needs.discover.outputs.database_exists == 'true'
+        working-directory: stacks/database
+        run: |
+          if ! terraform state show rediscloud_subscription_database.this >/dev/null 2>&1; then
+            terraform import \
+              rediscloud_subscription_database.this \
+              "${{ needs.discover.outputs.subscription_id }}/${{ needs.discover.outputs.database_id }}"
+          fi
 
       - name: Apply database
         working-directory: stacks/database
@@ -190,8 +350,9 @@ jobs:
           {
             echo "## Redis Cloud database"
             echo
-            echo "- Subscription: \`${{ inputs.subscription_name }}\`"
-            echo "- Database: \`${{ inputs.database_name }}\`"
+            echo "- Subscription: \`${{ needs.discover.outputs.subscription_name }}\`"
+            echo "- Subscription created by this run: \`${{ needs.discover.outputs.subscription_exists == 'false' }}\`"
+            echo "- Database: \`${{ needs.discover.outputs.database_name }}\`"
             echo "- Database ID: \`${DATABASE_ID}\`"
             echo "- Redis version: \`${REDIS_VERSION_ACTUAL}\`"
             echo "- Private endpoint: \`${PRIVATE_ENDPOINT}\`"

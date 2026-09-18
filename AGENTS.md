@@ -4,8 +4,7 @@
 
 This repository delivers Redis Cloud automation through Terraform and manually triggered GitHub Actions.
 
-- `.github/workflows/rediscloud-create.yml`: manual subscription plus initial database creation workflow.
-- `.github/workflows/rediscloud-database.yml`: manual database create/update workflow for existing subscriptions.
+- `.github/workflows/rediscloud-database.yml`: manual database create/update workflow; creates the subscription first when missing.
 - `.github/workflows/rediscloud-database-destroy.yml`: manual destroy workflow for managed databases.
 - `.github/workflows/rediscloud-subscription-destroy.yml`: manual destroy workflow for managed subscriptions.
 - `.github/workflows/terraform-validate.yml`: Terraform format and validation workflow.
@@ -37,7 +36,7 @@ done
 
 ## Coding Style & Naming Conventions
 
-Use Terraform `>= 1.10`. Keep stack files flat: `main.tf`, `variables.tf`, `locals.tf`, `outputs.tf`, `providers.tf`, `versions.tf`, and `terraform.tfvars.example`. Use snake_case for Terraform identifiers and lowercase, hyphen-separated values for Redis Cloud names, for example `customer-prod` or `rewards-cache`.
+Use Terraform `>= 1.10`. Keep stack files flat: `main.tf`, `variables.tf`, `locals.tf`, `outputs.tf`, `providers.tf`, `versions.tf`, and `terraform.tfvars.example`. Use snake_case for Terraform identifiers. Workflow inputs normalize Redis Cloud names to lowercase, hyphen-separated values, for example `customer-prod` or `rewards-cache`.
 
 Keep customer-facing comments clear and operational. Avoid hardcoding secrets or customer-only values.
 

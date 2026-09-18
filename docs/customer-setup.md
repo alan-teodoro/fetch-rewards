@@ -78,6 +78,8 @@ Set it to the `managed_github_actions_role_arns.prod` output, or to an existing 
 
 The workflows assume a single GitHub Actions OIDC role, stored in `AWS_GITHUB_ACTIONS_ROLE_ARN`. GitHub environments are not required for OIDC.
 
+Create a GitHub environment named `rediscloud-subscription-create` and configure required reviewers for it. The **Redis Cloud Database** workflow uses this environment only when the requested subscription does not already exist, so creating a new subscription requires manual approval while updates to databases in existing subscriptions continue without this checkpoint.
+
 The subscription stack defaults to Redis Cloud credit-card billing and looks up the saved payment method by card type and last four digits, matching the current PS test account baseline. For a customer account, update the defaults in `stacks/subscription/variables.tf` or override them with repository variables.
 
 For the GitHub workflow path, use optional repository variables instead:
@@ -106,69 +108,52 @@ for stack in stacks/state-backend stacks/subscription stacks/database; do
 done
 ```
 
-## 6. Create a Subscription and Initial Database
+## 6. Provision or Update a Database
 
-Run **Actions > Redis Cloud Create > Run workflow**.
+Run **Actions > Redis Cloud Database > Run workflow**.
 
-Use this workflow when Terraform should manage both the subscription state and the initial database state.
+Use this workflow for both common provisioning paths:
+
+- If the normalized subscription name already exists in Redis Cloud, Terraform creates or updates only the database and ACL resources.
+- If the normalized subscription name does not exist, the workflow waits for approval on the `rediscloud-subscription-create` environment, then creates the subscription and database.
 
 Common inputs:
 
 - `subscription_name`
 - `database_name`
 - `subscription_region`
-- `database_dataset_size_in_gb`
-- `database_high_availability`
-- `database_throughput_ops_per_second`
-- `database_redis_version` (optional; leave blank for the Redis Cloud default)
-- `persistence_mode`
-
-Use lowercase, hyphen-separated names for `subscription_name` and `database_name`, for example `fetch-rewards-prod` and `session-cache`.
-
-Subscription sizing uses the initial database size, high availability, and throughput inputs. Multi-AZ is enabled by default, Redis Flex is disabled, Redis-provided cloud accounts and new VPC deployment are used, maintenance windows stay automatic, and resource tags are not exposed in the workflow.
-
-The workflow stores state in both paths:
-
-```text
-subscriptions/<subscription_name>.tfstate
-databases/<subscription_name>/<database_name>.tfstate
-```
-
-## 7. Add or Update a Database in an Existing Subscription
-
-Run **Actions > Redis Cloud Database > Run workflow**.
-
-Use this workflow when Redis Cloud already has the subscription and Terraform should manage only the database and ACL resources.
-
-Common inputs:
-
-- `subscription_name`
-- `database_name`
+- `subscription_multi_az`
 - `dataset_size_in_gb`
 - `high_availability`
 - `throughput_ops_per_second`
-- `redis_version` (optional; leave blank for the Redis Cloud default)
+- `redis_version`
 - `persistence_mode`
+- `data_eviction`
 
-Use lowercase, hyphen-separated names for `subscription_name` and `database_name`, for example `fetch-rewards-prod` and `session-cache`.
+The workflow accepts user-friendly names and normalizes them internally for Terraform state and Redis Cloud resources. For example, `Fetch Rewards Prod` becomes `fetch-rewards-prod`. The GitHub Actions summary shows both requested and normalized names.
 
-This workflow is an apply operation. To update an existing managed database, run the same workflow again with the same `subscription_name` and `database_name`, and provide the desired final values for every exposed setting. Treat the inputs as desired state, not as a partial patch.
+`subscription_region` is limited to the supported US AWS regions exposed by the workflow: `us-east-1`, `us-east-2`, `us-west-1`, and `us-west-2`. `subscription_multi_az` defaults to `true`. These subscription inputs are used only when the workflow creates a new subscription.
 
-Leave `redis_version` blank to let Redis Cloud choose its current default for new databases. Set an explicit value such as `8.6` when you need to request a specific version or upgrade an existing managed database.
+The database inputs are treated as desired state. To update an existing managed database, run the same workflow again with the same normalized `subscription_name` and `database_name`, and provide the desired final values for every exposed setting.
 
-The workflow stores only database state under:
+The Redis version dropdown matches the console options currently exposed by the workflow: `6.2`, `7.2`, `7.4`, `8.2`, `8.4`, and `8.6`. Data persistence options are `none`, `aof-every-1-second`, `aof-every-write`, `snapshot-every-1-hour`, `snapshot-every-6-hours`, and `snapshot-every-12-hours`. Data eviction options are `allkeys-lru`, `allkeys-lfu`, `allkeys-random`, `volatile-lru`, `volatile-lfu`, `volatile-random`, `volatile-ttl`, and `noeviction`.
+
+Redis Flex is disabled, Redis-provided cloud accounts and new VPC deployment are used, maintenance windows stay automatic, and resource tags are not exposed in the workflow.
+
+The workflow stores state under:
 
 ```text
-databases/<subscription_name>/<database_name>.tfstate
+subscriptions/<normalized_subscription_name>.tfstate
+databases/<normalized_subscription_name>/<normalized_database_name>.tfstate
 ```
 
 Before running Terraform, the workflow queries the Redis Cloud API:
 
-- If the subscription name is wrong or does not exist, the workflow fails before Terraform runs.
-- If the database already exists, the summary shows that it is an update path.
+- If the subscription does not exist, the workflow creates it.
+- If the database already exists, Terraform imports it into the selected state when needed, then applies the requested settings.
 - If the database does not exist, Terraform creates it.
 
-## 8. Destroy a Managed Database
+## 7. Destroy a Managed Database
 
 Run **Actions > Redis Cloud Database Destroy > Run workflow**.
 
@@ -183,10 +168,12 @@ confirm_destroy = true
 This workflow only requires the database name because database state is stored under:
 
 ```text
-databases/<subscription_name>/<database_name>.tfstate
+databases/<normalized_subscription_name>/<normalized_database_name>.tfstate
 ```
 
-## 9. Destroy a Managed Subscription
+The workflow normalizes the requested names the same way as the database provisioning workflow.
+
+## 8. Destroy a Managed Subscription
 
 Run **Actions > Redis Cloud Subscription Destroy > Run workflow**.
 
@@ -195,9 +182,9 @@ subscription_name = fetch-rewards-prod
 confirm_destroy = true
 ```
 
-This workflow does not require a database name. It checks Redis Cloud before running Terraform and fails if the subscription still has databases. Destroy managed databases first, then destroy the subscription. Only use this workflow for subscriptions created through **Redis Cloud Create** and managed by this repository.
+This workflow does not require a database name. It normalizes the subscription name, checks Redis Cloud before running Terraform, and fails if the subscription still has databases. Destroy managed databases first, then destroy the subscription. Only use this workflow for subscriptions managed by this repository.
 
-## 10. Future Agent Memory Support
+## 9. Future Agent Memory Support
 
 When Redis Cloud Agent Memory Terraform/API support is available:
 
