@@ -78,7 +78,7 @@ Set it to the `managed_github_actions_role_arns.prod` output, or to an existing 
 
 The workflows assume a single GitHub Actions OIDC role, stored in `AWS_GITHUB_ACTIONS_ROLE_ARN`. GitHub environments are not required for OIDC.
 
-Create a GitHub environment named `dev` and configure required reviewers for it. The **Redis Cloud Database** workflow uses this environment only when the requested subscription does not already exist, so creating a new subscription requires manual approval while updates to databases in existing subscriptions continue without this checkpoint.
+Create a GitHub environment named `dev` and configure required reviewers for it. The **Redis Cloud Database Create** workflow uses this environment only when the requested subscription does not already exist. The **Redis Cloud Destroy** workflow uses the same environment only when `destroy_subscription` is true. Database-only updates and destroys continue without this checkpoint.
 
 The subscription stack defaults to Redis Cloud credit-card billing and looks up the saved payment method by card type and last four digits, matching the current PS test account baseline. For a customer account, update the defaults in `stacks/subscription/variables.tf` or override them with repository variables.
 
@@ -110,7 +110,7 @@ done
 
 ## 6. Provision or Update a Database
 
-Run **Actions > Redis Cloud Database > Run workflow**.
+Run **Actions > Redis Cloud Database Create > Run workflow**.
 
 Use this workflow for both common provisioning paths:
 
@@ -153,38 +153,33 @@ Before running Terraform, the workflow queries the Redis Cloud API:
 - If the database already exists, Terraform imports it into the selected state when needed, then applies the requested settings.
 - If the database does not exist, Terraform creates it.
 
-## 7. Destroy a Managed Database
+## 7. Destroy Managed Resources
 
-Run **Actions > Redis Cloud Database Destroy > Run workflow**.
+Run **Actions > Redis Cloud Destroy > Run workflow**.
 
-Destroy the database and its ACL resources:
+Destroy only a database and its ACL resources:
 
 ```text
 subscription_name = fetch-rewards-prod
 database_name = session-cache
+destroy_subscription = false
 confirm_destroy = true
 ```
 
-This workflow only requires the database name because database state is stored under:
-
-```text
-databases/<normalized_subscription_name>/<normalized_database_name>.tfstate
-```
-
-The workflow normalizes the requested names the same way as the database provisioning workflow.
-
-## 8. Destroy a Managed Subscription
-
-Run **Actions > Redis Cloud Subscription Destroy > Run workflow**.
+Destroy a database and its managed subscription when that database is the last one:
 
 ```text
 subscription_name = fetch-rewards-prod
+database_name = session-cache
+destroy_subscription = true
 confirm_destroy = true
 ```
 
-This workflow does not require a database name. It normalizes the subscription name, checks Redis Cloud before running Terraform, and fails if the subscription still has databases. Destroy managed databases first, then destroy the subscription. Only use this workflow for subscriptions managed by this repository.
+The workflow checks Redis Cloud before running Terraform. If `destroy_subscription` is true, it blocks when the subscription has more than one database or when the requested database is not the last database in that subscription. The subscription destroy path waits for approval on the `dev` environment.
 
-## 9. Future Agent Memory Support
+Database state is stored under `databases/<normalized_subscription_name>/<normalized_database_name>.tfstate`. Subscription state is stored under `subscriptions/<normalized_subscription_name>.tfstate`. Only use `destroy_subscription = true` for subscriptions managed by this repository.
+
+## 8. Future Agent Memory Support
 
 When Redis Cloud Agent Memory Terraform/API support is available:
 
