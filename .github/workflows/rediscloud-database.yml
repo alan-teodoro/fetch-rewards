@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       subscription_region:
-        description: Redis Cloud subscription region. Used only when the subscription does not exist.
+        description: Redis Cloud subscription region.
         required: true
         type: choice
         options:
@@ -22,7 +22,7 @@ on:
           - us-west-2
         default: us-east-1
       subscription_multi_az:
-        description: Enable Multi-AZ for a newly created subscription.
+        description: Enable Multi-AZ.
         required: true
         type: boolean
         default: true
@@ -32,7 +32,7 @@ on:
         type: number
         default: 1
       high_availability:
-        description: Enable high availability for the database.
+        description: Enable high availability.
         required: true
         type: boolean
         default: true
