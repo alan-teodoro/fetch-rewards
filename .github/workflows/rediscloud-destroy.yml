@@ -18,7 +18,7 @@ on:
         type: boolean
         default: false
       confirm_destroy:
-        description: Must be true to destroy Redis Cloud resources.
+        description: Confirm destroy.
         required: true
         type: boolean
         default: false
@@ -97,7 +97,7 @@ jobs:
           DESTROY_SUBSCRIPTION: ${{ inputs.destroy_subscription }}
         run: |
           if [ "${CONFIRM_DESTROY}" != "true" ]; then
-            echo "::error title=Destroy confirmation required::confirm_destroy must be true to run this workflow."
+            echo "::error title=Destroy confirmation required::Set confirm_destroy to true before running this workflow."
             exit 1
           fi
 
