@@ -1,8 +1,8 @@
 subscription_name         = "fetch-rewards-demo"
 database_name             = "fetch-rewards-cache"
 dataset_size_in_gb        = 1
-throughput_ops_per_second = 5000
-persistence_mode          = "snapshot-every-6-hours"
+throughput_ops_per_second = 1000
+persistence_mode          = "aof-every-1-second"
 data_eviction             = "allkeys-lru"
 replication               = true
 enable_tls                = true

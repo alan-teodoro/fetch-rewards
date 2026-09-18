@@ -38,7 +38,7 @@ variable "redis_version" {
 variable "throughput_ops_per_second" {
   description = "Database throughput in operations per second."
   type        = number
-  default     = 5000
+  default     = 1000
 
   validation {
     condition     = var.throughput_ops_per_second > 0 && floor(var.throughput_ops_per_second) == var.throughput_ops_per_second
@@ -85,7 +85,7 @@ variable "external_endpoint_for_oss_cluster_api" {
 variable "persistence_mode" {
   description = "Database persistence mode."
   type        = string
-  default     = "snapshot-every-6-hours"
+  default     = "aof-every-1-second"
 
   validation {
     condition = contains([

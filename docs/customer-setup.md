@@ -91,7 +91,7 @@ REDISCLOUD_PAYMENT_CARD_LAST_FOUR
 
 For credit-card billing, either set `REDISCLOUD_PAYMENT_METHOD_ID` to the Redis Cloud payment method ID, or set `REDISCLOUD_PAYMENT_CARD_TYPE` and `REDISCLOUD_PAYMENT_CARD_LAST_FOUR` so Terraform can look it up. Leave these unset only for direct contract or invoiced accounts when Redis Cloud does not require payment information.
 
-Redis Cloud resource tags are disabled by default because internal Redis Cloud cloud accounts do not allow them. Enable `enable_resource_tags` only for customer accounts where Redis Cloud supports resource tagging.
+Redis Cloud resource tags are not exposed in the manual workflows. They remain disabled by default because internal Redis Cloud cloud accounts do not allow them. Enable `enable_resource_tags` only through Terraform defaults for customer accounts where Redis Cloud supports resource tagging.
 
 ## 5. Validate the Repository
 
@@ -116,17 +116,16 @@ Common inputs:
 
 - `subscription_name`
 - `database_name`
-- `subscription_dataset_size_in_gb`
-- `subscription_throughput_ops_per_second`
 - `subscription_region`
-- `subscription_public_endpoint_access`
 - `database_dataset_size_in_gb`
+- `database_high_availability`
 - `database_throughput_ops_per_second`
 - `database_redis_version` (optional; leave blank for the Redis Cloud default)
 - `persistence_mode`
-- `data_eviction`
 
 Use lowercase, hyphen-separated names for `subscription_name` and `database_name`, for example `fetch-rewards-prod` and `session-cache`.
+
+Subscription sizing uses the initial database size, high availability, and throughput inputs. Multi-AZ is enabled by default, Redis Flex is disabled, Redis-provided cloud accounts and new VPC deployment are used, maintenance windows stay automatic, and resource tags are not exposed in the workflow.
 
 The workflow stores state in both paths:
 
@@ -146,11 +145,10 @@ Common inputs:
 - `subscription_name`
 - `database_name`
 - `dataset_size_in_gb`
+- `high_availability`
 - `throughput_ops_per_second`
 - `redis_version` (optional; leave blank for the Redis Cloud default)
 - `persistence_mode`
-- `data_eviction`
-- `source_ips_csv`
 
 Use lowercase, hyphen-separated names for `subscription_name` and `database_name`, for example `fetch-rewards-prod` and `session-cache`.
 
@@ -158,7 +156,7 @@ This workflow is an apply operation. To update an existing managed database, run
 
 Leave `redis_version` blank to let Redis Cloud choose its current default for new databases. Set an explicit value such as `8.6` when you need to request a specific version or upgrade an existing managed database.
 
-Leave `source_ips_csv` empty unless public endpoint allowlisting is required. The workflow stores only database state under:
+The workflow stores only database state under:
 
 ```text
 databases/<subscription_name>/<database_name>.tfstate

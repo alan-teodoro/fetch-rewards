@@ -1,6 +1,6 @@
 subscription_name          = "fetch-rewards-demo"
 dataset_size_in_gb         = 1
-throughput_ops_per_second  = 5000
+throughput_ops_per_second  = 1000
 cloud_provider             = "AWS"
 region                     = "us-east-1"
 networking_deployment_cidr = "10.80.0.0/24"
@@ -11,6 +11,7 @@ payment_method             = "credit-card"
 payment_card_type          = "Mastercard"
 payment_card_last_four     = "1006"
 enable_resource_tags       = false
+multiple_availability_zones = true
 
 # Optional multi-AZ settings.
 # multiple_availability_zones  = true

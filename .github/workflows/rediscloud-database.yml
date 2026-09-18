@@ -20,7 +20,12 @@ on:
         description: Database throughput in ops/sec.
         required: true
         type: number
-        default: 5000
+        default: 1000
+      high_availability:
+        description: Enable high availability for the database.
+        required: true
+        type: boolean
+        default: true
       redis_version:
         description: Optional Redis version requested for the database. Leave blank for Redis Cloud default.
         required: false
@@ -37,26 +42,7 @@ on:
           - snapshot-every-1-hour
           - snapshot-every-6-hours
           - snapshot-every-12-hours
-        default: snapshot-every-6-hours
-      data_eviction:
-        description: Database eviction policy.
-        required: true
-        type: choice
-        options:
-          - allkeys-lru
-          - allkeys-lfu
-          - allkeys-random
-          - volatile-lru
-          - volatile-lfu
-          - volatile-random
-          - volatile-ttl
-          - noeviction
-        default: allkeys-lru
-      source_ips_csv:
-        description: Optional comma-separated source CIDRs for public endpoints.
-        required: false
-        type: string
-        default: ""
+        default: aof-every-1-second
 
 permissions:
   contents: read
@@ -137,38 +123,27 @@ jobs:
           SUBSCRIPTION_NAME: ${{ inputs.subscription_name }}
           DATABASE_NAME: ${{ inputs.database_name }}
           DATASET_SIZE_IN_GB: ${{ inputs.dataset_size_in_gb }}
+          HIGH_AVAILABILITY: ${{ inputs.high_availability }}
           THROUGHPUT_OPS_PER_SECOND: ${{ inputs.throughput_ops_per_second }}
           REDIS_VERSION: ${{ inputs.redis_version }}
           PERSISTENCE_MODE: ${{ inputs.persistence_mode }}
-          DATA_EVICTION: ${{ inputs.data_eviction }}
-          SOURCE_IPS_CSV: ${{ inputs.source_ips_csv }}
         run: |
-          source_ips_json="null"
-          if [ -n "${SOURCE_IPS_CSV}" ]; then
-            source_ips_json="$(
-              printf '%s' "${SOURCE_IPS_CSV}" |
-                jq -R 'split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))'
-            )"
-          fi
-
           jq -n \
             --arg subscription_name "${SUBSCRIPTION_NAME}" \
             --arg database_name "${DATABASE_NAME}" \
             --arg redis_version "${REDIS_VERSION}" \
             --arg persistence_mode "${PERSISTENCE_MODE}" \
-            --arg data_eviction "${DATA_EVICTION}" \
             --argjson dataset_size_in_gb "${DATASET_SIZE_IN_GB}" \
+            --argjson replication "${HIGH_AVAILABILITY}" \
             --argjson throughput_ops_per_second "${THROUGHPUT_OPS_PER_SECOND}" \
-            --argjson source_ips "${source_ips_json}" \
             '{
               subscription_name: $subscription_name,
               database_name: $database_name,
               dataset_size_in_gb: $dataset_size_in_gb,
+              replication: $replication,
               throughput_ops_per_second: $throughput_ops_per_second,
               redis_version: (if $redis_version == "" then null else $redis_version end),
-              persistence_mode: $persistence_mode,
-              data_eviction: $data_eviction,
-              source_ips: $source_ips
+              persistence_mode: $persistence_mode
             }' > stacks/database/request.auto.tfvars.json
 
       - name: Prepare database backend

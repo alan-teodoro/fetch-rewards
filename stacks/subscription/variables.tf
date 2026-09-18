@@ -50,7 +50,7 @@ variable "networking_deployment_cidr" {
 variable "multiple_availability_zones" {
   description = "Whether to deploy the subscription across multiple availability zones."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "preferred_availability_zones" {
@@ -113,7 +113,7 @@ variable "payment_card_last_four" {
 variable "throughput_ops_per_second" {
   description = "Throughput in operations per second used for the subscription creation plan envelope."
   type        = number
-  default     = 5000
+  default     = 1000
 
   validation {
     condition     = var.throughput_ops_per_second > 0 && floor(var.throughput_ops_per_second) == var.throughput_ops_per_second
