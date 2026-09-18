@@ -166,7 +166,7 @@ jobs:
     if: needs.discover.outputs.subscription_exists == 'false'
     runs-on: ubuntu-latest
     environment:
-      name: rediscloud-subscription-create
+      name: dev
 
     steps:
       - name: Confirm new subscription request

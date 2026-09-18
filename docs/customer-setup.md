@@ -78,7 +78,7 @@ Set it to the `managed_github_actions_role_arns.prod` output, or to an existing 
 
 The workflows assume a single GitHub Actions OIDC role, stored in `AWS_GITHUB_ACTIONS_ROLE_ARN`. GitHub environments are not required for OIDC.
 
-Create a GitHub environment named `rediscloud-subscription-create` and configure required reviewers for it. The **Redis Cloud Database** workflow uses this environment only when the requested subscription does not already exist, so creating a new subscription requires manual approval while updates to databases in existing subscriptions continue without this checkpoint.
+Create a GitHub environment named `dev` and configure required reviewers for it. The **Redis Cloud Database** workflow uses this environment only when the requested subscription does not already exist, so creating a new subscription requires manual approval while updates to databases in existing subscriptions continue without this checkpoint.
 
 The subscription stack defaults to Redis Cloud credit-card billing and looks up the saved payment method by card type and last four digits, matching the current PS test account baseline. For a customer account, update the defaults in `stacks/subscription/variables.tf` or override them with repository variables.
 
@@ -115,7 +115,7 @@ Run **Actions > Redis Cloud Database > Run workflow**.
 Use this workflow for both common provisioning paths:
 
 - If the normalized subscription name already exists in Redis Cloud, Terraform creates or updates only the database and ACL resources.
-- If the normalized subscription name does not exist, the workflow waits for approval on the `rediscloud-subscription-create` environment, then creates the subscription and database.
+- If the normalized subscription name does not exist, the workflow waits for approval on the `dev` environment, then creates the subscription and database.
 
 Common inputs:
 
