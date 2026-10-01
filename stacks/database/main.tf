@@ -1,7 +1,12 @@
 resource "terraform_data" "validation" {
   lifecycle {
     precondition {
-      condition     = can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", local.subscription_name))
+      condition     = !local.lookup_subscription || (local.subscription_name != null && can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", local.subscription_name)))
+      error_message = "subscription_name must normalize to a lowercase, hyphen-separated name that is 3 to 63 characters long when subscription_id is omitted."
+    }
+
+    precondition {
+      condition     = local.subscription_name == null || can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", local.subscription_name))
       error_message = "subscription_name must normalize to a lowercase, hyphen-separated name that is 3 to 63 characters long."
     }
 
@@ -18,6 +23,10 @@ resource "terraform_data" "validation" {
 }
 
 data "rediscloud_subscription" "target" {
+  count = local.lookup_subscription ? 1 : 0
+
+  depends_on = [terraform_data.validation]
+
   name = local.subscription_name
 }
 
@@ -42,7 +51,7 @@ resource "random_password" "acl_user" {
 resource "rediscloud_subscription_database" "this" {
   depends_on = [terraform_data.validation]
 
-  subscription_id                       = data.rediscloud_subscription.target.id
+  subscription_id                       = local.resolved_subscription_id
   name                                  = local.database_name
   dataset_size_in_gb                    = var.dataset_size_in_gb
   redis_version                         = var.redis_version
@@ -92,7 +101,7 @@ resource "rediscloud_acl_role" "this" {
     name = rediscloud_acl_rule.this.name
 
     database {
-      subscription = data.rediscloud_subscription.target.id
+      subscription = local.resolved_subscription_id
       database     = rediscloud_subscription_database.this.db_id
     }
   }

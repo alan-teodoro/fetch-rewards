@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "customer": "fetch-rewards",
+  "environment": "qa",
+  "subscription_key": "qa-agent-memory-smoke-us-east-1",
+  "subscription": {
+    "mode": "managed",
+    "name": "fetch-qa-am-smoke",
+    "cloud_provider": "AWS",
+    "region": "us-east-1",
+    "networking_deployment_cidr": "10.81.0.0/24",
+    "multiple_availability_zones": true,
+    "preferred_availability_zones": [],
+    "public_endpoint_access": true,
+    "memory_storage": "ram",
+    "payment_method": "marketplace",
+    "maintenance_windows": {
+      "mode": "automatic"
+    },
+    "creation_plan": {
+      "dataset_size_in_gb": 1,
+      "throughput_ops_per_second": 1000,
+      "replication": true,
+      "support_oss_cluster_api": false,
+      "modules": []
+    }
+  },
+  "databases": {
+    "shared_agent_memory": {
+      "mode": "managed",
+      "name": "agent-memory-db",
+      "agent_memory_compatible": true,
+      "dataset_size_in_gb": 1,
+      "redis_version": "8.6",
+      "throughput_ops_per_second": 1000,
+      "replication": true,
+      "enable_tls": true,
+      "enable_default_user": true,
+      "auto_minor_version_upgrade": true,
+      "support_oss_cluster_api": false,
+      "external_endpoint_for_oss_cluster_api": false,
+      "persistence_mode": "aof-every-1-second",
+      "data_eviction": "allkeys-lru",
+      "alerts": [
+        {
+          "name": "dataset-size",
+          "value": 80
+        },
+        {
+          "name": "throughput-higher-than",
+          "value": 80
+        }
+      ]
+    }
+  },
+  "agent_memory_stores": {
+    "shopping_agent": {
+      "mode": "managed",
+      "name": "shopping-agent-memory",
+      "database": "shared_agent_memory",
+      "short_term_ttl_seconds": 86400,
+      "long_term_ttl_seconds": 31536000,
+      "extraction_cadence_seconds": 300,
+      "summarization": {
+        "enabled": true,
+        "trigger_strategy": "event_count",
+        "event_count": {
+          "threshold": 20,
+          "retain_count": 10
+        }
+      },
+      "api_keys": {
+        "runtime": {
+          "mode": "managed",
+          "name": "shopping-agent-runtime",
+          "secret_ref": "aws-secrets-manager:/fetch-rewards/qa/shopping-agent-memory/runtime"
+        }
+      }
+    }
+  }
+}

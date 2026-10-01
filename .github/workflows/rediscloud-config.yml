@@ -1,0 +1,402 @@
+name: Redis Cloud Config Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_path:
+        description: Path to the subscription config JSON file.
+        required: true
+        type: string
+        default: configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json
+      operation:
+        description: Run Terraform plan only or plan and apply.
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+        default: plan
+      credentials_profile:
+        description: Redis Cloud credential pair to use.
+        required: true
+        type: choice
+        options:
+          - default
+          - qa
+        default: default
+      allow_agent_memory_destroy:
+        description: Allow Terraform plans that delete or replace Agent Memory services.
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: rediscloud-config-${{ inputs.config_path }}
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_STATE_BUCKET_NAME: ${{ vars.TF_STATE_BUCKET }}
+  TF_STATE_REGION_NAME: ${{ vars.TF_STATE_REGION }}
+  PROVIDER_DEV_OVERRIDE_DIR: ${{ vars.REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR }}
+  AGENT_MEMORY_LLM_API_KEY: ${{ secrets.AGENT_MEMORY_LLM_API_KEY }}
+  AGENT_MEMORY_EMBEDDING_API_KEY: ${{ secrets.AGENT_MEMORY_EMBEDDING_API_KEY }}
+
+jobs:
+  run:
+    runs-on: ${{ vars.REDISCLOUD_RUNNER || 'ubuntu-latest' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate config path
+        env:
+          CONFIG_PATH: ${{ inputs.config_path }}
+        run: |
+          case "${CONFIG_PATH}" in
+            configs/fetch-rewards/subscriptions/*.json) ;;
+            *)
+              echo "config_path must match configs/fetch-rewards/subscriptions/*.json" >&2
+              exit 1
+              ;;
+          esac
+
+          if [ ! -f "${CONFIG_PATH}" ]; then
+            echo "Config file does not exist: ${CONFIG_PATH}" >&2
+            exit 1
+          fi
+
+      - name: Select Redis Cloud credentials
+        env:
+          CREDENTIALS_PROFILE: ${{ inputs.credentials_profile }}
+          REDISCLOUD_ACCESS_KEY_DEFAULT: ${{ secrets.REDISCLOUD_ACCESS_KEY }}
+          REDISCLOUD_SECRET_KEY_DEFAULT: ${{ secrets.REDISCLOUD_SECRET_KEY }}
+          REDISCLOUD_URL_DEFAULT_SECRET: ${{ secrets.REDISCLOUD_URL }}
+          REDISCLOUD_URL_DEFAULT_VAR: ${{ vars.REDISCLOUD_URL }}
+          REDISCLOUD_ACCESS_KEY_QA: ${{ secrets.REDISCLOUD_ACCESS_KEY_QA }}
+          REDISCLOUD_SECRET_KEY_QA: ${{ secrets.REDISCLOUD_SECRET_KEY_QA }}
+          REDISCLOUD_URL_QA_SECRET: ${{ secrets.REDISCLOUD_URL_QA }}
+          REDISCLOUD_URL_QA_VAR: ${{ vars.REDISCLOUD_URL_QA }}
+        run: |
+          case "${CREDENTIALS_PROFILE}" in
+            default)
+              access_key="${REDISCLOUD_ACCESS_KEY_DEFAULT}"
+              secret_key="${REDISCLOUD_SECRET_KEY_DEFAULT}"
+              rediscloud_url="${REDISCLOUD_URL_DEFAULT_SECRET:-${REDISCLOUD_URL_DEFAULT_VAR:-}}"
+              ;;
+            qa)
+              access_key="${REDISCLOUD_ACCESS_KEY_QA}"
+              secret_key="${REDISCLOUD_SECRET_KEY_QA}"
+              rediscloud_url="${REDISCLOUD_URL_QA_SECRET:-${REDISCLOUD_URL_QA_VAR:-}}"
+              ;;
+            *)
+              echo "Unsupported credentials_profile: ${CREDENTIALS_PROFILE}" >&2
+              exit 1
+              ;;
+          esac
+
+          if [ -z "${access_key}" ] || [ -z "${secret_key}" ]; then
+            echo "Selected Redis Cloud credentials are not configured." >&2
+            exit 1
+          fi
+
+          {
+            echo "REDISCLOUD_ACCESS_KEY=${access_key}"
+            echo "REDISCLOUD_SECRET_KEY=${secret_key}"
+            if [ -n "${rediscloud_url}" ]; then
+              echo "REDISCLOUD_URL=${rediscloud_url}"
+            fi
+          } >> "$GITHUB_ENV"
+
+      - name: Validate Redis Cloud credentials
+        run: python3 scripts/rediscloud_auth_check.py
+
+      - name: Validate and render config
+        env:
+          CONFIG_PATH: ${{ inputs.config_path }}
+          RENDER_DIR: .generated/rediscloud/${{ github.run_id }}
+        run: |
+          mkdir -p "$(dirname "${RENDER_DIR}")"
+
+          python3 scripts/rediscloud_config.py validate --config "${CONFIG_PATH}"
+          python3 scripts/rediscloud_config.py render \
+            --config "${CONFIG_PATH}" \
+            --out-dir "${RENDER_DIR}" > "${RENDER_DIR}.summary.json"
+
+          {
+            echo "## Redis Cloud config"
+            echo
+            jq -r '
+              "- Customer: `\(.customer)`",
+              "- Environment: `\(.environment)`",
+              "- Subscription key: `\(.subscription_key)`",
+              "- Subscription: `\(.subscription.name)` (`\(.subscription.mode)`)",
+              "- Databases: `\(.databases | length)`",
+              "- Agent Memory stores: `\(.agent_memory_stores | length)`"
+            ' "${RENDER_DIR}/manifest.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Configure Terraform provider override
+        run: |
+          if [ -n "${PROVIDER_DEV_OVERRIDE_DIR}" ]; then
+            cat > "${RUNNER_TEMP}/terraformrc" <<EOF
+          provider_installation {
+            dev_overrides {
+              "RedisLabs/rediscloud" = "${PROVIDER_DEV_OVERRIDE_DIR}"
+            }
+
+            direct {}
+          }
+          EOF
+            echo "TF_CLI_CONFIG_FILE=${RUNNER_TEMP}/terraformrc" >> "$GITHUB_ENV"
+          fi
+
+      - name: Configure AWS credentials for Terraform state
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.TF_STATE_REGION_NAME }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Plan and apply rendered config
+        env:
+          OPERATION: ${{ inputs.operation }}
+          ALLOW_AGENT_MEMORY_DESTROY: ${{ inputs.allow_agent_memory_destroy }}
+          RENDER_DIR: .generated/rediscloud/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TF_STATE_BUCKET_NAME:-}" ] || [ -z "${TF_STATE_REGION_NAME:-}" ]; then
+            echo "TF_STATE_BUCKET and TF_STATE_REGION repository variables must be configured." >&2
+            exit 1
+          fi
+
+          manifest="${RENDER_DIR}/manifest.json"
+          subscription_mode="$(jq -r '.subscription.mode' "${manifest}")"
+          planned_stacks_file="${RUNNER_TEMP}/rediscloud-planned-stacks.tsv"
+          : > "${planned_stacks_file}"
+
+          {
+            echo "## Execution mode"
+            echo
+            if [ "${OPERATION}" = "apply" ]; then
+              echo "- Applying saved Terraform plans by dependency phase: subscription, databases, then Agent Memory."
+              echo "- Each phase is fully planned before any stack in that phase is applied."
+            else
+              echo "- Running plan only."
+              echo "- Downstream stacks that depend on managed resources not created yet are skipped."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          prepare_backend() {
+            local stack_dir="$1"
+            local state_key="$2"
+
+            cat > "${stack_dir}/backend.generated.tf" <<'EOF'
+          terraform {
+            backend "s3" {
+              use_lockfile = true
+            }
+          }
+          EOF
+
+            terraform -chdir="${stack_dir}" init -reconfigure \
+              -backend-config="bucket=${TF_STATE_BUCKET_NAME}" \
+              -backend-config="region=${TF_STATE_REGION_NAME}" \
+              -backend-config="key=${state_key}"
+          }
+
+          write_plan_summary() {
+            local title="$1"
+            local plan_json="$2"
+
+            {
+              echo "## Terraform plan: ${title}"
+              echo
+              jq -r '
+                def action:
+                  if (.change.actions | index("delete") and index("create")) then "replace"
+                  else (.change.actions | join(","))
+                  end;
+                [ .resource_changes[]? | select(.change.actions != ["no-op"]) | action ] as $actions |
+                "- Create: \($actions | map(select(. == "create")) | length)",
+                "- Update: \($actions | map(select(. == "update")) | length)",
+                "- Replace: \($actions | map(select(. == "replace")) | length)",
+                "- Delete: \($actions | map(select(. == "delete")) | length)"
+              ' "${plan_json}"
+              echo
+              echo "| Action | Resource |"
+              echo "| --- | --- |"
+              jq -r '
+                def action:
+                  if (.change.actions | index("delete") and index("create")) then "replace"
+                  else (.change.actions | join(","))
+                  end;
+                [ .resource_changes[]? | select(.change.actions != ["no-op"]) | "| `\(action)` | `\(.address)` |" ] |
+                if length == 0 then "| `no-op` | No resource changes |" else .[] end
+              ' "${plan_json}"
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          guard_agent_memory_plan() {
+            local plan_json="$1"
+
+            if [ "${ALLOW_AGENT_MEMORY_DESTROY}" = "true" ]; then
+              return 0
+            fi
+
+            local destructive_count
+            destructive_count="$(
+              jq '[.resource_changes[]? | select(.type == "rediscloud_agent_memory" and (.change.actions | index("delete"))) ] | length' "${plan_json}"
+            )"
+
+            if [ "${destructive_count}" != "0" ]; then
+              echo "Plan would delete or replace an Agent Memory service. Re-run with allow_agent_memory_destroy=true only after explicit approval." >&2
+              exit 1
+            fi
+          }
+
+          record_plan() {
+            local phase="$1"
+            local title="$2"
+            local stack_dir="$3"
+            local plan_name="$4"
+
+            printf '%s\t%s\t%s\t%s\n' "${phase}" "${title}" "${stack_dir}" "${plan_name}" >> "${planned_stacks_file}"
+          }
+
+          plan_stack() {
+            local phase="$1"
+            local title="$2"
+            local stack_dir="$3"
+            local state_key="$4"
+            local tfvars_path="$5"
+            local plan_name="$6"
+            local guard_agent_memory="$7"
+
+            prepare_backend "${stack_dir}" "${state_key}"
+
+            terraform -chdir="${stack_dir}" plan \
+              -input=false \
+              -var-file="${GITHUB_WORKSPACE}/${tfvars_path}" \
+              -out="${plan_name}"
+
+            terraform -chdir="${stack_dir}" show -json "${plan_name}" > "${stack_dir}/${plan_name}.json"
+
+            if [ "${guard_agent_memory}" = "true" ]; then
+              guard_agent_memory_plan "${stack_dir}/${plan_name}.json"
+            fi
+
+            write_plan_summary "${title}" "${stack_dir}/${plan_name}.json"
+            record_plan "${phase}" "${title}" "${stack_dir}" "${plan_name}"
+          }
+
+          apply_phase() {
+            local phase="$1"
+            local applied="false"
+
+            if [ "${OPERATION}" != "apply" ]; then
+              return 0
+            fi
+
+            while IFS=$'\t' read -r record_phase title stack_dir plan_name; do
+              if [ "${record_phase}" != "${phase}" ]; then
+                continue
+              fi
+
+              applied="true"
+              echo "Applying ${title}"
+              terraform -chdir="${stack_dir}" apply -input=false -auto-approve "${plan_name}"
+
+              {
+                echo "## Terraform apply: ${title}"
+                echo
+                echo "Applied saved plan \`${plan_name}\`."
+              } >> "$GITHUB_STEP_SUMMARY"
+            done < "${planned_stacks_file}"
+
+            if [ "${applied}" = "false" ]; then
+              echo "No ${phase} plans to apply."
+            fi
+          }
+
+          if [ "${subscription_mode}" = "managed" ]; then
+            plan_stack \
+              "subscription" \
+              "subscription $(jq -r '.subscription.name' "${manifest}")" \
+              "stacks/subscription" \
+              "$(jq -r '.subscription.state_key' "${manifest}")" \
+              "$(jq -r '.subscription.tfvars_path' "${manifest}")" \
+              "subscription.tfplan" \
+              "false"
+          fi
+          apply_phase "subscription"
+
+          while read -r database; do
+            if [ "${OPERATION}" = "plan" ] && [ "${subscription_mode}" = "managed" ]; then
+              {
+                echo "## Terraform plan: database $(jq -r '.name' <<<"${database}")"
+                echo
+                echo "Skipped in plan-only mode because it depends on managed subscription \`$(jq -r '.subscription.name' "${manifest}")\`."
+                echo "Run apply after reviewing the subscription plan, or mark the subscription as external after it exists."
+              } >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+
+            plan_stack \
+              "database" \
+              "database $(jq -r '.name' <<<"${database}")" \
+              "stacks/database" \
+              "$(jq -r '.state_key' <<<"${database}")" \
+              "$(jq -r '.tfvars_path' <<<"${database}")" \
+              "database-$(jq -r '.key' <<<"${database}").tfplan" \
+              "false"
+          done < <(jq -c '.databases[] | select(.mode == "managed")' "${manifest}")
+          apply_phase "database"
+
+          while read -r store; do
+            database_key="$(jq -r '.database_key // ""' <<<"${store}")"
+            database_mode=""
+            if [ -n "${database_key}" ]; then
+              database_mode="$(jq -r --arg key "${database_key}" '.databases[] | select(.key == $key) | .mode' "${manifest}")"
+            fi
+
+            if [ "${OPERATION}" = "plan" ] && [ "${database_mode}" = "managed" ]; then
+              {
+                echo "## Terraform plan: agent-memory $(jq -r '.name' <<<"${store}")"
+                echo
+                echo "Skipped in plan-only mode because it depends on managed database \`${database_key}\`."
+                echo "Run apply after reviewing the subscription/database plans, or mark the database as external after it exists."
+              } >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+
+            plan_stack \
+              "agent-memory" \
+              "agent-memory $(jq -r '.name' <<<"${store}")" \
+              "stacks/agent-memory" \
+              "$(jq -r '.state_key' <<<"${store}")" \
+              "$(jq -r '.tfvars_path' <<<"${store}")" \
+              "agent-memory-$(jq -r '.key' <<<"${store}").tfplan" \
+              "true"
+          done < <(jq -c '.agent_memory_stores[] | select(.mode == "managed")' "${manifest}")
+          apply_phase "agent-memory"
+
+      - name: Write output summary
+        env:
+          RENDER_DIR: .generated/rediscloud/${{ github.run_id }}
+        run: |
+          {
+            echo "## Runtime notes"
+            echo
+            echo "- Agent Memory API key values are Terraform-sensitive and are not printed."
+            echo "- Secret refs are recorded in the rendered manifest for the secret publishing step."
+            echo "- Rendered manifest: \`${RENDER_DIR}/manifest.json\`"
+          } >> "$GITHUB_STEP_SUMMARY"

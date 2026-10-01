@@ -1,4 +1,6 @@
 .terraform/
+.generated/
+.env
 terraform.tfvars
 *.auto.tfvars.json
 *.tfstate

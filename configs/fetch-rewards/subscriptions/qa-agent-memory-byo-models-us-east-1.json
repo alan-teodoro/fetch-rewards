@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "customer": "fetch-rewards",
+  "environment": "qa",
+  "subscription_key": "qa-agent-memory-byo-models-us-east-1",
+  "subscription": {
+    "mode": "external",
+    "name": "fetch-qa-existing-agent-memory"
+  },
+  "agent_memory_stores": {
+    "shopping_agent": {
+      "mode": "managed",
+      "name": "shopping-agent-memory-byo-models",
+      "database_id": 51785579,
+      "short_term_ttl_seconds": 86400,
+      "long_term_ttl_seconds": 31536000,
+      "llm": {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "credentials": {
+          "type": "apiKey",
+          "api_key_env_var": "AGENT_MEMORY_LLM_API_KEY"
+        }
+      },
+      "embedding": {
+        "provider": "openai",
+        "model": "text-embedding-3-small",
+        "credentials": {
+          "type": "apiKey",
+          "api_key_env_var": "AGENT_MEMORY_EMBEDDING_API_KEY"
+        }
+      },
+      "extraction_cadence_seconds": 300,
+      "summarization": {
+        "enabled": true,
+        "trigger_strategy": "event_count",
+        "event_count": {
+          "threshold": 20,
+          "retain_count": 10
+        }
+      },
+      "api_keys": {
+        "runtime": {
+          "mode": "managed",
+          "name": "shopping-agent-runtime",
+          "secret_ref": "aws-secrets-manager:/fetch-rewards/qa/shopping-agent-memory-byo-models/runtime"
+        }
+      }
+    }
+  }
+}

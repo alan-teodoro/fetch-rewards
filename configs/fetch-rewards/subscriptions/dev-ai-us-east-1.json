@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "customer": "fetch-rewards",
+  "environment": "dev",
+  "subscription_key": "dev-ai-us-east-1",
+  "subscription": {
+    "mode": "managed",
+    "name": "fetch-dev-ai",
+    "region": "us-east-1",
+    "multiple_availability_zones": true,
+    "public_endpoint_access": true,
+    "creation_plan": {
+      "dataset_size_in_gb": 1,
+      "throughput_ops_per_second": 1000,
+      "replication": true
+    }
+  },
+  "databases": {
+    "shared_agent_memory": {
+      "mode": "managed",
+      "name": "agent-memory-db",
+      "agent_memory_compatible": true,
+      "dataset_size_in_gb": 1,
+      "throughput_ops_per_second": 1000,
+      "redis_version": "8.6",
+      "replication": true,
+      "enable_tls": true,
+      "persistence_mode": "aof-every-1-second",
+      "data_eviction": "allkeys-lru"
+    }
+  },
+  "agent_memory_stores": {
+    "shopping_agent": {
+      "mode": "managed",
+      "name": "shopping-agent-memory",
+      "database": "shared_agent_memory",
+      "short_term_ttl_seconds": 86400,
+      "long_term_ttl_seconds": 31536000,
+      "extraction_cadence_seconds": 300,
+      "summarization": {
+        "enabled": true,
+        "trigger_strategy": "event_count",
+        "event_count": {
+          "threshold": 20,
+          "retain_count": 10
+        }
+      },
+      "long_term_memory_exclusions": {
+        "enabled": true,
+        "semantic": {
+          "enabled": true,
+          "prompt": "Do not remember passwords, access tokens, recovery codes, payment credentials, or authentication secrets."
+        },
+        "built_in_detectors": {
+          "enabled": true,
+          "detectors": [
+            {
+              "id": "email",
+              "enabled": true,
+              "action": "redact"
+            },
+            {
+              "id": "credit-card",
+              "enabled": true,
+              "action": "drop"
+            }
+          ]
+        }
+      },
+      "api_keys": {
+        "runtime": {
+          "mode": "managed",
+          "name": "shopping-agent-runtime",
+          "secret_ref": "aws-secrets-manager:/fetch-rewards/dev/shopping-agent-memory/runtime"
+        }
+      }
+    },
+    "support_agent": {
+      "mode": "managed",
+      "name": "support-agent-memory",
+      "database": "shared_agent_memory",
+      "short_term_ttl_seconds": 86400,
+      "long_term_ttl_seconds": 31536000,
+      "api_keys": {
+        "runtime": {
+          "mode": "managed",
+          "name": "support-agent-runtime",
+          "secret_ref": "aws-secrets-manager:/fetch-rewards/dev/support-agent-memory/runtime"
+        }
+      }
+    }
+  }
+}
