@@ -1,0 +1,44 @@
+subscription_name = "fetch-dev-ai"
+# Optional when resolving database_name by subscription ID instead of name.
+# subscription_id = 123456
+database_name     = "agent-memory-db"
+agent_memory_name = "shopping-agent-memory"
+
+short_term_ttl_seconds     = 86400
+long_term_ttl_seconds      = 31536000
+extraction_cadence_seconds = 300
+
+# Optional customer-managed model configuration. The API requires llm and
+# embedding to be configured together when the store is created.
+# llm = {
+#   provider = "openai"
+#   model    = "gpt-4o-mini"
+#   credentials = {
+#     type = "apiKey"
+#   }
+# }
+# llm_api_key = "set-with-sensitive-tfvars-or-TF_VAR_llm_api_key"
+#
+# embedding = {
+#   provider = "openai"
+#   model    = "text-embedding-3-small"
+#   credentials = {
+#     type = "apiKey"
+#   }
+# }
+# embedding_api_key = "set-with-sensitive-tfvars-or-TF_VAR_embedding_api_key"
+
+summarization = {
+  enabled          = true
+  trigger_strategy = "event_count"
+  event_count = {
+    threshold    = 20
+    retain_count = 10
+  }
+}
+
+api_keys = {
+  runtime = {
+    name = "runtime"
+  }
+}

@@ -1,6 +1,18 @@
 variable "subscription_name" {
-  description = "Existing Redis Cloud subscription name. Terraform normalizes this to lowercase hyphen-separated format."
+  description = "Existing Redis Cloud subscription name. Terraform normalizes this to lowercase hyphen-separated format. Required when subscription_id is omitted."
   type        = string
+  default     = null
+}
+
+variable "subscription_id" {
+  description = "Existing Redis Cloud subscription ID. When set, Terraform skips subscription lookup by name."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.subscription_id == null || var.subscription_id > 0
+    error_message = "subscription_id must be greater than zero when provided."
+  }
 }
 
 variable "database_name" {
@@ -14,8 +26,8 @@ variable "dataset_size_in_gb" {
   default     = 1
 
   validation {
-    condition     = var.dataset_size_in_gb > 0 && floor(var.dataset_size_in_gb) == var.dataset_size_in_gb
-    error_message = "dataset_size_in_gb must be a positive integer."
+    condition     = var.dataset_size_in_gb > 0
+    error_message = "dataset_size_in_gb must be a positive number."
   }
 }
 

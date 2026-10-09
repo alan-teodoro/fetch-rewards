@@ -38,7 +38,11 @@ def describe_http_error(exc: HTTPError) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate Redis Cloud API credentials.")
-    parser.add_argument("--api-base", default=API_BASE_DEFAULT)
+    parser.add_argument(
+        "--api-base",
+        default=os.getenv("REDISCLOUD_URL") or os.getenv("REDISCLOUD_API_BASE") or API_BASE_DEFAULT,
+        help="Redis Cloud API base URL. Defaults to REDISCLOUD_URL, REDISCLOUD_API_BASE, or the public API.",
+    )
     args = parser.parse_args()
 
     access_key = os.getenv("REDISCLOUD_ACCESS_KEY")

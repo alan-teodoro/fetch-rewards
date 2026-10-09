@@ -17,6 +17,24 @@ REDISCLOUD_ACCESS_KEY
 REDISCLOUD_SECRET_KEY
 ```
 
+For non-public Redis Cloud API environments, also set `REDISCLOUD_URL` as a
+repository variable or secret. Leave it unset for the public Redis Cloud API.
+QA/smoke-test credentials can be configured separately with:
+
+```text
+REDISCLOUD_ACCESS_KEY_QA
+REDISCLOUD_SECRET_KEY_QA
+REDISCLOUD_URL_QA
+```
+
+If Agent Memory uses customer-managed LLM and embedding providers, add the
+model provider secrets referenced by the config files. The default examples use:
+
+```text
+AGENT_MEMORY_LLM_API_KEY
+AGENT_MEMORY_EMBEDDING_API_KEY
+```
+
 ## 3. Bootstrap AWS Remote State and OIDC
 
 The Redis Cloud workflow uses an S3 bucket for Terraform state and a GitHub Actions OIDC IAM role to access that bucket.
@@ -95,6 +113,33 @@ For credit-card billing, either set `REDISCLOUD_PAYMENT_METHOD_ID` to the Redis 
 
 Redis Cloud resource tags are not exposed in the manual workflows. They remain disabled by default because internal Redis Cloud cloud accounts do not allow them. Enable `enable_resource_tags` only through Terraform defaults for customer accounts where Redis Cloud supports resource tagging.
 
+For the config-driven Agent Memory PoC, the workflow can build the Redis Cloud
+provider from the Agent Memory branch before running Terraform. The default
+workflow inputs use:
+
+```text
+rediscloud_provider_source     = branch
+rediscloud_provider_repository = RedisLabs/terraform-provider-rediscloud
+rediscloud_provider_ref        = alan/agent-memory-terraform-provider
+```
+
+If that provider branch is private, add a repository secret named
+`REDISCLOUD_PROVIDER_CHECKOUT_TOKEN` with read access to the provider
+repository.
+
+For validation runs, these optional repository variables can override the same
+defaults:
+
+```text
+REDISCLOUD_PROVIDER_SOURCE
+REDISCLOUD_PROVIDER_REPOSITORY
+REDISCLOUD_PROVIDER_REF
+```
+
+Set `REDISCLOUD_PROVIDER_SOURCE = registry` once the official Redis Cloud
+provider release includes `rediscloud_agent_memory` and
+`rediscloud_agent_memory_api_key`.
+
 ## 5. Validate the Repository
 
 Run the validation workflow, or run locally:
@@ -106,7 +151,13 @@ for stack in stacks/state-backend stacks/subscription stacks/database; do
   terraform -chdir="$stack" init -backend=false
   terraform -chdir="$stack" validate
 done
+
+python3 scripts/rediscloud_config.py validate \
+  --config configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json
 ```
+
+While Agent Memory support depends on the provider branch, the validation
+workflow builds that branch and validates `stacks/agent-memory` automatically.
 
 ## 6. Provision or Update a Database
 
@@ -181,12 +232,44 @@ The workflow checks Redis Cloud before running Terraform. If `destroy_subscripti
 
 Before each destroy, the workflow writes a Terraform destroy plan summary to the GitHub Actions summary and then applies the saved destroy plan file. Database state is stored under `databases/<normalized_subscription_name>/<normalized_database_name>.tfstate`. Subscription state is stored under `subscriptions/<normalized_subscription_name>.tfstate`. Only use `destroy_subscription = true` for subscriptions managed by this repository.
 
-## 8. Future Agent Memory Support
+## 8. Config-Driven Agent Memory PoC
 
-When Redis Cloud Agent Memory Terraform/API support is available:
+Run **Actions > Redis Cloud Config Apply > Run workflow**.
 
-1. Add a dedicated stack under `stacks/agent-memory`.
-2. Store state under `agent-memory/<resource-name>.tfstate`.
-3. Add the stack to `.github/workflows/terraform-validate.yml`.
-4. Add a manual GitHub Actions workflow for Agent Memory operations.
-5. Keep Agent Memory inputs separate from database inputs so customers can provision, update, and destroy it independently.
+Use the [Demo Guide](demo-guide.md) as the demo checklist and talk track.
+
+Common inputs:
+
+- `config_path`: path to one subscription config file, for example `configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json`.
+- `operation`: `plan` or `apply`.
+- `credentials_profile`: `default` uses `REDISCLOUD_ACCESS_KEY` and `REDISCLOUD_SECRET_KEY`; `qa` uses the `*_QA` credentials and optional `REDISCLOUD_URL_QA`.
+- `allow_agent_memory_destroy`: keep `false` unless a destructive Agent Memory change has been explicitly approved.
+- `rediscloud_provider_source`: keep `branch` during the PoC; switch to `registry` after the Agent Memory provider is officially released.
+
+The config-driven workflow renders Terraform tfvars from the JSON file and runs stacks in dependency phases:
+
+1. `stacks/subscription`
+2. `stacks/database`
+3. `stacks/agent-memory`
+
+In `apply` mode, each phase is fully planned before the saved plans for that
+phase are applied. This catches plan failures across all databases before any
+database is applied, and catches Agent Memory plan or destroy-guard failures
+before any Agent Memory service is applied.
+
+The workflow supports managed and external resources in the same file. Use `external` for existing subscriptions or databases that Terraform should reference but not create.
+
+For external subscriptions, the config can include both `name` and
+`subscription_id`. Use `subscription_id` when database creation should target an
+existing subscription by ID instead of relying on Redis Cloud subscription
+lookup by name.
+
+Agent Memory API key values are not printed in workflow summaries. They are Terraform-sensitive and stored in the Agent Memory state. Use `secret_ref` in the config file to record where the generated data-plane key should be published by the runner or a follow-up secret publishing step.
+
+Customer-managed LLM and embedding API keys are also not stored in JSON. The
+config references environment variable names with `api_key_env_var`; the
+workflow exposes the corresponding GitHub secrets to the renderer.
+
+The official Redis Cloud provider currently does not include the Agent Memory
+resources used by this PoC. Until it does, keep
+`rediscloud_provider_source = branch` when running the config workflow.

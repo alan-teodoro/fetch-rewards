@@ -10,6 +10,13 @@ on:
 permissions:
   contents: read
 
+env:
+  REDISCLOUD_PROVIDER_SOURCE: ${{ vars.REDISCLOUD_PROVIDER_SOURCE || 'branch' }}
+  REDISCLOUD_PROVIDER_REPOSITORY: ${{ vars.REDISCLOUD_PROVIDER_REPOSITORY || 'RedisLabs/terraform-provider-rediscloud' }}
+  REDISCLOUD_PROVIDER_REF: ${{ vars.REDISCLOUD_PROVIDER_REF || 'alan/agent-memory-terraform-provider' }}
+  PROVIDER_DEV_OVERRIDE_DIR: ${{ vars.REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR }}
+  PROVIDER_BUILD_PATH: .provider/terraform-provider-rediscloud
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -37,4 +44,101 @@ jobs:
 
       - name: Terraform validate
         working-directory: ${{ matrix.stack }}
+        run: terraform validate
+
+  config-validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate subscription configs
+        run: |
+          found=false
+          for config in configs/*/subscriptions/*.json; do
+            if [ ! -f "${config}" ]; then
+              continue
+            fi
+            found=true
+            python3 scripts/rediscloud_config.py validate --config "${config}"
+          done
+
+          if [ "${found}" != "true" ]; then
+            echo "No subscription config files found." >&2
+            exit 1
+          fi
+
+  agent-memory-validate:
+    runs-on: ${{ vars.REDISCLOUD_RUNNER || 'ubuntu-latest' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Checkout Redis Cloud provider branch
+        if: env.REDISCLOUD_PROVIDER_SOURCE == 'branch'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.REDISCLOUD_PROVIDER_REPOSITORY }}
+          ref: ${{ env.REDISCLOUD_PROVIDER_REF }}
+          path: ${{ env.PROVIDER_BUILD_PATH }}
+          token: ${{ secrets.REDISCLOUD_PROVIDER_CHECKOUT_TOKEN || github.token }}
+
+      - name: Set up Go for provider build
+        if: env.REDISCLOUD_PROVIDER_SOURCE == 'branch'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.PROVIDER_BUILD_PATH }}/go.mod
+          cache-dependency-path: ${{ env.PROVIDER_BUILD_PATH }}/go.sum
+
+      - name: Build Redis Cloud provider branch
+        if: env.REDISCLOUD_PROVIDER_SOURCE == 'branch'
+        run: |
+          set -euo pipefail
+
+          install_dir="${RUNNER_TEMP}/rediscloud-provider-dev"
+          provider_binary="${install_dir}/terraform-provider-rediscloud"
+
+          mkdir -p "${install_dir}"
+          (
+            cd "${PROVIDER_BUILD_PATH}"
+            go build -o "${provider_binary}" .
+          )
+          chmod +x "${provider_binary}"
+
+          cat > "${RUNNER_TEMP}/terraformrc" <<EOF
+          provider_installation {
+            dev_overrides {
+              "RedisLabs/rediscloud" = "${install_dir}"
+            }
+
+            direct {}
+          }
+          EOF
+          echo "TF_CLI_CONFIG_FILE=${RUNNER_TEMP}/terraformrc" >> "$GITHUB_ENV"
+
+      - name: Configure legacy Terraform provider override
+        if: env.REDISCLOUD_PROVIDER_SOURCE == 'registry' && env.PROVIDER_DEV_OVERRIDE_DIR != ''
+        run: |
+          cat > "${RUNNER_TEMP}/terraformrc" <<EOF
+          provider_installation {
+            dev_overrides {
+              "RedisLabs/rediscloud" = "${PROVIDER_DEV_OVERRIDE_DIR}"
+            }
+
+            direct {}
+          }
+          EOF
+          echo "TF_CLI_CONFIG_FILE=${RUNNER_TEMP}/terraformrc" >> "$GITHUB_ENV"
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        working-directory: stacks/agent-memory
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        working-directory: stacks/agent-memory
         run: terraform validate

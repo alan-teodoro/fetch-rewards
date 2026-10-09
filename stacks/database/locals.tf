@@ -1,5 +1,5 @@
 locals {
-  subscription_name = trim(
+  subscription_name = var.subscription_name == null ? null : trim(
     replace(
       replace(lower(trimspace(var.subscription_name)), "/[^a-z0-9]+/", "-"),
       "/-+/",
@@ -16,6 +16,9 @@ locals {
     ),
     "-"
   )
+
+  lookup_subscription      = var.subscription_id == null
+  resolved_subscription_id = local.lookup_subscription ? data.rediscloud_subscription.target[0].id : var.subscription_id
 
   throughput_measurement_by = "operations-per-second"
 

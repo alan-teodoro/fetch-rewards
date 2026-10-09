@@ -1,4 +1,6 @@
 subscription_name         = "fetch-rewards-demo"
+# Optional for external subscriptions when lookup by name is not available.
+# subscription_id = 123456
 database_name             = "fetch-rewards-cache"
 dataset_size_in_gb        = 1
 throughput_ops_per_second = 1000

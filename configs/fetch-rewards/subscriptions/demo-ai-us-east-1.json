@@ -1,0 +1,328 @@
+{
+  "schema_version": 1,
+  "customer": "fetch-rewards",
+  "environment": "demo",
+  "subscription_key": "demo-ai-us-east-1",
+  "subscription": {
+    "mode": "managed",
+    "name": "fetch-demo-ai",
+    "cloud_provider": "AWS",
+    "region": "us-east-1",
+    "networking_deployment_cidr": "10.80.0.0/24",
+    "multiple_availability_zones": true,
+    "preferred_availability_zones": [],
+    "public_endpoint_access": true,
+    "memory_storage": "ram",
+    "payment_method": "credit-card",
+    "payment_method_id": null,
+    "payment_card_type": "Mastercard",
+    "payment_card_last_four": "1006",
+    "maintenance_windows": {
+      "mode": "automatic"
+    },
+    "enable_resource_tags": false,
+    "tags": {
+      "customer": "fetch-rewards",
+      "environment": "demo",
+      "workload": "agent-memory"
+    },
+    "creation_plan": {
+      "dataset_size_in_gb": 1,
+      "throughput_ops_per_second": 1000,
+      "replication": true,
+      "support_oss_cluster_api": false,
+      "modules": []
+    }
+  },
+  "databases": {
+    "shared_agent_memory": {
+      "mode": "managed",
+      "name": "agent-memory-db",
+      "agent_memory_compatible": true,
+      "dataset_size_in_gb": 1,
+      "redis_version": "8.6",
+      "throughput_ops_per_second": 1000,
+      "replication": true,
+      "enable_tls": true,
+      "enable_default_user": true,
+      "auto_minor_version_upgrade": true,
+      "support_oss_cluster_api": false,
+      "external_endpoint_for_oss_cluster_api": false,
+      "persistence_mode": "aof-every-1-second",
+      "data_eviction": "allkeys-lru",
+      "source_ips": [
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16"
+      ],
+      "alerts": [
+        {
+          "name": "dataset-size",
+          "value": 80
+        },
+        {
+          "name": "throughput-higher-than",
+          "value": 80
+        },
+        {
+          "name": "latency",
+          "value": 100
+        },
+        {
+          "name": "connections-limit",
+          "value": 80
+        }
+      ],
+      "remote_backup": null,
+      "acl_rule_string": "+@all -@dangerous +info ~*",
+      "acl_user_password_override": null,
+      "enable_resource_tags": false,
+      "tags": {
+        "customer": "fetch-rewards",
+        "environment": "demo",
+        "workload": "agent-memory",
+        "component": "redis-database"
+      }
+    }
+  },
+  "agent_memory_stores": {
+    "shopping_agent": {
+      "mode": "managed",
+      "name": "shopping-agent-memory",
+      "database": "shared_agent_memory",
+      "short_term_ttl_seconds": 86400,
+      "long_term_ttl_seconds": 31536000,
+      "llm": {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "credentials": {
+          "type": "apiKey",
+          "api_key_env_var": "AGENT_MEMORY_LLM_API_KEY"
+        }
+      },
+      "embedding": {
+        "provider": "openai",
+        "model": "text-embedding-3-small",
+        "credentials": {
+          "type": "apiKey",
+          "api_key_env_var": "AGENT_MEMORY_EMBEDDING_API_KEY"
+        }
+      },
+      "extraction_cadence_seconds": 300,
+      "summarization": {
+        "enabled": true,
+        "trigger_strategy": "event_count",
+        "event_count": {
+          "threshold": 20,
+          "retain_count": 10
+        }
+      },
+      "custom_memory_types": [
+        {
+          "name": "preference",
+          "description": "Durable user preferences captured from conversations",
+          "fields": [
+            {
+              "name": "topic",
+              "description": "Preference topic",
+              "type": "str"
+            },
+            {
+              "name": "confidence",
+              "description": "Preference confidence score",
+              "type": "float"
+            },
+            {
+              "name": "is_active",
+              "description": "Whether the preference is currently active",
+              "type": "bool"
+            }
+          ],
+          "extraction_strategy": {
+            "enabled": true,
+            "prompt": "Extract stable shopping, product, notification, and account preferences that should help future agent responses."
+          }
+        },
+        {
+          "name": "support_case",
+          "description": "Persistent customer support context",
+          "fields": [
+            {
+              "name": "case_priority",
+              "description": "Support case priority",
+              "type": "int"
+            },
+            {
+              "name": "topics",
+              "description": "Support topics associated with the case",
+              "type": "list[str]"
+            },
+            {
+              "name": "metadata",
+              "description": "Structured support metadata",
+              "type": "object"
+            }
+          ],
+          "extraction_strategy": {
+            "enabled": true,
+            "prompt": "Extract durable support facts such as unresolved issues, promised follow-ups, case priority, and customer constraints."
+          }
+        },
+        {
+          "name": "shopping_signal",
+          "description": "Long-lived shopping behavior signals",
+          "fields": [
+            {
+              "name": "scores",
+              "description": "Numeric affinity scores",
+              "type": "list[float]"
+            }
+          ],
+          "extraction_strategy": {
+            "enabled": false,
+            "prompt": "Extract only high-confidence, durable shopping affinity signals."
+          }
+        }
+      ],
+      "long_term_memory_exclusions": {
+        "enabled": true,
+        "semantic": {
+          "enabled": true,
+          "prompt": "Do not remember passwords, access tokens, recovery codes, payment credentials, authentication secrets, or short-lived one-time codes."
+        },
+        "built_in_detectors": {
+          "enabled": true,
+          "detectors": [
+            {
+              "id": "credit-card",
+              "enabled": true,
+              "action": "drop"
+            },
+            {
+              "id": "email",
+              "enabled": true,
+              "action": "redact"
+            },
+            {
+              "id": "ip-address",
+              "enabled": true,
+              "action": "redact"
+            },
+            {
+              "id": "phone",
+              "enabled": true,
+              "action": "redact"
+            },
+            {
+              "id": "us-ssn",
+              "enabled": true,
+              "action": "drop"
+            }
+          ]
+        },
+        "custom_detectors": {
+          "enabled": true,
+          "detectors": [
+            {
+              "name": "fetch_account_id",
+              "enabled": true,
+              "action": "redact",
+              "matcher": {
+                "kind": "regex",
+                "regex": {
+                  "pattern": "FR-[0-9]{8}"
+                }
+              }
+            },
+            {
+              "name": "promo_redemption_code",
+              "enabled": true,
+              "action": "drop",
+              "matcher": {
+                "kind": "regex",
+                "regex": {
+                  "pattern": "PROMO-[A-Z0-9]{6,12}"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "api_keys": {
+        "runtime": {
+          "mode": "managed",
+          "name": "shopping-agent-runtime",
+          "enabled": true,
+          "secret_ref": "aws-secrets-manager:/fetch-rewards/demo/shopping-agent-memory/runtime"
+        },
+        "next_rotation": {
+          "mode": "managed",
+          "name": "shopping-agent-next-rotation",
+          "enabled": false,
+          "secret_ref": "aws-secrets-manager:/fetch-rewards/demo/shopping-agent-memory/next-rotation"
+        }
+      },
+      "tags": {
+        "customer": "fetch-rewards",
+        "environment": "demo",
+        "agent": "shopping"
+      }
+    },
+    "support_agent": {
+      "mode": "managed",
+      "name": "support-agent-memory",
+      "database": "shared_agent_memory",
+      "short_term_ttl_seconds": 86400,
+      "long_term_ttl_seconds": 31536000,
+      "extraction_cadence_seconds": 300,
+      "summarization": {
+        "enabled": true,
+        "trigger_strategy": "event_count",
+        "event_count": {
+          "threshold": 30,
+          "retain_count": 12
+        }
+      },
+      "custom_memory_types": [],
+      "long_term_memory_exclusions": {
+        "enabled": true,
+        "semantic": {
+          "enabled": true,
+          "prompt": "Do not remember secrets, credentials, card data, government identifiers, or authentication material."
+        },
+        "built_in_detectors": {
+          "enabled": true,
+          "detectors": [
+            {
+              "id": "email",
+              "enabled": true,
+              "action": "redact"
+            },
+            {
+              "id": "phone",
+              "enabled": true,
+              "action": "redact"
+            }
+          ]
+        },
+        "custom_detectors": {
+          "enabled": false,
+          "detectors": []
+        }
+      },
+      "api_keys": {
+        "runtime": {
+          "mode": "managed",
+          "name": "support-agent-runtime",
+          "enabled": true,
+          "secret_ref": "aws-secrets-manager:/fetch-rewards/demo/support-agent-memory/runtime"
+        }
+      },
+      "tags": {
+        "customer": "fetch-rewards",
+        "environment": "demo",
+        "agent": "support"
+      }
+    }
+  }
+}

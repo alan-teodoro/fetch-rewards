@@ -9,8 +9,8 @@ variable "dataset_size_in_gb" {
   default     = 1
 
   validation {
-    condition     = var.dataset_size_in_gb > 0 && floor(var.dataset_size_in_gb) == var.dataset_size_in_gb
-    error_message = "dataset_size_in_gb must be a positive integer."
+    condition     = var.dataset_size_in_gb > 0
+    error_message = "dataset_size_in_gb must be a positive number."
   }
 }
 

@@ -1,11 +1,11 @@
 output "subscription_name" {
   description = "Redis Cloud subscription name."
-  value       = data.rediscloud_subscription.target.name
+  value       = local.lookup_subscription ? data.rediscloud_subscription.target[0].name : local.subscription_name
 }
 
 output "subscription_id" {
   description = "Redis Cloud subscription id."
-  value       = data.rediscloud_subscription.target.id
+  value       = local.resolved_subscription_id
 }
 
 output "database_name" {
