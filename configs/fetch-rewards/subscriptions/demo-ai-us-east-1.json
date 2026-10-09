@@ -138,9 +138,9 @@
               "type": "list[str]"
             },
             {
-              "name": "metadata",
-              "description": "Structured support metadata",
-              "type": "object"
+              "name": "summary",
+              "description": "Human-readable support case summary",
+              "type": "str"
             }
           ],
           "extraction_strategy": {
@@ -153,9 +153,9 @@
           "description": "Long-lived shopping behavior signals",
           "fields": [
             {
-              "name": "scores",
-              "description": "Numeric affinity scores",
-              "type": "list[float]"
+              "name": "labels",
+              "description": "Durable shopping affinity labels",
+              "type": "list[str]"
             }
           ],
           "extraction_strategy": {
