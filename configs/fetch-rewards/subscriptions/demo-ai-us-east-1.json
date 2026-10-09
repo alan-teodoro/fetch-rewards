@@ -51,9 +51,11 @@
       "persistence_mode": "aof-every-1-second",
       "data_eviction": "allkeys-lru",
       "source_ips": [
-        "10.0.0.0/8",
-        "172.16.0.0/12",
-        "192.168.0.0/16"
+        "34.86.169.63/32",
+        "34.86.239.45/32",
+        "35.221.18.150/32",
+        "35.230.184.20/32",
+        "98.84.76.64/32"
       ],
       "alerts": [
         {
@@ -67,10 +69,6 @@
         {
           "name": "latency",
           "value": 100
-        },
-        {
-          "name": "connections-limit",
-          "value": 80
         }
       ],
       "remote_backup": null,
@@ -92,22 +90,6 @@
       "database": "shared_agent_memory",
       "short_term_ttl_seconds": 86400,
       "long_term_ttl_seconds": 31536000,
-      "llm": {
-        "provider": "openai",
-        "model": "gpt-4o-mini",
-        "credentials": {
-          "type": "apiKey",
-          "api_key_env_var": "AGENT_MEMORY_LLM_API_KEY"
-        }
-      },
-      "embedding": {
-        "provider": "openai",
-        "model": "text-embedding-3-small",
-        "credentials": {
-          "type": "apiKey",
-          "api_key_env_var": "AGENT_MEMORY_EMBEDDING_API_KEY"
-        }
-      },
       "extraction_cadence_seconds": 300,
       "summarization": {
         "enabled": true,
@@ -158,9 +140,9 @@
               "type": "list[str]"
             },
             {
-              "name": "metadata",
-              "description": "Structured support metadata",
-              "type": "object"
+              "name": "summary",
+              "description": "Human-readable support case summary",
+              "type": "str"
             }
           ],
           "extraction_strategy": {
@@ -173,9 +155,9 @@
           "description": "Long-lived shopping behavior signals",
           "fields": [
             {
-              "name": "scores",
-              "description": "Numeric affinity scores",
-              "type": "list[float]"
+              "name": "labels",
+              "description": "Durable shopping affinity labels",
+              "type": "list[str]"
             }
           ],
           "extraction_strategy": {

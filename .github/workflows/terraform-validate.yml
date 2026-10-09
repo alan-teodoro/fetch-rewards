@@ -12,7 +12,7 @@ permissions:
 
 env:
   REDISCLOUD_PROVIDER_SOURCE: ${{ vars.REDISCLOUD_PROVIDER_SOURCE || 'branch' }}
-  REDISCLOUD_PROVIDER_REPOSITORY: ${{ vars.REDISCLOUD_PROVIDER_REPOSITORY || 'RedisLabs/terraform-provider-rediscloud' }}
+  REDISCLOUD_PROVIDER_REPOSITORY: RedisLabs/terraform-provider-rediscloud
   REDISCLOUD_PROVIDER_REF: ${{ vars.REDISCLOUD_PROVIDER_REF || 'alan/agent-memory-terraform-provider' }}
   PROVIDER_DEV_OVERRIDE_DIR: ${{ vars.REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR }}
   PROVIDER_BUILD_PATH: .provider/terraform-provider-rediscloud

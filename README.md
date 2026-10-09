@@ -5,19 +5,16 @@ This repository provides a customer-ready Terraform and GitHub Actions reference
 The workflows are manually triggered by the customer from GitHub Actions. They support:
 
 - creating a Redis Cloud subscription and database together;
-- creating or updating a database, including creating the subscription first when it does not exist;
 - creating subscription-scoped infrastructure from a versioned JSON config file;
 - creating Agent Memory services that can share an eligible database;
-- destroying only a managed database;
-- destroying a managed database and its managed subscription state;
+- destroying managed resources from the same versioned JSON config file;
 - bootstrapping the S3 remote state bucket and GitHub Actions OIDC access in AWS.
 
 ## Repository Layout
 
 ```text
-.github/workflows/rediscloud-database.yml   # Create/update database; creates subscription first when missing
 .github/workflows/rediscloud-config.yml     # Create/update resources from a subscription config file
-.github/workflows/rediscloud-destroy.yml    # Destroy a database; optionally destroy its subscription
+.github/workflows/rediscloud-destroy.yml    # Destroy managed resources from a subscription config file
 .github/workflows/terraform-validate.yml    # Terraform fmt/init/validate checks
 configs/fetch-rewards/subscriptions         # Subscription-scoped desired-state config files
 docs/config-driven-architecture.md          # Config-driven architecture notes
@@ -32,7 +29,11 @@ stacks/database                             # Redis Cloud database and ACL stack
 stacks/agent-memory                         # Redis Agent Memory service and data-plane API keys
 ```
 
-Each stack keeps state isolated. The legacy workflows store subscription state under `subscriptions/<subscription>.tfstate` and database state under `databases/<subscription>/<database>.tfstate`. The config-driven workflow uses stable config keys, for example `subscriptions/dev-ai-us-east-1.tfstate`, `databases/dev-ai-us-east-1/shared_agent_memory.tfstate`, and `agent-memory/dev-ai-us-east-1/shopping_agent.tfstate`.
+Each stack keeps state isolated. The config-driven workflows group state by
+subscription config key, for example
+`subscriptions/dev-ai-us-east-1/subscription.tfstate`,
+`subscriptions/dev-ai-us-east-1/databases/shared_agent_memory.tfstate`, and
+`subscriptions/dev-ai-us-east-1/agent-memory/shopping_agent.tfstate`.
 
 ## Prerequisites
 
@@ -82,21 +83,40 @@ Use the outputs to configure the customer repository:
 
 ## Manual Workflows
 
-Use one of the focused manual workflows:
+Use the focused manual workflows:
 
-- **Redis Cloud Create** creates or updates a database. If the subscription name is not found in Redis Cloud, the workflow creates the subscription first and then creates the database.
-- **Redis Cloud Config Apply** reads a subscription config file, renders Terraform variable files, and runs Terraform in subscription, database, then Agent Memory phases. In apply mode, each phase is fully planned before the saved plans for that phase are applied.
-- **Redis Cloud Destroy** destroys a managed database and can optionally destroy the subscription when that database is the last one.
+- **Redis Cloud Config Apply** reads a subscription config file, renders
+  Terraform variable files, and runs Terraform in subscription, database, then
+  Agent Memory phases. In apply mode, each phase is fully planned before the
+  saved plans for that phase are applied.
+- **Redis Cloud Config Destroy** reads the same subscription config file and
+  destroys managed resources in reverse dependency order: Agent Memory,
+  databases, then the subscription when the config manages it.
 
-The database create workflow checks Redis Cloud first and shows the requested names, normalized Terraform names, and whether the subscription or database already exists. New subscription creation pauses on the `dev` GitHub environment when that environment has required reviewers configured. Subscription destroy requests use the same `dev` approval checkpoint. Terraform plan summaries are written before apply or destroy, then Terraform applies the saved plan. Re-running create with the same normalized subscription and database names updates the managed database to match the provided inputs. The legacy workflows expose only the most common inputs. Less common settings stay as Terraform defaults in `stacks/subscription/variables.tf` and `stacks/database/variables.tf`.
+The apply workflow uses the `dev` GitHub environment as the human approval
+checkpoint when `operation = apply`; `operation = plan` runs without approval.
+The destroy workflow also uses the `dev` approval checkpoint. The apply
+workflow blocks Agent Memory delete/replace plans so intentional Agent Memory
+cleanup happens through the destroy workflow. Terraform plan summaries are
+written before apply or destroy, then Terraform applies the saved plan.
 
-The config-driven workflow exposes `config_path`, `operation`, `credentials_profile`, the Agent Memory destroy override, and temporary provider-source inputs for the Agent Memory PoC. The default demo file is [configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json](configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json), which includes every option currently supported by the Terraform stacks. See [docs/config-driven-architecture.md](docs/config-driven-architecture.md).
+The apply workflow exposes `config_path`, `operation`, and temporary
+provider-source inputs while Agent Memory provider support is unreleased. The
+destroy workflow exposes `config_path`, `confirm_destroy`, and the same
+temporary provider-source selector. The provider repository is fixed in the
+workflow; only the branch/tag/commit needs to be selected while using branch
+mode. The default demo file is
+[configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json](configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json),
+which uses platform-managed Agent Memory models so it does not require
+model-provider secrets. See
+[docs/config-driven-architecture.md](docs/config-driven-architecture.md).
 
 Use [docs/demo-guide.md](docs/demo-guide.md) for the customer demo checklist,
 talk track, and PoC limitations.
 
-For QA or other non-public Redis Cloud API environments, set `REDISCLOUD_URL`
-or use the workflow's `qa` credentials profile with `REDISCLOUD_URL_QA`.
+Leave `REDISCLOUD_URL` unset for the public Redis Cloud API. Set
+`REDISCLOUD_URL` only when the repository is intentionally targeting a
+non-public Redis Cloud API endpoint.
 
 Agent Memory customer-managed LLM and embedding model credentials are referenced
 by env var name in config files. The generic GitHub secret names used by the
