@@ -100,6 +100,8 @@ jobs:
           mkdir -p "${install_dir}"
           (
             cd "${PROVIDER_BUILD_PATH}"
+            echo "Building Redis Cloud provider from commit $(git rev-parse HEAD)"
+            echo "Using $(go list -m github.com/RedisLabs/rediscloud-go-api)"
             go build -o "${provider_binary}" .
           )
           chmod +x "${provider_binary}"
