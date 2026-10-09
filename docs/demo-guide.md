@@ -61,10 +61,9 @@ time.
 - If using customer-managed models, configure:
   - `AGENT_MEMORY_LLM_API_KEY`
   - `AGENT_MEMORY_EMBEDDING_API_KEY`
-- Until the official Terraform provider includes Agent Memory resources, run on
-  a runner that has the local provider binary and configure:
-  - `REDISCLOUD_RUNNER`
-  - `REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR`
+- Until the official Terraform provider includes Agent Memory resources, keep
+  the config workflow provider source set to `branch`. The workflow builds the
+  Agent Memory provider branch before running Terraform.
 
 ## Local Dry Run
 
@@ -106,6 +105,7 @@ committed.
 - Publishing generated Agent Memory data-plane API keys to the referenced
   `secret_ref` is still a follow-up step.
 - While Agent Memory support is not in the official Redis Cloud Terraform
-  provider, demos that use Agent Memory require the local provider override.
+  provider, demos that use Agent Memory should run with
+  `rediscloud_provider_source = branch`.
 - During the Agent Memory public preview, use an eligible Redis Cloud database
   with public endpoint access and the default user enabled.

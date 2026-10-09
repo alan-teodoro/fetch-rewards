@@ -29,6 +29,24 @@ on:
         required: true
         type: boolean
         default: false
+      rediscloud_provider_source:
+        description: Use the official Registry provider or build the Agent Memory provider from a branch.
+        required: true
+        type: choice
+        options:
+          - branch
+          - registry
+        default: branch
+      rediscloud_provider_repository:
+        description: Provider repository used when rediscloud_provider_source is branch.
+        required: true
+        type: string
+        default: RedisLabs/terraform-provider-rediscloud
+      rediscloud_provider_ref:
+        description: Provider branch, tag, or commit used when rediscloud_provider_source is branch.
+        required: true
+        type: string
+        default: alan/agent-memory-terraform-provider
 
 permissions:
   contents: read
@@ -43,6 +61,7 @@ env:
   TF_STATE_BUCKET_NAME: ${{ vars.TF_STATE_BUCKET }}
   TF_STATE_REGION_NAME: ${{ vars.TF_STATE_REGION }}
   PROVIDER_DEV_OVERRIDE_DIR: ${{ vars.REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR }}
+  PROVIDER_BUILD_PATH: .provider/terraform-provider-rediscloud
   AGENT_MEMORY_LLM_API_KEY: ${{ secrets.AGENT_MEMORY_LLM_API_KEY }}
   AGENT_MEMORY_EMBEDDING_API_KEY: ${{ secrets.AGENT_MEMORY_EMBEDDING_API_KEY }}
 
@@ -53,6 +72,49 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Checkout Redis Cloud provider branch
+        if: inputs.rediscloud_provider_source == 'branch'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.rediscloud_provider_repository }}
+          ref: ${{ inputs.rediscloud_provider_ref }}
+          path: ${{ env.PROVIDER_BUILD_PATH }}
+          token: ${{ secrets.REDISCLOUD_PROVIDER_CHECKOUT_TOKEN || github.token }}
+
+      - name: Set up Go for provider build
+        if: inputs.rediscloud_provider_source == 'branch'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.PROVIDER_BUILD_PATH }}/go.mod
+          cache-dependency-path: ${{ env.PROVIDER_BUILD_PATH }}/go.sum
+
+      - name: Build Redis Cloud provider branch
+        if: inputs.rediscloud_provider_source == 'branch'
+        run: |
+          set -euo pipefail
+
+          install_dir="${RUNNER_TEMP}/rediscloud-provider-dev"
+          provider_binary="${install_dir}/terraform-provider-rediscloud"
+
+          mkdir -p "${install_dir}"
+          (
+            cd "${PROVIDER_BUILD_PATH}"
+            go build -o "${provider_binary}" .
+          )
+          chmod +x "${provider_binary}"
+
+          cat > "${RUNNER_TEMP}/terraformrc" <<EOF
+          provider_installation {
+            dev_overrides {
+              "RedisLabs/rediscloud" = "${install_dir}"
+            }
+
+            direct {}
+          }
+          EOF
+
+          echo "TF_CLI_CONFIG_FILE=${RUNNER_TEMP}/terraformrc" >> "$GITHUB_ENV"
 
       - name: Validate config path
         env:
@@ -142,6 +204,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Configure Terraform provider override
+        if: inputs.rediscloud_provider_source == 'registry'
         run: |
           if [ -n "${PROVIDER_DEV_OVERRIDE_DIR}" ]; then
             cat > "${RUNNER_TEMP}/terraformrc" <<EOF

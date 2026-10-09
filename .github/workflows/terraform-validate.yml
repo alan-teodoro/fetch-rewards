@@ -10,6 +10,13 @@ on:
 permissions:
   contents: read
 
+env:
+  REDISCLOUD_PROVIDER_SOURCE: ${{ vars.REDISCLOUD_PROVIDER_SOURCE || 'branch' }}
+  REDISCLOUD_PROVIDER_REPOSITORY: ${{ vars.REDISCLOUD_PROVIDER_REPOSITORY || 'RedisLabs/terraform-provider-rediscloud' }}
+  REDISCLOUD_PROVIDER_REF: ${{ vars.REDISCLOUD_PROVIDER_REF || 'alan/agent-memory-terraform-provider' }}
+  PROVIDER_DEV_OVERRIDE_DIR: ${{ vars.REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR }}
+  PROVIDER_BUILD_PATH: .provider/terraform-provider-rediscloud
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -63,19 +70,61 @@ jobs:
           fi
 
   agent-memory-validate:
-    if: ${{ vars.REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR != '' }}
     runs-on: ${{ vars.REDISCLOUD_RUNNER || 'ubuntu-latest' }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Configure Terraform provider override
+      - name: Checkout Redis Cloud provider branch
+        if: env.REDISCLOUD_PROVIDER_SOURCE == 'branch'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.REDISCLOUD_PROVIDER_REPOSITORY }}
+          ref: ${{ env.REDISCLOUD_PROVIDER_REF }}
+          path: ${{ env.PROVIDER_BUILD_PATH }}
+          token: ${{ secrets.REDISCLOUD_PROVIDER_CHECKOUT_TOKEN || github.token }}
+
+      - name: Set up Go for provider build
+        if: env.REDISCLOUD_PROVIDER_SOURCE == 'branch'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.PROVIDER_BUILD_PATH }}/go.mod
+          cache-dependency-path: ${{ env.PROVIDER_BUILD_PATH }}/go.sum
+
+      - name: Build Redis Cloud provider branch
+        if: env.REDISCLOUD_PROVIDER_SOURCE == 'branch'
+        run: |
+          set -euo pipefail
+
+          install_dir="${RUNNER_TEMP}/rediscloud-provider-dev"
+          provider_binary="${install_dir}/terraform-provider-rediscloud"
+
+          mkdir -p "${install_dir}"
+          (
+            cd "${PROVIDER_BUILD_PATH}"
+            go build -o "${provider_binary}" .
+          )
+          chmod +x "${provider_binary}"
+
+          cat > "${RUNNER_TEMP}/terraformrc" <<EOF
+          provider_installation {
+            dev_overrides {
+              "RedisLabs/rediscloud" = "${install_dir}"
+            }
+
+            direct {}
+          }
+          EOF
+          echo "TF_CLI_CONFIG_FILE=${RUNNER_TEMP}/terraformrc" >> "$GITHUB_ENV"
+
+      - name: Configure legacy Terraform provider override
+        if: env.REDISCLOUD_PROVIDER_SOURCE == 'registry' && env.PROVIDER_DEV_OVERRIDE_DIR != ''
         run: |
           cat > "${RUNNER_TEMP}/terraformrc" <<EOF
           provider_installation {
             dev_overrides {
-              "RedisLabs/rediscloud" = "${{ vars.REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR }}"
+              "RedisLabs/rediscloud" = "${PROVIDER_DEV_OVERRIDE_DIR}"
             }
 
             direct {}

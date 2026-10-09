@@ -165,33 +165,35 @@ Memory. In `apply` mode, every stack in a phase is planned before any saved plan
 from that phase is applied. In `plan` mode, downstream managed stacks are
 skipped when they depend on a managed resource that does not exist yet.
 
-## Local Agent Memory Provider
+## Agent Memory Provider During the PoC
 
 Until Agent Memory support is available in the official Redis Cloud Terraform
-provider release, use a Terraform CLI provider override on machines that run the
-Agent Memory stack.
+provider release, the GitHub Actions workflow can build the provider directly
+from the Agent Memory provider branch. This lets the demo use the production
+Redis Cloud API with a provider that has not been published to the Terraform
+Registry yet.
 
-Example `~/.terraformrc`:
+The config workflow exposes these inputs:
 
-```hcl
-provider_installation {
-  dev_overrides {
-    "RedisLabs/rediscloud" = "/Users/alan/workspaces/alan-teodoro/redis-terraform/terraform-provider-rediscloud/bin"
-  }
-
-  direct {}
-}
+```text
+rediscloud_provider_source     = branch
+rediscloud_provider_repository = RedisLabs/terraform-provider-rediscloud
+rediscloud_provider_ref        = alan/agent-memory-terraform-provider
 ```
 
-The override path must contain the locally built provider binary. Once the
-provider is official, remove the override and rely on the version constraint in
-`stacks/agent-memory/versions.tf`.
+When `rediscloud_provider_source` is `branch`, the workflow checks out the
+provider repository, builds the provider binary, and writes a temporary
+Terraform CLI `dev_overrides` configuration that points `RedisLabs/rediscloud`
+to that binary. This is intentionally a workflow-local override; no generated
+provider binary or Terraform CLI config is committed.
+
+If the provider branch lives in a private repository or fork, configure the
+`REDISCLOUD_PROVIDER_CHECKOUT_TOKEN` repository secret with read access to that
+repository.
+
+Once the provider is official, set `rediscloud_provider_source` to `registry`
+and rely on the version constraint in `stacks/agent-memory/versions.tf`.
 
 The Redis Cloud Terraform provider also honors `REDISCLOUD_URL`. Use it only
 for QA or internal API environments; leave it unset for the public Redis Cloud
 API.
-
-When using a local provider build in GitHub Actions, run the workflow on a
-runner that has the provider binary. Configure `REDISCLOUD_RUNNER` with that
-runner label and `REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR` with the provider
-binary directory. With the official provider release, remove both variables.

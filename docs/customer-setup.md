@@ -113,24 +113,32 @@ For credit-card billing, either set `REDISCLOUD_PAYMENT_METHOD_ID` to the Redis 
 
 Redis Cloud resource tags are not exposed in the manual workflows. They remain disabled by default because internal Redis Cloud cloud accounts do not allow them. Enable `enable_resource_tags` only through Terraform defaults for customer accounts where Redis Cloud supports resource tagging.
 
-For the config-driven Agent Memory PoC, the workflow can use a local Redis Cloud provider build through optional repository variables:
+For the config-driven Agent Memory PoC, the workflow can build the Redis Cloud
+provider from the Agent Memory branch before running Terraform. The default
+workflow inputs use:
 
 ```text
-REDISCLOUD_RUNNER
-REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR
+rediscloud_provider_source     = branch
+rediscloud_provider_repository = RedisLabs/terraform-provider-rediscloud
+rediscloud_provider_ref        = alan/agent-memory-terraform-provider
 ```
 
-Set these only while the Agent Memory resources require a local provider build.
-`REDISCLOUD_RUNNER` should point to a runner label that has the provider binary
-available. `REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR` should point to the directory
-containing the local provider binary. Example:
+If that provider branch is private, add a repository secret named
+`REDISCLOUD_PROVIDER_CHECKOUT_TOKEN` with read access to the provider
+repository.
+
+For validation runs, these optional repository variables can override the same
+defaults:
 
 ```text
-REDISCLOUD_RUNNER = self-hosted
-REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR = /Users/alan/workspaces/alan-teodoro/redis-terraform/terraform-provider-rediscloud/bin
+REDISCLOUD_PROVIDER_SOURCE
+REDISCLOUD_PROVIDER_REPOSITORY
+REDISCLOUD_PROVIDER_REF
 ```
 
-Remove these variables once the official Redis Cloud provider release includes `rediscloud_agent_memory` and `rediscloud_agent_memory_api_key`.
+Set `REDISCLOUD_PROVIDER_SOURCE = registry` once the official Redis Cloud
+provider release includes `rediscloud_agent_memory` and
+`rediscloud_agent_memory_api_key`.
 
 ## 5. Validate the Repository
 
@@ -148,11 +156,8 @@ python3 scripts/rediscloud_config.py validate \
   --config configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json
 ```
 
-While Agent Memory support depends on the local provider build, validate
-`stacks/agent-memory` only on a runner or workstation with
-`REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR` configured. The validation workflow runs
-that extra Agent Memory check automatically when the provider override variable
-is present.
+While Agent Memory support depends on the provider branch, the validation
+workflow builds that branch and validates `stacks/agent-memory` automatically.
 
 ## 6. Provision or Update a Database
 
@@ -239,6 +244,7 @@ Common inputs:
 - `operation`: `plan` or `apply`.
 - `credentials_profile`: `default` uses `REDISCLOUD_ACCESS_KEY` and `REDISCLOUD_SECRET_KEY`; `qa` uses the `*_QA` credentials and optional `REDISCLOUD_URL_QA`.
 - `allow_agent_memory_destroy`: keep `false` unless a destructive Agent Memory change has been explicitly approved.
+- `rediscloud_provider_source`: keep `branch` during the PoC; switch to `registry` after the Agent Memory provider is officially released.
 
 The config-driven workflow renders Terraform tfvars from the JSON file and runs stacks in dependency phases:
 
@@ -264,4 +270,6 @@ Customer-managed LLM and embedding API keys are also not stored in JSON. The
 config references environment variable names with `api_key_env_var`; the
 workflow exposes the corresponding GitHub secrets to the renderer.
 
-The official Redis Cloud provider currently does not include the Agent Memory resources used by this PoC. Until it does, run this workflow with `REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR` on a runner that has the local provider build.
+The official Redis Cloud provider currently does not include the Agent Memory
+resources used by this PoC. Until it does, keep
+`rediscloud_provider_source = branch` when running the config workflow.

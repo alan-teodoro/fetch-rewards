@@ -59,9 +59,8 @@ python3 scripts/rediscloud_config.py validate \
 ```
 
 While Agent Memory support depends on the local provider build, validate
-`stacks/agent-memory` with a Terraform CLI provider override. The CI workflow
-runs that validation automatically when `REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR`
-is configured.
+`stacks/agent-memory` with the Agent Memory provider branch. The validation
+workflow builds that provider branch automatically by default.
 
 ## Backend Bootstrap
 
@@ -91,7 +90,7 @@ Use one of the focused manual workflows:
 
 The database create workflow checks Redis Cloud first and shows the requested names, normalized Terraform names, and whether the subscription or database already exists. New subscription creation pauses on the `dev` GitHub environment when that environment has required reviewers configured. Subscription destroy requests use the same `dev` approval checkpoint. Terraform plan summaries are written before apply or destroy, then Terraform applies the saved plan. Re-running create with the same normalized subscription and database names updates the managed database to match the provided inputs. The legacy workflows expose only the most common inputs. Less common settings stay as Terraform defaults in `stacks/subscription/variables.tf` and `stacks/database/variables.tf`.
 
-The config-driven workflow exposes only `config_path`, `operation`, and an Agent Memory destroy override. The default demo file is [configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json](configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json), which includes every option currently supported by the Terraform stacks. See [docs/config-driven-architecture.md](docs/config-driven-architecture.md).
+The config-driven workflow exposes `config_path`, `operation`, `credentials_profile`, the Agent Memory destroy override, and temporary provider-source inputs for the Agent Memory PoC. The default demo file is [configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json](configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json), which includes every option currently supported by the Terraform stacks. See [docs/config-driven-architecture.md](docs/config-driven-architecture.md).
 
 Use [docs/demo-guide.md](docs/demo-guide.md) for the customer demo checklist,
 talk track, and PoC limitations.
@@ -106,4 +105,4 @@ examples are `AGENT_MEMORY_LLM_API_KEY` and
 
 ## Agent Memory Provider Status
 
-The Agent Memory stack expects a Redis Cloud Terraform provider build that includes `rediscloud_agent_memory` and `rediscloud_agent_memory_api_key`. During the PoC, use the local provider override documented in [docs/config-driven-architecture.md](docs/config-driven-architecture.md). Once Agent Memory support is available in the official provider, remove the override and use the normal provider installation flow.
+The Agent Memory stack expects a Redis Cloud Terraform provider build that includes `rediscloud_agent_memory` and `rediscloud_agent_memory_api_key`. During the PoC, the config workflow can build that provider from the Agent Memory branch before running Terraform. Once Agent Memory support is available in the official provider, use `rediscloud_provider_source = registry` in the workflow and rely on the normal provider installation flow.
