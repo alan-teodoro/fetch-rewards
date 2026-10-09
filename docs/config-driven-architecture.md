@@ -20,10 +20,11 @@ any customer-specific environment label. This allows multiple dev or prod
 subscriptions without changing the runner. Production files should follow the
 same pattern once the customer confirms names, regions, billing, and networking.
 
-The checked-in `demo-ai-us-east-1.json` file is intentionally verbose. It shows
-every configuration key currently supported by the subscription, database, and
-Agent Memory Terraform stacks. Customers can use it as the demo input and then
-remove unused fields as their production config stabilizes.
+The checked-in `demo-ai-us-east-1.json` file is intentionally verbose, but it
+uses platform-managed Agent Memory models so it can run without model-provider
+secrets. Customers can use it as the demo input and then remove unused fields as
+their production config stabilizes. The `qa-agent-memory-byo-models-us-east-1.json`
+file shows the customer-managed LLM and embedding shape.
 
 ## Resource Modes
 

@@ -92,22 +92,6 @@
       "database": "shared_agent_memory",
       "short_term_ttl_seconds": 86400,
       "long_term_ttl_seconds": 31536000,
-      "llm": {
-        "provider": "openai",
-        "model": "gpt-4o-mini",
-        "credentials": {
-          "type": "apiKey",
-          "api_key_env_var": "AGENT_MEMORY_LLM_API_KEY"
-        }
-      },
-      "embedding": {
-        "provider": "openai",
-        "model": "text-embedding-3-small",
-        "credentials": {
-          "type": "apiKey",
-          "api_key_env_var": "AGENT_MEMORY_EMBEDDING_API_KEY"
-        }
-      },
       "extraction_cadence_seconds": 300,
       "summarization": {
         "enabled": true,

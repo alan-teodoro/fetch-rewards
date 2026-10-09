@@ -23,8 +23,9 @@ time.
 
 3. Show secret handling.
    - Redis Cloud account API keys are GitHub secrets.
-   - Customer-managed LLM and embedding credentials are referenced by env var
-     name, for example `AGENT_MEMORY_LLM_API_KEY`.
+   - The default demo uses platform-managed Agent Memory models. If a config
+     uses customer-managed LLM and embedding models, their credentials are
+     referenced by env var name, for example `AGENT_MEMORY_LLM_API_KEY`.
    - Agent Memory data-plane API keys are different from Redis Cloud account
      API keys. Terraform marks them sensitive and does not print them.
 
@@ -78,12 +79,20 @@ done
 Render the demo config:
 
 ```bash
+python3 scripts/rediscloud_config.py render \
+  --config configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json \
+  --out-dir .generated/rediscloud/demo-ai-us-east-1
+```
+
+Render the BYO model example only when the model-provider secrets are available:
+
+```bash
 export AGENT_MEMORY_LLM_API_KEY="<model-provider-api-key>"
 export AGENT_MEMORY_EMBEDDING_API_KEY="<embedding-provider-api-key>"
 
 python3 scripts/rediscloud_config.py render \
-  --config configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json \
-  --out-dir .generated/rediscloud/demo-ai-us-east-1
+  --config configs/fetch-rewards/subscriptions/qa-agent-memory-byo-models-us-east-1.json \
+  --out-dir .generated/rediscloud/qa-agent-memory-byo-models-us-east-1
 ```
 
 The generated files under `.generated/` are runtime artifacts and should not be
