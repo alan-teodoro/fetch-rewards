@@ -64,6 +64,15 @@ DATABASE_FIELDS = {
     "enable_resource_tags",
 }
 
+DATABASE_ALERT_NAMES = {
+    "dataset-size",
+    "throughput-higher-than",
+    "throughput-lower-than",
+    "latency",
+    "syncsource-error",
+    "syncsource-lag",
+}
+
 AGENT_MEMORY_FIELDS = {
     "short_term_ttl_seconds",
     "long_term_ttl_seconds",
@@ -303,6 +312,17 @@ def load_and_validate(path: Path) -> dict[str, Any]:
             raise ConfigError(f"$.databases.{key}.name is required for managed databases.")
         if mode == "external" and "name" not in database and "database_id" not in database:
             raise ConfigError(f"$.databases.{key} must set name or database_id when mode is external.")
+        alerts = database.get("alerts", [])
+        if not isinstance(alerts, list):
+            raise ConfigError(f"$.databases.{key}.alerts must be a list.")
+        for index, alert in enumerate(alerts):
+            alert = require_object(f"$.databases.{key}.alerts[{index}]", alert)
+            alert_name = require_string(f"$.databases.{key}.alerts[{index}].name", alert.get("name"))
+            if alert_name not in DATABASE_ALERT_NAMES:
+                raise ConfigError(
+                    f"$.databases.{key}.alerts[{index}].name must be one of: "
+                    f"{', '.join(sorted(DATABASE_ALERT_NAMES))}."
+                )
 
     agent_memory_stores = optional_object("$.agent_memory_stores", config.get("agent_memory_stores"))
     referenced_databases: set[str] = set()

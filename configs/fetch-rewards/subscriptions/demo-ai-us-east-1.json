@@ -67,10 +67,6 @@
         {
           "name": "latency",
           "value": 100
-        },
-        {
-          "name": "connections-limit",
-          "value": 80
         }
       ],
       "remote_backup": null,
