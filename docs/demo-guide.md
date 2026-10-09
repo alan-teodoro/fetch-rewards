@@ -37,6 +37,7 @@ time.
 
 5. Run `apply`.
    - Set `operation = apply` only after the plan summary looks correct.
+   - Approve the `dev` environment checkpoint.
    - The workflow applies by dependency phase: subscription, databases, then
      Agent Memory.
    - Each phase is planned before any saved plan in that phase is applied.

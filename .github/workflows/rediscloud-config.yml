@@ -49,7 +49,25 @@ env:
   AGENT_MEMORY_EMBEDDING_API_KEY: ${{ secrets.AGENT_MEMORY_EMBEDDING_API_KEY }}
 
 jobs:
+  approve_apply:
+    if: inputs.operation == 'apply'
+    runs-on: ubuntu-latest
+    environment:
+      name: dev
+
+    steps:
+      - name: Confirm config apply request
+        run: |
+          {
+            echo "## Redis Cloud config apply approval"
+            echo
+            echo "- Config: \`${{ inputs.config_path }}\`"
+            echo "- Operation: \`${{ inputs.operation }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   run:
+    needs: approve_apply
+    if: ${{ always() && (inputs.operation != 'apply' || needs.approve_apply.result == 'success') }}
     runs-on: ${{ vars.REDISCLOUD_RUNNER || 'ubuntu-latest' }}
 
     steps:

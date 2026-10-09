@@ -93,11 +93,12 @@ Use the focused manual workflows:
   destroys managed resources in reverse dependency order: Agent Memory,
   databases, then the subscription when the config manages it.
 
-The destroy workflow uses the `dev` GitHub environment as the human approval
-checkpoint. The apply workflow blocks Agent Memory delete/replace plans so
-intentional Agent Memory cleanup happens through the destroy workflow. Terraform
-plan summaries are written before apply or destroy, then Terraform applies the
-saved plan.
+The apply workflow uses the `dev` GitHub environment as the human approval
+checkpoint when `operation = apply`; `operation = plan` runs without approval.
+The destroy workflow also uses the `dev` approval checkpoint. The apply
+workflow blocks Agent Memory delete/replace plans so intentional Agent Memory
+cleanup happens through the destroy workflow. Terraform plan summaries are
+written before apply or destroy, then Terraform applies the saved plan.
 
 The apply workflow exposes `config_path`, `operation`, and temporary
 provider-source inputs while Agent Memory provider support is unreleased. The

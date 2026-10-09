@@ -90,10 +90,11 @@ Set it to the `managed_github_actions_role_arns.prod` output, or to an existing 
 The workflows assume a single GitHub Actions OIDC role, stored in `AWS_GITHUB_ACTIONS_ROLE_ARN`. GitHub environments are not required for OIDC.
 
 Create a GitHub environment named `dev` and configure required reviewers for
-it. The **Redis Cloud Config Destroy** workflow always uses this environment
-before destroying resources. The **Redis Cloud Config Apply** workflow blocks
-Agent Memory delete/replace plans; use the destroy workflow for intentional
-destructive cleanup.
+it. The **Redis Cloud Config Apply** workflow uses this environment when
+`operation = apply`; `operation = plan` runs without approval. The **Redis Cloud
+Config Destroy** workflow always uses this environment before destroying
+resources. The apply workflow also blocks Agent Memory delete/replace plans; use
+the destroy workflow for intentional destructive cleanup.
 
 The subscription stack defaults to Redis Cloud credit-card billing and looks up the saved payment method by card type and last four digits, matching the current PS test account baseline. For a customer account, update the defaults in `stacks/subscription/variables.tf` or override them with repository variables.
 
@@ -177,6 +178,10 @@ In `apply` mode, each phase is fully planned before the saved plans for that
 phase are applied. This catches plan failures across all databases before any
 database is applied, and catches Agent Memory plan or destroy-guard failures
 before any Agent Memory service is applied.
+
+The workflow requires `dev` environment approval before `operation = apply`
+runs. Use `operation = plan` first when you want to inspect changes without an
+approval checkpoint.
 
 The workflow supports managed and external resources in the same file. Use `external` for existing subscriptions or databases that Terraform should reference but not create.
 
