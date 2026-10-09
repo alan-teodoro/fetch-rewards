@@ -225,6 +225,41 @@ jobs:
           role-to-assume: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
           aws-region: ${{ env.TF_STATE_REGION_NAME }}
 
+      - name: Validate Terraform state prefix access
+        env:
+          RENDER_DIR: .generated/rediscloud/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TF_STATE_BUCKET_NAME:-}" ]; then
+            echo "TF_STATE_BUCKET repository variable must be configured." >&2
+            exit 1
+          fi
+
+          tmp_file="${RUNNER_TEMP}/terraform-state-prefix-check"
+          : > "${tmp_file}"
+
+          manifest="${RENDER_DIR}/manifest.json"
+          jq -r '
+            [
+              .subscription.state_key,
+              (.databases[]? | select(.mode == "managed") | .state_key),
+              (.agent_memory_stores[]? | select(.mode == "managed") | .state_key)
+            ] | .[]
+          ' "${manifest}" | while read -r state_key; do
+            key="${state_key}.github-actions-permission-check-${GITHUB_RUN_ID}.tflock"
+            aws s3api put-object \
+              --bucket "${TF_STATE_BUCKET_NAME}" \
+              --key "${key}" \
+              --body "${tmp_file}" >/dev/null
+            aws s3api head-object \
+              --bucket "${TF_STATE_BUCKET_NAME}" \
+              --key "${key}" >/dev/null
+            aws s3api delete-object \
+              --bucket "${TF_STATE_BUCKET_NAME}" \
+              --key "${key}" >/dev/null
+          done
+
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
 

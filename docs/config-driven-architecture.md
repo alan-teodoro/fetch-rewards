@@ -64,9 +64,9 @@ change over time, but changing a stable key should be treated as a migration.
 Example state layout:
 
 ```text
-subscriptions/dev-ai-us-east-1.tfstate
-databases/dev-ai-us-east-1/shared_agent_memory.tfstate
-agent-memory/dev-ai-us-east-1/shopping_agent.tfstate
+subscriptions/dev-ai-us-east-1/subscription.tfstate
+subscriptions/dev-ai-us-east-1/databases/shared_agent_memory.tfstate
+subscriptions/dev-ai-us-east-1/agent-memory/shopping_agent.tfstate
 ```
 
 ## Agent Memory Compatibility

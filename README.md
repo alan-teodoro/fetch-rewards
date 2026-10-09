@@ -32,7 +32,7 @@ stacks/database                             # Redis Cloud database and ACL stack
 stacks/agent-memory                         # Redis Agent Memory service and data-plane API keys
 ```
 
-Each stack keeps state isolated. The legacy workflows store subscription state under `subscriptions/<subscription>.tfstate` and database state under `databases/<subscription>/<database>.tfstate`. The config-driven workflow uses stable config keys, for example `subscriptions/dev-ai-us-east-1.tfstate`, `databases/dev-ai-us-east-1/shared_agent_memory.tfstate`, and `agent-memory/dev-ai-us-east-1/shopping_agent.tfstate`.
+Each stack keeps state isolated. The legacy workflows store subscription state under `subscriptions/<subscription>.tfstate` and database state under `databases/<subscription>/<database>.tfstate`. The config-driven workflow groups state by subscription config key, for example `subscriptions/dev-ai-us-east-1/subscription.tfstate`, `subscriptions/dev-ai-us-east-1/databases/shared_agent_memory.tfstate`, and `subscriptions/dev-ai-us-east-1/agent-memory/shopping_agent.tfstate`.
 
 ## Prerequisites
 

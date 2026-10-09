@@ -214,6 +214,22 @@ def copy_fields(source: dict[str, Any], field_names: set[str]) -> dict[str, Any]
     return {field: source[field] for field in sorted(field_names) if field in source}
 
 
+def subscription_state_prefix(config: dict[str, Any]) -> str:
+    return f"subscriptions/{config['subscription_key']}"
+
+
+def subscription_state_key(config: dict[str, Any]) -> str:
+    return f"{subscription_state_prefix(config)}/subscription.tfstate"
+
+
+def database_state_key(config: dict[str, Any], database_key: str) -> str:
+    return f"{subscription_state_prefix(config)}/databases/{database_key}.tfstate"
+
+
+def agent_memory_state_key(config: dict[str, Any], store_key: str) -> str:
+    return f"{subscription_state_prefix(config)}/agent-memory/{store_key}.tfstate"
+
+
 def validate_env_var_name(path: str, value: str) -> None:
     if not ENV_VAR_PATTERN.fullmatch(value):
         raise ConfigError(f"{path} must be a valid environment variable name.")
@@ -420,7 +436,7 @@ def render_subscription(config: dict[str, Any], out_dir: Path, manifest: dict[st
     path = out_dir / "subscription.auto.tfvars.json"
     write_json(path, tfvars)
     manifest["subscription"]["tfvars_path"] = str(path)
-    manifest["subscription"]["state_key"] = f"subscriptions/{config['subscription_key']}.tfstate"
+    manifest["subscription"]["state_key"] = subscription_state_key(config)
 
 
 def render_database(
@@ -437,7 +453,7 @@ def render_database(
         "mode": mode,
         "name": database_name,
         "database_id": database.get("database_id"),
-        "state_key": f"databases/{config['subscription_key']}/{database_key}.tfstate",
+        "state_key": database_state_key(config, database_key),
     }
 
     if mode != "managed":
@@ -474,7 +490,7 @@ def render_agent_memory(
         "mode": mode,
         "name": store_name,
         "database_key": store.get("database"),
-        "state_key": f"agent-memory/{config['subscription_key']}/{store_key}.tfstate",
+        "state_key": agent_memory_state_key(config, store_key),
         "api_key_secret_refs": {},
         "model_credential_env_vars": {},
     }
@@ -548,7 +564,7 @@ def build_manifest(config: dict[str, Any], config_path: Path) -> dict[str, Any]:
         "subscription": {
             "mode": config["_normalized"]["subscription_mode"],
             "name": config["_normalized"]["subscription_name"],
-            "state_key": f"subscriptions/{config['subscription_key']}.tfstate",
+            "state_key": subscription_state_key(config),
         },
         "databases": [],
         "agent_memory_stores": [],
