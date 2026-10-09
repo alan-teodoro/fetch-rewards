@@ -31,7 +31,7 @@ time.
 
 4. Run `plan`.
    - Use **Actions > Redis Cloud Config Apply > Run workflow**.
-   - Set `config_path` to the demo config or to the customer-specific QA config.
+   - Set `config_path` to the demo config or to the customer-specific config.
    - Set `operation = plan`.
    - Review the GitHub Actions summary before apply.
 
@@ -55,10 +55,8 @@ time.
 - Redis Cloud secrets are configured:
   - `REDISCLOUD_ACCESS_KEY`
   - `REDISCLOUD_SECRET_KEY`
-- If using QA credentials, also configure:
-  - `REDISCLOUD_ACCESS_KEY_QA`
-  - `REDISCLOUD_SECRET_KEY_QA`
-  - `REDISCLOUD_URL_QA`
+- Leave `REDISCLOUD_URL` unset for the public Redis Cloud API. Set it only
+  when intentionally targeting a non-public Redis Cloud API endpoint.
 - If using customer-managed models, configure:
   - `AGENT_MEMORY_LLM_API_KEY`
   - `AGENT_MEMORY_EMBEDDING_API_KEY`
@@ -84,15 +82,16 @@ python3 scripts/rediscloud_config.py render \
   --out-dir .generated/rediscloud/demo-ai-us-east-1
 ```
 
-Render the BYO model example only when the model-provider secrets are available:
+Render configs that use customer-managed models only when the model-provider
+secrets are available:
 
 ```bash
 export AGENT_MEMORY_LLM_API_KEY="<model-provider-api-key>"
 export AGENT_MEMORY_EMBEDDING_API_KEY="<embedding-provider-api-key>"
 
 python3 scripts/rediscloud_config.py render \
-  --config configs/fetch-rewards/subscriptions/qa-agent-memory-byo-models-us-east-1.json \
-  --out-dir .generated/rediscloud/qa-agent-memory-byo-models-us-east-1
+  --config configs/fetch-rewards/subscriptions/<config-with-customer-managed-models>.json \
+  --out-dir .generated/rediscloud/customer-managed-models
 ```
 
 The generated files under `.generated/` are runtime artifacts and should not be
@@ -101,16 +100,18 @@ committed.
 ## Safe Demo Defaults
 
 - Start with `operation = plan`.
-- Keep `allow_agent_memory_destroy = false`.
 - Use `external` mode for customer resources that already exist and should not
   be managed by this PoC.
 - Do not remove a resource from JSON expecting Terraform to destroy it. The PoC
   intentionally avoids implicit deletes from config removal.
+- Use **Redis Cloud Config Destroy** with the same `config_path` and
+  `confirm_destroy = true` for intentional cleanup.
 
 ## Current PoC Limits
 
-- The config-driven workflow can create and update resources. Config-driven
-  destroy is intentionally not automated yet.
+- The config-driven apply workflow creates and updates resources. The separate
+  config-driven destroy workflow cleans up managed resources from the same JSON
+  file after explicit confirmation and environment approval.
 - Publishing generated Agent Memory data-plane API keys to the referenced
   `secret_ref` is still a follow-up step.
 - While Agent Memory support is not in the official Redis Cloud Terraform

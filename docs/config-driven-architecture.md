@@ -9,10 +9,9 @@ those databases.
 
 ```text
 configs/fetch-rewards/subscriptions/
+  demo-agent-memory-playground-us-east-1.json
   demo-ai-us-east-1.json
   dev-ai-us-east-1.json
-  qa-agent-memory-byo-models-us-east-1.json
-  qa-agent-memory-smoke-us-east-1.json
 ```
 
 Use one file per subscription. The `environment` field can be `dev`, `prod`, or
@@ -23,8 +22,9 @@ same pattern once the customer confirms names, regions, billing, and networking.
 The checked-in `demo-ai-us-east-1.json` file is intentionally verbose, but it
 uses platform-managed Agent Memory models so it can run without model-provider
 secrets. Customers can use it as the demo input and then remove unused fields as
-their production config stabilizes. The `qa-agent-memory-byo-models-us-east-1.json`
-file shows the customer-managed LLM and embedding shape.
+their production config stabilizes. Customer-managed LLM and embedding configs
+use the same shape, but reference model-provider credentials by environment
+variable name rather than storing secrets in JSON.
 
 ## Resource Modes
 
@@ -174,27 +174,27 @@ from the Agent Memory provider branch. This lets the demo use the production
 Redis Cloud API with a provider that has not been published to the Terraform
 Registry yet.
 
-The config workflow exposes these inputs:
+The config workflows expose these provider inputs while Agent Memory support is
+unreleased:
 
 ```text
 rediscloud_provider_source     = branch
-rediscloud_provider_repository = RedisLabs/terraform-provider-rediscloud
 rediscloud_provider_ref        = alan/agent-memory-terraform-provider
 ```
 
 When `rediscloud_provider_source` is `branch`, the workflow checks out the
-provider repository, builds the provider binary, and writes a temporary
-Terraform CLI `dev_overrides` configuration that points `RedisLabs/rediscloud`
-to that binary. This is intentionally a workflow-local override; no generated
-provider binary or Terraform CLI config is committed.
+fixed Redis Cloud provider repository, builds the provider binary, and writes a
+temporary Terraform CLI `dev_overrides` configuration that points
+`RedisLabs/rediscloud` to that binary. This is intentionally a workflow-local
+override; no generated provider binary or Terraform CLI config is committed.
 
 If the provider branch lives in a private repository or fork, configure the
 `REDISCLOUD_PROVIDER_CHECKOUT_TOKEN` repository secret with read access to that
 repository.
 
 Once the provider is official, set `rediscloud_provider_source` to `registry`
-and rely on the version constraint in `stacks/agent-memory/versions.tf`.
+and rely on the version constraint in `stacks/agent-memory/versions.tf`. In
+registry mode the branch/ref input is ignored.
 
 The Redis Cloud Terraform provider also honors `REDISCLOUD_URL`. Use it only
-for QA or internal API environments; leave it unset for the public Redis Cloud
-API.
+for internal API environments; leave it unset for the public Redis Cloud API.
