@@ -163,8 +163,23 @@ The manifest tells any runner which stack tfvars to apply and which remote state
 key to use. GitHub Actions should be a thin wrapper around the same commands.
 The workflow applies by dependency phase: subscription, databases, then Agent
 Memory. In `apply` mode, every stack in a phase is planned before any saved plan
-from that phase is applied. In `plan` mode, downstream managed stacks are
-skipped when they depend on a managed resource that does not exist yet.
+from that phase is applied. In `plan` mode, the runner inspects each dependency
+plan. A managed subscription or database that already exists can be used for
+downstream plans, including when its settings are updated in place. Downstream
+stacks are skipped when their subscription or database is being created,
+replaced, or renamed, because the target name is not available until apply.
+
+The apply and destroy workflows share one concurrency group so operations from
+different config paths cannot modify shared infrastructure at the same time.
+
+For selective cleanup, the destroy workflow accepts `agent_memory_key`, such
+as `support_agent`. It validates that the key exists and is managed before
+approval, then renders only that Agent Memory stack as a destroy target.
+Subscription and database dependencies are referenced as external for this
+run, preserving their existing state keys and lifecycle in the original config.
+The original JSON is not rewritten. Remove the deleted entry from the desired
+config after destroy succeeds, or a later apply will create it again. An empty
+selector retains the complete managed-resource cleanup behavior.
 
 ## Agent Memory Provider During the PoC
 

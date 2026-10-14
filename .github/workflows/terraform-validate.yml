@@ -53,6 +53,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Test config and workflow lifecycle behavior
+        run: python3 -m unittest discover -s tests -v
+
       - name: Validate subscription configs
         run: |
           found=false

@@ -35,7 +35,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: rediscloud-config-${{ inputs.config_path }}
+  group: rediscloud-infrastructure
   cancel-in-progress: false
 
 env:
@@ -244,6 +244,8 @@ jobs:
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
 
       - name: Plan and apply rendered config
         env:
@@ -259,6 +261,9 @@ jobs:
 
           manifest="${RENDER_DIR}/manifest.json"
           subscription_mode="$(jq -r '.subscription.mode' "${manifest}")"
+          subscription_status="ready"
+          database_status_file="${RUNNER_TEMP}/rediscloud-database-status.json"
+          printf '{}\n' > "${database_status_file}"
           planned_stacks_file="${RUNNER_TEMP}/rediscloud-planned-stacks.tsv"
           : > "${planned_stacks_file}"
 
@@ -347,6 +352,12 @@ jobs:
             printf '%s\t%s\t%s\t%s\n' "${phase}" "${title}" "${stack_dir}" "${plan_name}" >> "${planned_stacks_file}"
           }
 
+          record_database_status() {
+            jq --arg key "$1" --arg status "$2" '.[$key] = $status' \
+              "${database_status_file}" > "${database_status_file}.tmp"
+            mv "${database_status_file}.tmp" "${database_status_file}"
+          }
+
           plan_stack() {
             local phase="$1"
             local title="$2"
@@ -414,13 +425,21 @@ jobs:
           fi
           apply_phase "subscription"
 
+          if [ "${OPERATION}" = "plan" ] && [ "${subscription_mode}" = "managed" ]; then
+            subscription_status="$(python3 scripts/rediscloud_plan.py \
+              --plan stacks/subscription/subscription.tfplan.json \
+              --resource-type rediscloud_subscription)"
+          fi
+
           while read -r database; do
-            if [ "${OPERATION}" = "plan" ] && [ "${subscription_mode}" = "managed" ]; then
+            database_key="$(jq -r '.key' <<<"${database}")"
+            record_database_status "${database_key}" "pending"
+            if [ "${OPERATION}" = "plan" ] && [ "${subscription_status}" != "ready" ]; then
               {
                 echo "## Terraform plan: database $(jq -r '.name' <<<"${database}")"
                 echo
-                echo "Skipped in plan-only mode because it depends on managed subscription \`$(jq -r '.subscription.name' "${manifest}")\`."
-                echo "Run apply after reviewing the subscription plan, or mark the subscription as external after it exists."
+                echo "Skipped in plan-only mode because subscription \`$(jq -r '.subscription.name' "${manifest}")\` is being created, replaced, or renamed."
+                echo "Run apply first; later plan runs include this database once its subscription is available."
               } >> "$GITHUB_STEP_SUMMARY"
               continue
             fi
@@ -433,6 +452,14 @@ jobs:
               "$(jq -r '.tfvars_path' <<<"${database}")" \
               "database-$(jq -r '.key' <<<"${database}").tfplan" \
               "false"
+
+            database_status="ready"
+            if [ "${OPERATION}" = "plan" ]; then
+              database_status="$(python3 scripts/rediscloud_plan.py \
+                --plan "stacks/database/database-${database_key}.tfplan.json" \
+                --resource-type rediscloud_subscription_database)"
+            fi
+            record_database_status "${database_key}" "${database_status}"
           done < <(jq -c '.databases[] | select(.mode == "managed")' "${manifest}")
           apply_phase "database"
 
@@ -443,12 +470,13 @@ jobs:
               database_mode="$(jq -r --arg key "${database_key}" '.databases[] | select(.key == $key) | .mode' "${manifest}")"
             fi
 
-            if [ "${OPERATION}" = "plan" ] && [ "${database_mode}" = "managed" ]; then
+            database_status="$(jq -r --arg key "${database_key}" '.[$key] // "pending"' "${database_status_file}")"
+            if [ "${OPERATION}" = "plan" ] && [ "${database_mode}" = "managed" ] && [ "${database_status}" != "ready" ]; then
               {
                 echo "## Terraform plan: agent-memory $(jq -r '.name' <<<"${store}")"
                 echo
-                echo "Skipped in plan-only mode because it depends on managed database \`${database_key}\`."
-                echo "Run apply after reviewing the subscription/database plans, or mark the database as external after it exists."
+                echo "Skipped in plan-only mode because database \`${database_key}\` or its subscription is being created, replaced, or renamed."
+                echo "Run apply first; later plan runs include this Agent Memory service once its database is available."
               } >> "$GITHUB_STEP_SUMMARY"
               continue
             fi

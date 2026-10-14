@@ -8,6 +8,8 @@ The workflows are manually triggered by the customer from GitHub Actions. They s
 - creating subscription-scoped infrastructure from a versioned JSON config file;
 - creating Agent Memory services that can share an eligible database;
 - destroying managed resources from the same versioned JSON config file;
+- deleting one Agent Memory service and its keys while preserving its backing
+  database, subscription, and other services;
 - bootstrapping the S3 remote state bucket and GitHub Actions OIDC access in AWS.
 
 ## Repository Layout
@@ -103,7 +105,8 @@ written before apply or destroy, then Terraform applies the saved plan.
 The apply workflow exposes `config_path`, `operation`, and temporary
 provider-source inputs while Agent Memory provider support is unreleased. The
 destroy workflow exposes `config_path`, `confirm_destroy`, and the same
-temporary provider-source selector. The provider repository is fixed in the
+temporary provider-source selector, plus optional `agent_memory_key` for
+selective deletion. The provider repository is fixed in the
 workflow; only the branch/tag/commit needs to be selected while using branch
 mode. The default demo file is
 [configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json](configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json),

@@ -9,10 +9,15 @@ on:
         type: string
         default: configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json
       confirm_destroy:
-        description: Confirm destroy of all managed resources in this config.
+        description: Confirm destroy of the selected Agent Memory or all managed resources.
         required: true
         type: boolean
         default: false
+      agent_memory_key:
+        description: Delete only this Agent Memory config key. Leave empty to destroy all managed resources.
+        required: false
+        type: string
+        default: ""
       rediscloud_provider_source:
         description: Use the official Registry provider or build the Agent Memory provider from a branch.
         required: true
@@ -32,7 +37,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: rediscloud-destroy-${{ inputs.config_path }}
+  group: rediscloud-infrastructure
   cancel-in-progress: false
 
 env:
@@ -50,14 +55,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Validate destroy confirmation
         env:
           CONFIRM_DESTROY: ${{ inputs.confirm_destroy }}
+          CONFIG_PATH: ${{ inputs.config_path }}
+          AGENT_MEMORY_KEY: ${{ inputs.agent_memory_key }}
         run: |
+          set -euo pipefail
           if [ "${CONFIRM_DESTROY}" != "true" ]; then
             echo "::error title=Destroy confirmation required::Set confirm_destroy to true before running this workflow."
             exit 1
           fi
+
+          case "${CONFIG_PATH}" in
+            configs/fetch-rewards/subscriptions/*.json) ;;
+            *) echo "Invalid subscription config path." >&2; exit 1 ;;
+          esac
+          python3 scripts/rediscloud_config.py validate-destroy \
+            --config "${CONFIG_PATH}" \
+            --agent-memory-key "${AGENT_MEMORY_KEY}"
 
   approve_destroy:
     needs: validate_request
@@ -67,12 +86,16 @@ jobs:
 
     steps:
       - name: Confirm config destroy request
+        env:
+          CONFIG_PATH: ${{ inputs.config_path }}
+          AGENT_MEMORY_KEY: ${{ inputs.agent_memory_key }}
         run: |
           {
             echo "## Redis Cloud config destroy approval"
             echo
-            echo "- Config: \`${{ inputs.config_path }}\`"
-            echo "- Confirm destroy: \`${{ inputs.confirm_destroy }}\`"
+            echo "- Config: \`${CONFIG_PATH}\`"
+            echo "- Agent Memory key: \`${AGENT_MEMORY_KEY:-all managed resources}\`"
+            echo "- Confirm destroy: \`true\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   destroy:
@@ -173,12 +196,14 @@ jobs:
         env:
           CONFIG_PATH: ${{ inputs.config_path }}
           RENDER_DIR: .generated/rediscloud/${{ github.run_id }}
+          AGENT_MEMORY_KEY: ${{ inputs.agent_memory_key }}
         run: |
           mkdir -p "$(dirname "${RENDER_DIR}")"
 
           python3 scripts/rediscloud_config.py validate --config "${CONFIG_PATH}"
-          python3 scripts/rediscloud_config.py render \
+          python3 scripts/rediscloud_config.py render-destroy \
             --config "${CONFIG_PATH}" \
+            --agent-memory-key "${AGENT_MEMORY_KEY}" \
             --out-dir "${RENDER_DIR}" > "${RENDER_DIR}.summary.json"
 
           {
@@ -188,6 +213,7 @@ jobs:
               "- Customer: `\(.customer)`",
               "- Environment: `\(.environment)`",
               "- Subscription key: `\(.subscription_key)`",
+              "- Destroy scope: `\(.destroy_scope)`",
               "- Subscription: `\(.subscription.name)` (`\(.subscription.mode)`)",
               "- Databases: `\(.databases | length)`",
               "- Agent Memory stores: `\(.agent_memory_stores | length)`"
@@ -244,6 +270,8 @@ jobs:
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
 
       - name: Destroy rendered config
         env:

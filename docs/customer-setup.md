@@ -183,6 +183,14 @@ The workflow requires `dev` environment approval before `operation = apply`
 runs. Use `operation = plan` first when you want to inspect changes without an
 approval checkpoint.
 
+Plan-only output includes downstream managed resources when their dependencies
+already exist. The runner skips them when a dependency is being created,
+replaced, or renamed. The approval checkpoint occurs before planning in apply mode;
+the workflow does not pause again between producing and applying saved plans.
+Rehearse configuration updates and an unchanged reapply before relying on the
+flow for a customer demonstration. See the maintenance example in the demo
+guide.
+
 The workflow supports managed and external resources in the same file. Use `external` for existing subscriptions or databases that Terraform should reference but not create.
 
 For external subscriptions, the config can include both `name` and
@@ -208,6 +216,9 @@ Common inputs:
 
 - `config_path`: the same subscription config file used for apply.
 - `confirm_destroy`: must be `true`.
+- `agent_memory_key`: optional stable config key, such as `support_agent`, to
+  destroy only that Agent Memory service and its keys. Leave empty to destroy
+  all managed resources in the config.
 - `rediscloud_provider_source`: keep `branch` while Agent Memory support is unreleased; switch to `registry` after the official provider includes the Agent Memory resources.
 - `rediscloud_provider_ref`: provider branch, tag, or commit used only when `rediscloud_provider_source` is `branch`.
 
@@ -224,3 +235,10 @@ workflow writes a Terraform destroy plan summary to the GitHub Actions summary
 and then applies the saved destroy plan file. Use this workflow for explicit
 cleanup instead of relying on implicit deletes from removing resources from the
 JSON file.
+
+For selective Agent Memory deletion, keep the service in the JSON until the
+destroy run succeeds, then remove its entry and commit the updated config. An
+apply while the deleted entry is still present recreates the service. Other
+Agent Memory services, the database, and the subscription are preserved when
+`agent_memory_key` is supplied. Unknown keys and external services are rejected
+before the approval checkpoint.

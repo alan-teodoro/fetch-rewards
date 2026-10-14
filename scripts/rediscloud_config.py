@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import os
 import re
@@ -571,10 +572,36 @@ def build_manifest(config: dict[str, Any], config_path: Path) -> dict[str, Any]:
     }
 
 
-def render(config_path: Path, out_dir: Path) -> dict[str, Any]:
+def select_destroy_config(config: dict[str, Any], agent_memory_key: str | None) -> dict[str, Any]:
+    if not agent_memory_key:
+        return config
+    stores = config.get("agent_memory_stores", {})
+    if agent_memory_key not in stores:
+        raise ConfigError(f"Unknown Agent Memory key {agent_memory_key!r} for selective destroy.")
+    store = stores[agent_memory_key]
+    if get_mode(f"$.agent_memory_stores.{agent_memory_key}", store) != "managed":
+        raise ConfigError(f"Agent Memory {agent_memory_key!r} is external and cannot be destroyed by this config.")
+    selected = deepcopy(config)
+    selected["subscription"]["mode"] = "external"
+    selected["_normalized"]["subscription_mode"] = "external"
+    selected["databases"] = {
+        key: {**database, "mode": "external"}
+        for key, database in selected.get("databases", {}).items()
+    }
+    selected["agent_memory_stores"] = {agent_memory_key: deepcopy(store)}
+    return selected
+
+
+def render(config_path: Path, out_dir: Path, *, destroy: bool = False, agent_memory_key: str | None = None) -> dict[str, Any]:
     config = load_and_validate(config_path)
+    if agent_memory_key and not destroy:
+        raise ConfigError("Selecting an Agent Memory key is only supported for destroy rendering.")
+    if destroy:
+        config = select_destroy_config(config, agent_memory_key)
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = build_manifest(config, config_path)
+    if destroy:
+        manifest["destroy_scope"] = "agent_memory" if agent_memory_key else "all_managed_resources"
 
     render_subscription(config, out_dir, manifest)
 
@@ -613,6 +640,19 @@ def render_command(args: argparse.Namespace) -> None:
     print(json.dumps(manifest, indent=2, sort_keys=True))
 
 
+def validate_destroy_command(args: argparse.Namespace) -> None:
+    config = select_destroy_config(load_and_validate(args.config), args.agent_memory_key)
+    print(json.dumps({
+        "valid": True,
+        "destroy_scope": "agent_memory" if args.agent_memory_key else "all_managed_resources",
+        "agent_memory_keys": [key for key, store in config.get("agent_memory_stores", {}).items() if get_mode(key, store) == "managed"],
+    }, indent=2, sort_keys=True))
+
+
+def render_destroy_command(args: argparse.Namespace) -> None:
+    print(json.dumps(render(args.config, args.out_dir, destroy=True, agent_memory_key=args.agent_memory_key), indent=2, sort_keys=True))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate and render Redis Cloud subscription config files.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -625,6 +665,17 @@ def main() -> None:
     render_parser.add_argument("--config", required=True, type=Path)
     render_parser.add_argument("--out-dir", required=True, type=Path)
     render_parser.set_defaults(func=render_command)
+
+    validate_destroy_parser = subparsers.add_parser("validate-destroy", help="Validate the complete config or an Agent Memory key for destroy.")
+    validate_destroy_parser.add_argument("--config", required=True, type=Path)
+    validate_destroy_parser.add_argument("--agent-memory-key", default=None)
+    validate_destroy_parser.set_defaults(func=validate_destroy_command)
+
+    render_destroy_parser = subparsers.add_parser("render-destroy", help="Render all managed resources or only one Agent Memory stack for destroy.")
+    render_destroy_parser.add_argument("--config", required=True, type=Path)
+    render_destroy_parser.add_argument("--out-dir", required=True, type=Path)
+    render_destroy_parser.add_argument("--agent-memory-key", default=None)
+    render_destroy_parser.set_defaults(func=render_destroy_command)
 
     args = parser.parse_args()
     try:
