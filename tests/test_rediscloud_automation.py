@@ -73,6 +73,21 @@ with open(os.environ['MOCK_EVENTS'],'a') as f:
 
 
 class ConfigTests(unittest.TestCase):
+    def test_missing_or_empty_field_description_fails_config_validation(self):
+        original = json.loads(CONFIG_PATH.read_text())
+        for value in (None, "", " ", "x" * 201):
+            with self.subTest(description=value), tempfile.TemporaryDirectory() as tmp:
+                config = deepcopy(original)
+                field = config["agent_memory_stores"]["shopping_agent"]["custom_memory_types"][0]["fields"][0]
+                if value is None:
+                    field.pop("description")
+                else:
+                    field["description"] = value
+                path = Path(tmp) / "config.json"
+                path.write_text(json.dumps(config))
+                with self.assertRaisesRegex(config_module.ConfigError, r"fields\[0\]\.description"):
+                    config_module.load_and_validate(path)
+
     def test_selective_destroy_preserves_original_and_targets_one_state(self):
         original = config_module.load_and_validate(CONFIG_PATH)
         before = deepcopy(original)

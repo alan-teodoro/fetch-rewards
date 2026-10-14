@@ -141,6 +141,24 @@ lifecycle config, validate, commit and push, then run plan and apply:
 Each service has a separate state and keys while sharing the same database.
 Use additional stable map keys to add more services with this pattern.
 
+Every custom memory type and each structured field must include a non-empty
+`description` of at most 200 characters. The config validator checks this
+before Terraform planning. For example:
+
+```json
+{
+  "name": "shopping_goal",
+  "description": "Durable shopping goals",
+  "fields": [
+    {
+      "name": "category",
+      "description": "Product category the user plans to shop for",
+      "type": "str"
+    }
+  ]
+}
+```
+
 ## Presentation Timing
 
 | Time | Show | Customer takeaway |
