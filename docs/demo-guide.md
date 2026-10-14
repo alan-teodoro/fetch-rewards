@@ -5,6 +5,18 @@ The goal of the demo is to show that infrastructure can be reviewed as a JSON
 desired-state file, applied through GitHub Actions, and evolved safely over
 time.
 
+The same file can describe multiple services sharing one database. This is the
+relationship after adding the second service in the demo:
+
+```mermaid
+flowchart LR
+    Config["Versioned JSON"] --> Actions["GitHub Actions"]
+    Actions --> Subscription["Subscription"]
+    Subscription --> Database["Database"]
+    Database --> Shopping["Agent Memory: shopping_agent"]
+    Database --> Support["Agent Memory: support_agent"]
+```
+
 ## Demo Story
 
 1. Show the config file.
@@ -37,6 +49,9 @@ time.
      is open, select `feature/agent-memory-config-driven`.
    - Set `config_path` to the demo config or to the customer-specific config.
    - Set `operation = plan`.
+   - Set `rediscloud_provider_source = branch` and use the rehearsed provider
+     commit `a0c7d29254b6f2f115bbe1e454d2926fbe5a678e` as
+     `rediscloud_provider_ref`, including for apply and destroy.
    - Review the GitHub Actions summary before apply.
    - A fresh creation plan skips stacks whose dependencies are being created,
      replaced, or renamed. Once the dependencies exist, plan includes the
@@ -89,6 +104,7 @@ Use one provider commit throughout the rehearsal and demo.
 | Fresh apply with one service | One subscription, one database with ACL resources, and one Agent Memory service with a runtime key are created. |
 | Plan with existing managed dependencies | Subscription, database, and Agent Memory all appear in the plan. |
 | Add a second service | Only the new Agent Memory stack is created; existing resource IDs are preserved. |
+| Rename subscription | Only the subscription name updates; dependency lookups continue working and resource IDs stay unchanged before final cleanup. |
 | Update database alert, memory TTL, and extraction cadence | Relevant resources update in place; IDs are preserved. |
 | Reapply unchanged | All stacks report no changes. |
 | Delete only the second service | Its store and runtime keys disappear; the first service, database, and subscription remain. |
@@ -155,7 +171,11 @@ before Terraform planning. For example:
       "description": "Product category the user plans to shop for",
       "type": "str"
     }
-  ]
+  ],
+  "extraction_strategy": {
+    "enabled": true,
+    "prompt": "Extract lasting shopping goals explicitly stated by the user."
+  }
 }
 ```
 
@@ -171,7 +191,29 @@ before Terraform planning. For example:
 
 Rehearse provisioning beforehand and keep the successful run links available.
 Use the live run status and recorded results if provisioning takes longer than
-the presentation slot.
+the presentation slot. The 15-minute outline uses recorded creation and
+maintenance results. Allow extra time if demonstrating every apply, approval,
+and selective deletion live. The customer requested cleanup after rehearsal: no subscription should remain
+overnight. Start creation on October 15 and allow approximately 18 minutes
+based on rehearsal; use the recorded fresh-create run while provisioning is
+in progress. After creation, use the one-service baseline for live config
+changes.
+
+Measured Terraform apply times from the first rehearsal help choose what to
+show live. These exclude provider build, initialization, planning, and approval:
+
+| Operation | Measured apply time |
+| --- | --- |
+| Fresh subscription | About 8 minutes 49 seconds |
+| Fresh database and ACL resources | About 4 minutes 43 seconds |
+| First Agent Memory and runtime key | About 10 seconds |
+| Add the second Agent Memory and key | About 6 seconds |
+| Update database alert | About 44 seconds |
+| Update Agent Memory settings | About 2 seconds |
+
+Complete workflow runs take longer. Use the recorded runs for creation if the
+presentation slot is short, and demonstrate Agent Memory maintenance live once
+the database is ready.
 
 ## Configuration Maintenance Example
 
@@ -233,8 +275,10 @@ another approval after those plans are created.
 - Rehearse from an empty demo state: create the subscription, database, and
   Agent Memory services, apply the maintenance example, and reapply unchanged.
   Record the run URLs, resource IDs, timings, and any unexpected changes.
-- Keep the demo resources available for the presentation. The destroy workflow
-  removes all managed resources in the selected config, including the
+- Clean up all rehearsal resources on October 14, as requested. Create the
+  subscription on October 15; allow approximately 18 minutes for provisioning
+  and keep the recorded successful runs available during the wait. The destroy
+  workflow removes all managed resources in the selected config, including the
   subscription when its mode is `managed`.
 - Confirm the database `source_ips` against the current Agent Memory endpoint
   egress IPs during rehearsal. The checked-in demo list reflects the previous
@@ -300,10 +344,54 @@ committed.
 
 ## Preparation Evidence — October 14, 2026
 
-The demo is scheduled for October 15. The following evidence establishes the
-current baseline; it does not replace a fresh create/update/reapply rehearsal.
+The demo is scheduled for October 15. Live lifecycle rehearsal uses the isolated
+`demo-lifecycle-us-east-1.json` configuration on
+`test/rediscloud-lifecycle-20261014`, with provider commit
+`a0c7d29254b6f2f115bbe1e454d2926fbe5a678e`. Apply and destroy runs require
+manual approval in the `dev` environment. The feature branch keeps the initial
+one-service configuration; rehearsal changes are isolated on the test branch.
 
-- [Terraform validation of the current commit, October 9](https://github.com/alan-teodoro/fetch-rewards/actions/runs/37981190429)
+### Current lifecycle results
+
+| Scenario | Evidence | Result |
+| --- | --- | --- |
+| Fresh plan | [38617126941](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38617126941) | Subscription creation previewed; downstream dependencies skipped. |
+| Fresh creation with one service | [38617459129](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38617459129) | Subscription, database, ACL resources, Agent Memory, and runtime key created. Provisioning took approximately 18 minutes; prepare resources before the presentation. |
+| Plan existing managed resources | [38620456809](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38620456809) | All three stacks planned with no changes. |
+| Add second service | [38621047847](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38621047847) | Only support-agent resources created; existing IDs and runtime key IDs preserved. |
+| Preview maintenance | [38623929266](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38623929266) | Two in-place updates, no creation or deletion. |
+| Apply maintenance | [38625993962](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38625993962) | Database alert and shopping-agent settings updated; subscription and both service IDs preserved. API verification confirmed alert 75, TTL 172800, cadence 120, new shopping_goal type, and changed preference extraction prompt. |
+| Reapply unchanged | [38626608300](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38626608300) | Four stacks reported no changes, with all IDs preserved. |
+| Existing subscription, new database and service | [38627130829](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38627130829) | Only the extra database and service were created. API comparison confirmed original resources and settings unchanged. |
+| Block Agent Memory replacement | [38628235213](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38628235213) | Expected failure in plan-only mode: replacement detected and rejected by the guard; no apply executed. The simulated apply regression separately verifies that no Agent Memory plan is applied in this case. |
+| Selective service deletion | [38628269393](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38628269393) | Four support-agent resources destroyed. API reads confirmed the service absent and all other resources and settings unchanged. |
+| Plan after deleting entry | [38628992929](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38628992929) | Three stacks reported no changes; the deleted service was not recreated. |
+| Re-add deleted service | [38629040005](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38629040005) | Four support-agent resources created under the same state key, with new service/key IDs. All other resources preserved. |
+| Reject invalid/external destroy selectors | [unknown key](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38629245848), [external resource](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38629405229) | Both failed in validate_request with the expected config errors; approval and destruction jobs were skipped. |
+| Existing database by name and ID | [38629438974](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38629438974) | Both services became READY in the same existing database. Only their Agent Memory states were created; all original resources were preserved. |
+| Cleanup with external database | [38629671278](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38629671278) | Only the two added service/key states were destroyed. API snapshot exactly matched the state before their creation; both databases and subscription preserved. |
+| Cleanup with external subscription | [38630078085](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38630078085) | Extra service and database states destroyed; API reads confirmed the subscription, original database, and two original service states preserved. |
+| Full cleanup | [38630760596](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38630760596) | Sixteen resources destroyed in order: shopping service, support service, database, subscription. API confirmed all demo stores, databases, and subscription absent. |
+| Validation CI | [38623603913](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38623603913) | Four Terraform stacks and 14 regression tests passed. |
+
+The first maintenance plan,
+[38622467198](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38622467198),
+failed before apply because the new `category` field lacked its required
+`description`. The example was corrected and config validation now rejects
+missing, empty, or overlong descriptions before Terraform runs. Development
+override warnings are expected when using the unreleased provider binary.
+
+The original lifecycle matrix has live evidence above, supplemented by local
+workflow simulations. Replacement was rejected in a real plan-only run; the
+local apply simulation verifies that no Agent Memory plan is applied when any
+service in its phase requires deletion or replacement. A second fresh one-service
+creation from the delivery branch is being checked, followed by a subscription
+rename test and final cleanup. The customer requested an empty environment
+overnight and subscription creation on October 15.
+
+### Earlier baseline evidence
+
+- [Baseline Terraform validation, October 9](https://github.com/alan-teodoro/fetch-rewards/actions/runs/37981190429)
   passed on commit `9c44806457974a977f4b3ba90a66ca278d4d9ada`.
 - [Fresh demo plan, October 14](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38614196232)
   passed against the same repository commit and provider commit
@@ -324,7 +412,7 @@ current baseline; it does not replace a fresh create/update/reapply rehearsal.
 - Local Terraform formatting and all four stack validations passed on
   October 14. Agent Memory validation used a freshly compiled local provider
   from commit `1c0b452`, with the expected development-override warning.
-- All five versioned configs passed validation and rendering. Rendering used
+- All five pre-existing configs passed validation and rendering. Rendering used
   dummy model credentials, verified isolated state keys and secret-free
   manifests, and enabled the default user for compatible managed databases.
 - Negative config checks rejected a disabled default user, an unknown database
