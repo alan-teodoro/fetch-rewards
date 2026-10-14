@@ -17,6 +17,152 @@ flowchart LR
     Database --> Support["Agent Memory: support_agent"]
 ```
 
+## October 15 Working Plan
+
+All times refer to America/Sao_Paulo. Let **T** be the presentation start;
+the exact start time and duration still need confirmation. The October 14
+rehearsal ended with all demo Redis Cloud resources removed. This document
+prepares tomorrow's work; it does not start provisioning or schedule a job.
+
+| Window | Work | Exit condition |
+| --- | --- | --- |
+| Early morning | Select the production candidate commit, review its changes, and run the additional provider tests below. | Every result has a commit, command/case, outcome, and evidence; failures are entered in the backlog. |
+| Morning, after mock tests | Exercise recovery, import, drift, and upgrade on disposable infrastructure. Repeat supported lifecycle operations for any provider change. | Resources have a single state owner; failures leave a documented recovery path and no unexplained orphans. |
+| By T minus 3 hours | End destructive experiments, classify unresolved findings, fix the presentation provider commit, and start provisioning. | Presentation commit selected; no critical finding affecting the demonstrated flows remains unresolved. |
+| By T minus 2 hours | Finish provisioning the presentation subscription, database, and one Agent Memory; rehearse adding, updating, and deleting the second agent. | API confirms active subscription/database and READY store; baseline IDs recorded and remaining plan has no changes. |
+| By T minus 90 minutes | Restore the one-agent baseline and freeze presentation configuration/provider changes. | Subscription, database, and shopping-agent IDs preserved; second agent explicitly destroyed and then removed from JSON. |
+| T minus 30 minutes | Check API status, unchanged plan, branch/SHA, approvals, and recorded fallback runs. | No pending destructive runs, no planned replacements, and the correct JSON revision is available in GitHub. |
+| T minus 15 minutes | Open the config, Actions, Redis Cloud, and selected rehearsal results. | Presentation can proceed without displaying credentials or Terraform state. |
+
+The advance provisioning window includes approval, builds, cloud delays, and
+recovery time; the observed approximately 18-minute creation is a measurement,
+not a deadline guarantee. If the meeting is earlier than these buffers allow,
+prioritize provisioning and stop expanding the morning test scope.
+
+Use separate names and `subscription_key` values for production-readiness
+experiments and the presentation. A proposed scratch namespace is
+`provider-readiness-20261015`; validate its configuration and networking before
+creating it. Never run failure injection, state-transfer experiments, provider
+upgrade trials, or full cleanup against the presentation namespace.
+
+Alan continues to approve each apply/destroy in the GitHub `dev` environment.
+Do not approve on his behalf or bypass that gate for disposable resources.
+Provision the presentation resources on October 15 and keep them available
+through the meeting; the October 14 cleanup instruction is not a request to
+destroy tomorrow's presentation environment before the presentation.
+
+### Candidate and evidence
+
+- Known rehearsal provider: `a0c7d29254b6f2f115bbe1e454d2926fbe5a678e`.
+- Local provider checkout observed on October 14:
+  `1c0b452695ea5dbfa3c8eaccb3d2ad3dfd60e0d9`. Its Agent Memory lifecycle has
+  not been established by the real runs recorded here. Select and review the
+  actual candidate tomorrow rather than assuming the local or remote branch
+  head is approved.
+- Preliminary comparison between those exact SHAs found no changes under
+  `provider/agentmemory`; `go.mod`/`go.sum` differ, including toolchain
+  `go1.26.6` to `go1.26.9` and indirect dependencies. The Redis Cloud SDK
+  requirement remains `v0.52.2-0.20261009181513-7ae7bef7c657` in that comparison.
+  This narrow source comparison does not replace candidate execution or a
+  review of the complete provider/dependency delta.
+- Delivery branch: `feature/agent-memory-config-driven` while PR #2 is open.
+- Presentation config:
+  `configs/fetch-rewards/subscriptions/demo-lifecycle-us-east-1.json`.
+- Keep provider source `branch` and explicitly enter the selected immutable
+  provider SHA for plan, apply, and destroy; do not rely on a moving default.
+- For each test record: case ID, provider and SDK commits/versions, Terraform
+  and Go versions, provider binary SHA-256, config commit, state prefix,
+  timestamps, expected/actual result, public resource IDs, and Actions URL or
+  sanitized local log. Never attach raw state, plans, generated credentials,
+  authorization headers, or secret-bearing tfvars to the report.
+
+### Additional provider tests
+
+These are **planned**, not passed. P0 items are required before a production
+recommendation for the tested scope. P1 items extend that assessment; an
+unexecuted case remains an explicit limitation. Morning time limits must not
+turn an unexecuted case into a pass or imply that production is approved.
+
+| ID | Priority / execution | Case and acceptance criteria |
+| --- | --- | --- |
+| Q01 | P0 / local | Pin and review the candidate delta from the rehearsed SHA. Run the Agent Memory package suite, race detector, vet, and the repository-required provider checks. Reproduce the October 14 passing baseline; report any new failure separately from tool/environment failures. |
+| Q02 | P0 / mock API | Successful create followed by transient 404, 500, connection loss, or malformed read response. A returned resource ID must remain recoverable in state; the next refresh/apply must converge without an unexplained duplicate. Verify the warning path as well as decoding/validation errors. |
+| Q03 | P0 / mock API | Lost create response, failed asynchronous task, 429/503, deadline exceeded, and cancellation. Trace provider and SDK behavior; ensure bounded termination, useful diagnostics, and no blind retry of a non-idempotent create. If an ID cannot be recovered, require an explicit reconciliation procedure. |
+| Q04 | P0 / mock API, then scratch | API-key failure after store creation; key/store deleted outside Terraform; parent store missing during key deletion. Reapply and destroy must converge or return a documented actionable error without stranding ownership. Confirm SDK error types before changing error handling. |
+| Q05 | P0 / mock API, then scratch | Update accepted by API but follow-up read fails. Refresh and retry must recover actual TTL, cadence, and type/strategy state without losing IDs, rotating unrelated keys, or duplicating custom types. |
+| Q06 | P0 / local + scratch | Use fake secret sentinels in API errors and diagnostics to check redaction; verify sensitive schema fields, normal output/log handling, state access, and credential scope. Review SDK error formatting too. Real secrets must never be echoed to perform this check. |
+| Q07 | P0 / scratch | Run the supported lifecycle on the candidate: create, add second store, update settings/types, unchanged reapply, selective delete/recreate, and cleanup. Verify API values, key IDs, state ownership, and preservation of external dependencies. Reuse today's successful scenario definitions. |
+| Q08 | P1 / scratch | Real import of a store and key metadata into a designated state, plus drift reconciliation. Plan an explicit ownership transfer with encrypted backup if Terraform already owns the object; never leave two active states managing it. A key import cannot recover its secret and must not silently rotate it. |
+| Q09 | P1 / scratch | Use state written by the rehearsed provider with the candidate, then check refresh/plan/update. No unexplained replacements, secret loss, or schema errors. Evaluate rollback separately; do not assume state written by a newer provider is safe for an older binary. |
+| Q10 | P1 / mock API + scratch | Unsupported type removal/redefinition, model changes, invalid TTL/cadence, and database changes must produce the intended error or explicit replacement plan. The automation must block destructive Agent Memory replacement before applying its phase. |
+| Q11 | P1 / scratch | Rotate only a disposable runtime key; verify the old key is revoked, the new key works, and other agents/keys retain IDs. Confirm the delivery procedure for the replacement secret before enabling rotation for customers. |
+| Q12 | P1 / separate service smoke | If time permits, use a disposable store/key for one synthetic data-plane write/read and a cross-store authorization check. Keep this separate from Terraform-provider acceptance and from a full load/isolation assessment of the Agent Memory service. |
+
+Starting local commands, executed tomorrow from an isolated checkout of the
+selected provider commit with mock credentials and the intended Terraform
+binary available to the test helper:
+
+```bash
+git rev-parse HEAD
+go version
+terraform version
+go test -count=1 ./provider/agentmemory
+go test -race -count=1 ./provider/agentmemory
+go vet ./provider/agentmemory
+```
+
+Review the provider repository's own contribution/CI instructions before
+expanding package selection: broad acceptance-test commands may require real
+account credentials. Do not infer that the 39 package tests plus 2 subtests
+already passed on an untested candidate. Any production verdict must list the
+exact tested scope and remaining gaps; it is not a claim of 100% safety.
+
+### Findings and improvement backlog
+
+Provider source paths below refer to `RedisLabs/terraform-provider-rediscloud`
+at the rehearsed commit. This is a preparation log, not a completed audit.
+When a case reproduces a defect, add reproduction, expected/actual behavior,
+severity, proposed fix, regression test, fixing commit, and retest evidence.
+
+| ID | Owner / priority | Status and next action |
+| --- | --- | --- |
+| B01 | Provider / P0 | **Risk to reproduce:** in `provider/agentmemory/resource_agent_memory_crud.go`, create saves state after reading/decoding the created object; a decoding diagnostic returns before `State.Set`. Test successful create plus invalid `databaseId` in the read response (Q02). Do not label this a confirmed orphan defect without reproduction. |
+| B02 | Provider + SDK / P0 | **Risk to reproduce:** create/key-create response loss and asynchronous errors may leave an object whose ID was not returned. Trace SDK task polling and idempotency before adding retries (Q03/Q04); document reconciliation for an ambiguous result. |
+| B03 | Provider + SDK / P0 | **Handling difference to investigate:** API-key Read handles both missing key and missing store; Delete explicitly handles only missing key in `resource_agent_memory_api_key_crud.go`. Test how the SDK maps a missing parent before proposing a fix (Q04). |
+| B04 | Provider + SDK / P0 | **Review pending:** CRUD diagnostics include `err.Error()`. Test fake-secret-bearing errors and inspect SDK/log redaction (Q06). The key schema already marks `api_key` sensitive; that alone does not prove every error/log path is redacted. |
+| B05 | Workflow / P1 | **Observed, cause unresolved:** run 38631611397 was cancelled overall despite successful jobs and three completed applies. Inspect cancellation events and the apply job's `always()` condition in `.github/workflows/rediscloud-config.yml`. Reproduce safely before changing semantics; this is not a confirmed provider failure. |
+| B06 | Workflow/integration / P1 | **Confirmed unfinished integration:** generated runtime keys are not automatically published to `secret_ref`. Define creation/import/rotation delivery and secret-manager access, then implement and test it if required for the customer handoff. This is not a provider CRUD defect. |
+| B07 | Provider documentation / P1 | **Confirmed constraint:** custom memory type definitions cannot be removed/redefined in the rehearsed version. Additions and extraction strategy edits work. Document supported edits and an explicit migration path; do not promise an unsupported in-place schema change. |
+| B08 | Provider release process / P1 | **Pending evidence:** compare the selected candidate with the tested SHA, record build provenance/checksum, dependency review results, and state compatibility (Q01/Q09). A newer branch head does not inherit the old commit's test results. |
+
+No provider source modification or defect reproduction is claimed by this
+planning update. Changes belong in the provider repository with focused
+regression coverage and a recorded retest against the resulting commit.
+
+## Presentation Run Sheet — October 15
+
+The full live sequence needs roughly 25–30 minutes with infrastructure already
+prepared. For a 15-minute slot, use the existing timing outline and recorded
+creation/maintenance runs rather than promising every live apply will finish
+inside that window. Adjust once the meeting duration is confirmed.
+
+| Step | Show and say | Evidence / guardrail |
+| --- | --- | --- |
+| 1. Configuration and ownership | “This file describes the subscription, databases, and agents. Terraform code is reused; your team maintains these values.” Show managed/external modes and stable map keys. | Open the committed lifecycle JSON and diagram. Keep state keys unchanged throughout. |
+| 2. Pipeline and creation | Show plan/apply inputs, the fixed provider SHA, approval, dependency phases, and the recorded fresh creation. Explain why the presentation subscription was prepared earlier. | Use green run 38617459129; do not use the cancelled repeat run as green pipeline evidence. A fresh plan previews the subscription and skips missing downstream dependencies. |
+| 3. Prepared baseline | Show the active subscription/database and one READY shopping agent, then its unchanged plan. | Compare the IDs recorded that morning. No secret outputs are needed. |
+| 4. Include a second agent | Add the documented `support_agent` entry, validate, commit/push to the presentation branch, plan and apply after approval. | Only support-agent resources should be added; existing IDs stay unchanged. Keep run 38621047847 available as fallback. |
+| 5. Update through JSON | Change dataset alert 80→75, shopping TTL 86400→172800, cadence 300→120; optionally show the tested type addition/prompt edit. | Review plans for updates without deletion, apply, and verify API values/IDs. Use 38625993962 if a live run is slow. |
+| 6. Show convergence | Reapply unchanged or show the unchanged plan and recorded reapply. | Expect no changes; 38626608300 is the recorded four-stack example. |
+| 7. Delete just one agent | Destroy with `agent_memory_key=support_agent`, approve, verify disappearance, then remove that entry from JSON and commit. | Shopping agent, database, and subscription remain. Leaving the entry would recreate the deleted agent. Use 38628269393 as fallback. |
+| 8. Close with operations | Show the successful full-cleanup record and explain the supported provider scope and secret handoff limitation. | Do not destroy the prepared subscription during the talk unless that exact cleanup is intentional. Show 38630760596 or 38634207011. |
+
+If a live run stalls, show its actual status and switch to the matching
+recorded successful run; do not launch duplicate applies. If a new candidate
+fails, use the rehearsed commit only after checking that the finding does not
+also affect it. A critical issue affecting the demonstration calls for recorded
+evidence and a clear limitation, not an unvalidated live workaround.
+
 ## Demo Story
 
 1. Show the config file.
