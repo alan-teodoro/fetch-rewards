@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "customer": "fetch-rewards",
+  "environment": "demo",
+  "subscription_key": "demo-lifecycle-existing-database",
+  "subscription": {
+    "mode": "external",
+    "name": "fetch-demo-lifecycle",
+    "subscription_id": 3449439
+  },
+  "databases": {
+    "shared_agent_memory": {
+      "mode": "external",
+      "name": "agent-memory-demo-db"
+    }
+  },
+  "agent_memory_stores": {
+    "shopping_agent": {
+      "mode": "managed",
+      "name": "existing-database-agent-demo",
+      "database": "shared_agent_memory",
+      "short_term_ttl_seconds": 86400,
+      "long_term_ttl_seconds": 7776000,
+      "extraction_cadence_seconds": 300,
+      "summarization": {
+        "enabled": true,
+        "trigger_strategy": "event_count",
+        "event_count": {
+          "threshold": 20,
+          "retain_count": 10
+        }
+      },
+      "custom_memory_types": [
+        {
+          "name": "preference",
+          "description": "Durable shopping preferences",
+          "fields": [
+            {
+              "name": "topic",
+              "description": "Preference topic",
+              "type": "str"
+            },
+            {
+              "name": "confidence",
+              "description": "Preference confidence score",
+              "type": "float"
+            },
+            {
+              "name": "is_active",
+              "description": "Whether the preference is currently active",
+              "type": "bool"
+            }
+          ],
+          "extraction_strategy": {
+            "enabled": true,
+            "prompt": "Extract stable shopping, product, notification, and account preferences that should help future agent responses."
+          }
+        }
+      ],
+      "api_keys": {
+        "runtime": {
+          "mode": "managed",
+          "name": "existing-database-demo-runtime",
+          "secret_ref": "aws-secrets-manager:/fetch-rewards/demo/lifecycle/existing-database/shopping_agent/runtime"
+        }
+      }
+    },
+    "direct_id_agent": {
+      "mode": "managed",
+      "name": "existing-database-id-agent-demo",
+      "short_term_ttl_seconds": 86400,
+      "long_term_ttl_seconds": 7776000,
+      "extraction_cadence_seconds": 300,
+      "summarization": {
+        "enabled": true,
+        "trigger_strategy": "event_count",
+        "event_count": {
+          "threshold": 20,
+          "retain_count": 10
+        }
+      },
+      "custom_memory_types": [
+        {
+          "name": "preference",
+          "description": "Durable shopping preferences",
+          "fields": [
+            {
+              "name": "topic",
+              "description": "Preference topic",
+              "type": "str"
+            },
+            {
+              "name": "confidence",
+              "description": "Preference confidence score",
+              "type": "float"
+            },
+            {
+              "name": "is_active",
+              "description": "Whether the preference is currently active",
+              "type": "bool"
+            }
+          ],
+          "extraction_strategy": {
+            "enabled": true,
+            "prompt": "Extract stable shopping, product, notification, and account preferences that should help future agent responses."
+          }
+        }
+      ],
+      "api_keys": {
+        "runtime": {
+          "mode": "managed",
+          "name": "existing-database-id-demo-runtime",
+          "secret_ref": "aws-secrets-manager:/fetch-rewards/demo/lifecycle/existing-database/direct_id_agent/runtime"
+        }
+      },
+      "database_id": 14691909
+    }
+  }
+}

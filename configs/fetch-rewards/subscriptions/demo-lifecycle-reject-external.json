@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "customer": "fetch-rewards",
+  "environment": "demo",
+  "subscription_key": "demo-lifecycle-reject-external",
+  "subscription": {
+    "mode": "external",
+    "name": "fetch-demo-lifecycle",
+    "subscription_id": 3449439
+  },
+  "databases": {
+    "shared_agent_memory": {
+      "mode": "external",
+      "name": "agent-memory-demo-db"
+    }
+  },
+  "agent_memory_stores": {
+    "external_store": {
+      "mode": "external",
+      "name": "shopping-agent-demo",
+      "database": "shared_agent_memory"
+    }
+  }
+}
