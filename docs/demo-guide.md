@@ -19,25 +19,28 @@ flowchart LR
 
 ## October 15 Working Plan
 
-All times refer to America/Sao_Paulo. Let **T** be the presentation start;
-the exact start time and duration still need confirmation. The October 14
-rehearsal ended with all demo Redis Cloud resources removed. This document
-prepares tomorrow's work; it does not start provisioning or schedule a job.
+All times refer to America/Sao_Paulo. Alan confirmed the presentation starts
+on **October 15 at 15:30** (**T = 15:30**); its duration is still unconfirmed.
+The October 14 rehearsal ended with all demo Redis Cloud resources removed.
+Begin tomorrow morning when Alan requests the work. This document prepares
+the work; it does not start provisioning or schedule a job.
 
 | Window | Work | Exit condition |
 | --- | --- | --- |
 | Early morning | Select the production candidate commit, review its changes, and run the additional provider tests below. | Every result has a commit, command/case, outcome, and evidence; failures are entered in the backlog. |
 | Morning, after mock tests | Exercise recovery, import, drift, and upgrade on disposable infrastructure. Repeat supported lifecycle operations for any provider change. | Resources have a single state owner; failures leave a documented recovery path and no unexplained orphans. |
-| By T minus 3 hours | End destructive experiments, classify unresolved findings, fix the presentation provider commit, and start provisioning. | Presentation commit selected; no critical finding affecting the demonstrated flows remains unresolved. |
-| By T minus 2 hours | Finish provisioning the presentation subscription, database, and one Agent Memory; rehearse adding, updating, and deleting the second agent. | API confirms active subscription/database and READY store; baseline IDs recorded and remaining plan has no changes. |
-| By T minus 90 minutes | Restore the one-agent baseline and freeze presentation configuration/provider changes. | Subscription, database, and shopping-agent IDs preserved; second agent explicitly destroyed and then removed from JSON. |
-| T minus 30 minutes | Check API status, unchanged plan, branch/SHA, approvals, and recorded fallback runs. | No pending destructive runs, no planned replacements, and the correct JSON revision is available in GitHub. |
-| T minus 15 minutes | Open the config, Actions, Redis Cloud, and selected rehearsal results. | Presentation can proceed without displaying credentials or Terraform state. |
+| 12:30 (T minus 3 hours) | End destructive experiments, classify unresolved findings, fix the presentation provider commit, and start provisioning. | Presentation commit selected; no critical finding affecting the demonstrated flows remains unresolved. |
+| 13:30 (T minus 2 hours) | Finish provisioning the presentation subscription, database, and one Agent Memory; rehearse adding, updating, and deleting the second agent. | API confirms active subscription/database and READY store; baseline IDs recorded and remaining plan has no changes. |
+| 14:00 (T minus 90 minutes) | Restore the one-agent baseline and freeze presentation configuration/provider changes. | Subscription, database, and shopping-agent IDs preserved; second agent explicitly destroyed and then removed from JSON. |
+| 15:00 (T minus 30 minutes) | Check API status, unchanged plan, branch/SHA, approvals, and recorded fallback runs. | No pending destructive runs, no planned replacements, and the correct JSON revision is available in GitHub. |
+| 15:15 (T minus 15 minutes) | Open the config, Actions, Redis Cloud, and selected rehearsal results. | Presentation can proceed without displaying credentials or Terraform state. |
 
 The advance provisioning window includes approval, builds, cloud delays, and
 recovery time; the observed approximately 18-minute creation is a measurement,
-not a deadline guarantee. If the meeting is earlier than these buffers allow,
-prioritize provisioning and stop expanding the morning test scope.
+not a deadline guarantee. If morning tests threaten these checkpoints,
+prioritize presentation provisioning and defer the remaining experiments.
+Deferred production tests must remain recorded as unexecuted; this does not
+constitute production approval.
 
 Use separate names and `subscription_key` values for production-readiness
 experiments and the presentation. A proposed scratch namespace is
@@ -142,9 +145,10 @@ regression coverage and a recorded retest against the resulting commit.
 ## Presentation Run Sheet — October 15
 
 The full live sequence needs roughly 25–30 minutes with infrastructure already
-prepared. For a 15-minute slot, use the existing timing outline and recorded
+prepared. The confirmed start is 15:30; duration is still to be confirmed.
+For a 15-minute slot, use the existing timing outline and recorded
 creation/maintenance runs rather than promising every live apply will finish
-inside that window. Adjust once the meeting duration is confirmed.
+inside that window. Adjust once the meeting duration is confirmed; preserve the 15:30 start.
 
 | Step | Show and say | Evidence / guardrail |
 | --- | --- | --- |
