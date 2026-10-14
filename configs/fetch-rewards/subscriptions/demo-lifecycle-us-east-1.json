@@ -5,7 +5,7 @@
   "subscription_key": "demo-lifecycle-us-east-1",
   "subscription": {
     "mode": "managed",
-    "name": "fetch-demo-lifecycle",
+    "name": "fetch-demo-lifecycle-maintained",
     "cloud_provider": "AWS",
     "region": "us-east-1",
     "networking_deployment_cidr": "10.82.0.0/24",
@@ -50,7 +50,7 @@
       "alerts": [
         {
           "name": "dataset-size",
-          "value": 75
+          "value": 80
         },
         {
           "name": "throughput-higher-than",
@@ -65,9 +65,9 @@
       "mode": "managed",
       "name": "shopping-agent-demo",
       "database": "shared_agent_memory",
-      "short_term_ttl_seconds": 172800,
+      "short_term_ttl_seconds": 86400,
       "long_term_ttl_seconds": 7776000,
-      "extraction_cadence_seconds": 120,
+      "extraction_cadence_seconds": 300,
       "summarization": {
         "enabled": true,
         "trigger_strategy": "event_count",
@@ -99,22 +99,7 @@
           ],
           "extraction_strategy": {
             "enabled": true,
-            "prompt": "Extract lasting shopping preferences. Ignore temporary offers and promotional codes."
-          }
-        },
-        {
-          "name": "shopping_goal",
-          "description": "Durable shopping goals",
-          "fields": [
-            {
-              "name": "category",
-              "type": "str",
-              "description": "Product category the user plans to shop for"
-            }
-          ],
-          "extraction_strategy": {
-            "enabled": true,
-            "prompt": "Extract lasting shopping goals explicitly stated by the user."
+            "prompt": "Extract stable shopping, product, notification, and account preferences that should help future agent responses."
           }
         }
       ],
@@ -123,29 +108,6 @@
           "mode": "managed",
           "name": "shopping-agent-demo-runtime",
           "secret_ref": "aws-secrets-manager:/fetch-rewards/demo/lifecycle/shopping/runtime"
-        }
-      }
-    },
-    "support_agent": {
-      "mode": "managed",
-      "name": "support-agent-demo",
-      "database": "shared_agent_memory",
-      "short_term_ttl_seconds": 86400,
-      "long_term_ttl_seconds": 7776000,
-      "extraction_cadence_seconds": 300,
-      "summarization": {
-        "enabled": true,
-        "trigger_strategy": "event_count",
-        "event_count": {
-          "threshold": 30,
-          "retain_count": 12
-        }
-      },
-      "api_keys": {
-        "runtime": {
-          "mode": "managed",
-          "name": "support-agent-demo-runtime",
-          "secret_ref": "aws-secrets-manager:/fetch-rewards/demo/lifecycle/support/runtime"
         }
       }
     }
