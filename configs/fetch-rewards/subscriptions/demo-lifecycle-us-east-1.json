@@ -108,7 +108,8 @@
           "fields": [
             {
               "name": "category",
-              "type": "str"
+              "type": "str",
+              "description": "Product category the user plans to shop for"
             }
           ],
           "extraction_strategy": {
