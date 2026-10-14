@@ -110,6 +110,29 @@
           "secret_ref": "aws-secrets-manager:/fetch-rewards/demo/lifecycle/shopping/runtime"
         }
       }
+    },
+    "support_agent": {
+      "mode": "managed",
+      "name": "support-agent-demo",
+      "database": "shared_agent_memory",
+      "short_term_ttl_seconds": 86400,
+      "long_term_ttl_seconds": 7776000,
+      "extraction_cadence_seconds": 300,
+      "summarization": {
+        "enabled": true,
+        "trigger_strategy": "event_count",
+        "event_count": {
+          "threshold": 30,
+          "retain_count": 12
+        }
+      },
+      "api_keys": {
+        "runtime": {
+          "mode": "managed",
+          "name": "support-agent-demo-runtime",
+          "secret_ref": "aws-secrets-manager:/fetch-rewards/demo/lifecycle/support/runtime"
+        }
+      }
     }
   }
 }
