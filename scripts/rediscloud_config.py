@@ -375,6 +375,27 @@ def load_and_validate(path: Path) -> dict[str, Any]:
             if database_key not in databases:
                 raise ConfigError(f"$.agent_memory_stores.{key}.database references unknown database {database_key!r}.")
             referenced_databases.add(database_key)
+        memory_types = store.get("custom_memory_types", [])
+        if not isinstance(memory_types, list):
+            raise ConfigError(f"$.agent_memory_stores.{key}.custom_memory_types must be a list.")
+        for index, memory_type in enumerate(memory_types):
+            memory_path = f"$.agent_memory_stores.{key}.custom_memory_types[{index}]"
+            memory_type = require_object(memory_path, memory_type)
+            require_string(f"{memory_path}.name", memory_type.get("name"))
+            description = require_string(f"{memory_path}.description", memory_type.get("description"))
+            if len(description) > 200:
+                raise ConfigError(f"{memory_path}.description must be at most 200 characters.")
+            fields = memory_type.get("fields", [])
+            if not isinstance(fields, list):
+                raise ConfigError(f"{memory_path}.fields must be a list.")
+            for field_index, field in enumerate(fields):
+                field_path = f"{memory_path}.fields[{field_index}]"
+                field = require_object(field_path, field)
+                require_string(f"{field_path}.name", field.get("name"))
+                field_description = require_string(f"{field_path}.description", field.get("description"))
+                if len(field_description) > 200:
+                    raise ConfigError(f"{field_path}.description must be at most 200 characters.")
+                require_string(f"{field_path}.type", field.get("type"))
         api_keys = optional_object(f"$.agent_memory_stores.{key}.api_keys", store.get("api_keys"))
         for api_key_key, api_key in api_keys.items():
             validate_key(f"$.agent_memory_stores.{key}.api_keys.{api_key_key}", api_key_key)
