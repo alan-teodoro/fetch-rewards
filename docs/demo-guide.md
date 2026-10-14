@@ -104,7 +104,6 @@ Use one provider commit throughout the rehearsal and demo.
 | Fresh apply with one service | One subscription, one database with ACL resources, and one Agent Memory service with a runtime key are created. |
 | Plan with existing managed dependencies | Subscription, database, and Agent Memory all appear in the plan. |
 | Add a second service | Only the new Agent Memory stack is created; existing resource IDs are preserved. |
-| Rename subscription | Only the subscription name updates; dependency lookups continue working and resource IDs stay unchanged before final cleanup. |
 | Update database alert, memory TTL, and extraction cadence | Relevant resources update in place; IDs are preserved. |
 | Reapply unchanged | All stacks report no changes. |
 | Delete only the second service | Its store and runtime keys disappear; the first service, database, and subscription remain. |
@@ -334,6 +333,13 @@ committed.
 - The config-driven apply workflow creates and updates resources. The separate
   config-driven destroy workflow cleans up managed resources from the same JSON
   file after explicit confirmation and environment approval.
+- In the rehearsed provider version, existing custom memory type descriptions
+  and field definitions cannot be redefined or removed. Adding a new type and
+  changing an existing type's extraction prompt/enabled settings are supported.
+  The provider rejects unsupported type edits during planning.
+- Lifecycle rehearsal verifies the listed control-plane operations. It does
+  not establish production security approval, failure recovery, version upgrade
+  compatibility, or data-plane load and isolation behavior.
 - Publishing generated Agent Memory data-plane API keys to the referenced
   `secret_ref` is still a follow-up step.
 - While Agent Memory support is not in the official Redis Cloud Terraform
@@ -372,7 +378,17 @@ one-service configuration; rehearsal changes are isolated on the test branch.
 | Cleanup with external database | [38629671278](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38629671278) | Only the two added service/key states were destroyed. API snapshot exactly matched the state before their creation; both databases and subscription preserved. |
 | Cleanup with external subscription | [38630078085](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38630078085) | Extra service and database states destroyed; API reads confirmed the subscription, original database, and two original service states preserved. |
 | Full cleanup | [38630760596](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38630760596) | Sixteen resources destroyed in order: shopping service, support service, database, subscription. API confirmed all demo stores, databases, and subscription absent. |
+| Repeated fresh creation | [38631611397](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38631611397) | All 12 resources applied and API verified an active subscription/database and one READY store with runtime key. Overall workflow conclusion was cancelled despite successful jobs; this is not a green workflow result. |
+| Final cleanup requested by customer | [38634207011](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38634207011) | Succeeded: 12 resources destroyed, Agent Memory before database before subscription. Final API snapshot confirms no demo subscription, databases, or stores remain. |
 | Validation CI | [38623603913](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38623603913) | Four Terraform stacks and 14 regression tests passed. |
+
+The Agent Memory package from the exact rehearsed provider commit also passed
+39 tests and 2 subtests with a simulated API, with no failures or skipped tests
+(`go test -json -count=1 ./provider/agentmemory`). This is separate from the 14
+automation regression tests and the live cloud runs. It adds functional
+coverage, including mocked import and missing-resource handling, but does not
+establish production security approval. Real failure recovery, import/drift,
+version upgrades, and security review remain outside today's completed scope.
 
 The first maintenance plan,
 [38622467198](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38622467198),
@@ -384,10 +400,14 @@ override warnings are expected when using the unreleased provider binary.
 The original lifecycle matrix has live evidence above, supplemented by local
 workflow simulations. Replacement was rejected in a real plan-only run; the
 local apply simulation verifies that no Agent Memory plan is applied when any
-service in its phase requires deletion or replacement. A second fresh one-service
-creation from the delivery branch is being checked, followed by a subscription
-rename test and final cleanup. The customer requested an empty environment
-overnight and subscription creation on October 15.
+service in its phase requires deletion or replacement. The repeated one-service creation was confirmed via API and its final cleanup
+succeeded. The final API check confirms no demo subscription, databases, or
+Agent Memory stores remain. This is the requested overnight state; create the
+subscription again on October 15. Additional production-readiness evaluation
+is deferred to October 15. The readiness
+assessment must identify the exact release-candidate commit: the evidence
+here applies to the pinned provider commit, not automatically to later branch
+versions.
 
 ### Earlier baseline evidence
 
