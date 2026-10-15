@@ -23,7 +23,7 @@ All times refer to America/Sao_Paulo. Alan confirmed the presentation starts
 on **October 15 at 15:30** (**T = 15:30**); its duration is still unconfirmed.
 The October 14 rehearsal ended with all demo Redis Cloud resources removed.
 Begin tomorrow morning when Alan requests the work. This document records the plan; work started at Alan's request on October 15.
-Workflow executions still require Alan's manual approval for each changed phase.
+Workflow executions require Alan's manual approval once for the full configuration.
 
 | Window | Work | Exit condition |
 | --- | --- | --- |
@@ -133,6 +133,20 @@ destroy tomorrow's presentation environment before the presentation.
   `configs/fetch-rewards/subscriptions/qa-provider-readiness-us-east-1.json`,
   namespace `provider-readiness-20261015`, subscription `fetch-provider-readiness`.
   Presentation configuration and namespace remain separate.
+
+### Single-approval workflow update
+
+Alan requested one approval for the complete operation after trying the phased
+approval flow. Apply now reviews all available plans and lists deferred resources
+before a single `dev` gate. The pinned configuration authorizes deferred plans;
+they are generated after their dependencies exist, using the exact reviewed
+provider and frozen inputs. Existing resources reuse the saved reviewed plans.
+No-op runs skip approval. Destruction continues to use one approval over saved
+plans. This supersedes the multiple-approval behavior in earlier run evidence.
+
+Run 38728473797 finished its subscription and database applies successfully and
+was cancelled while awaiting the old Agent Memory gate, before its apply.
+Those resources are retained for the new single-approval integration run.
 
 ### Candidate and evidence
 
@@ -295,9 +309,14 @@ evidence and a clear limitation, not an unvalidated live workaround.
      is available as a `plan-summary-<phase>-<attempt>` artifact.
    - The workflow applies by dependency phase: subscription, databases, then
      Agent Memory.
-   - Each changed phase needs its own approval. Unchanged phases are skipped.
-   - Approved jobs apply the saved plan and exact reviewed provider binary,
-     verified by checksum; they do not replan. Approval expires after one hour.
+   - One approval authorizes subscription, databases and all configured agents.
+     An entirely unchanged execution skips approval.
+   - Existing dependencies allow actual plans for all stacks before approval.
+     Missing/renamed dependencies produce a clearly marked deferred inventory;
+     review the pinned JSON too. These plans are generated after approval.
+   - The approved job uses the exact reviewed provider, plans and frozen inputs.
+     Deferred plans are checked before any apply in their phase. Approval must
+     start within one hour; failure stops later work without automatic rollback.
 
 6. Show the result.
    - In Redis Cloud, show the subscription, database, and Agent Memory service.
@@ -481,10 +500,11 @@ and push, then run the workflow against that revision.
 
 Keep resource ownership as `managed` during maintenance. Plan can preview
 updates once the existing dependency names are available. In apply mode, the
-workflow produces saved plans per phase, shows the review summary, waits for
-approval, then applies exactly those saved plans. With existing resources,
-unchanged subscription/database phases need no approval for an agent-only
-update. Full destroy shows all deletion plans before one approval.
+workflow produces available saved plans, shows the review summary and requests
+one approval for the full configuration. It reuses reviewed plans; only plans
+explicitly deferred due to missing/renamed dependencies are generated afterward.
+An unchanged execution needs no approval. Full destroy also shows all deletion
+plans before one approval.
 
 ## Pre-Demo Checklist
 

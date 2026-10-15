@@ -41,7 +41,7 @@ env:
   AGENT_MEMORY_EMBEDDING_API_KEY: ${{ secrets.AGENT_MEMORY_EMBEDDING_API_KEY }}
 jobs:
   plan:
-    name: Plan ${{ inputs.phase }} — review before approval
+    name: Review ${{ inputs.phase == 'rollout' && 'configuration' || inputs.phase }} before approval
     runs-on: ${{ vars.REDISCLOUD_RUNNER || 'ubuntu-latest' }}
     outputs:
       needs_apply: ${{ steps.plan.outputs.needs_apply }}
@@ -83,7 +83,7 @@ jobs:
           path: ${{ steps.plan.outputs.summary_path }}
           retention-days: 1
   apply:
-    name: Approve and apply ${{ inputs.phase }}
+    name: Approve once and apply ${{ inputs.phase == 'rollout' && 'configuration' || inputs.phase }}
     needs: plan
     if: inputs.apply && needs.plan.outputs.needs_apply == 'true'
     environment:
@@ -113,7 +113,7 @@ jobs:
           provider-source: ${{ inputs.provider_source }}
           provider-ref: ${{ needs.plan.outputs.provider_ref }}
           provider-binary: ${{ steps.bundle.outputs.provider_binary }}
-      - name: Apply approved saved plans without replanning
+      - name: Execute approved configuration and saved plans
         env:
           PHASE: ${{ inputs.phase }}
         run: |

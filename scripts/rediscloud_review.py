@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan without deployment approval; apply only the reviewed encrypted bundle."""
+"""Review Terraform changes, then execute the approved encrypted bundle."""
 
 from __future__ import annotations
 
@@ -118,7 +118,7 @@ def entries(manifest, phase):
     if phase == "destroy":
         # Reverse phases, preserve the stable order of siblings.
         return sorted(result, key=lambda entry: {"agent-memory": 0, "database": 1, "subscription": 2}[entry[0]])
-    return result if phase == "preview" else [entry for entry in result if entry[0] == phase]
+    return result if phase in {"preview", "rollout"} else [entry for entry in result if entry[0] == phase]
 
 
 def plan_phase(args):
@@ -129,18 +129,39 @@ def plan_phase(args):
               "run_id": os.environ["GITHUB_RUN_ID"], "attempt": os.environ["GITHUB_RUN_ATTEMPT"],
               "created": int(time.time()), "provider_ref": os.environ["RESOLVED_PROVIDER_REF"],
               "terraform_version": os.environ["TF_VERSION"], "plans": []}
+    if args.phase == "rollout":
+        summary("## One approval for the full configuration\n\nApprove once to execute subscription, database and Agent Memory in dependency order. Existing resources are planned below. When a dependency must first be created or renamed, its dependent plan is deferred until after approval. These deferred changes are authorized by the configuration inventory below, not by a Terraform plan available now. Failure stops subsequent work; completed changes are not automatically rolled back.")
+        config_path = Path(manifest["config_path"])
+        if not config_path.is_absolute():
+            summary(f"[Review the exact configuration]({os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/blob/{os.environ['GITHUB_SHA']}/{config_path.as_posix()})\n")
+        summary("\n| Stack | Configured resource |\n| --- | --- |")
+        for stack, item in entries(manifest, args.phase):
+            summary(f"| {stack} | {cell(item['name'])} |")
     pending_subscription = False
     pending_databases = set()
     needs_apply = False
     for index, (stack, item) in enumerate(entries(manifest, args.phase)):
-        if args.phase == "preview":
-            if stack == "database" and pending_subscription:
+        deferred = args.phase in {"preview", "rollout"} and (
+            (stack == "database" and pending_subscription) or
+            (stack == "agent-memory" and item.get("database_key") in pending_databases))
+        if deferred:
+            if stack == "database":
                 pending_databases.add(item["key"])
-                summary(f"## Terraform plan: database {cell(item['name'])}\n\nSkipped in plan-only mode: subscription creation/replacement/rename is pending.")
+            if args.phase == "preview":
+                summary(f"## Terraform plan: {cell(stack + ' ' + item['name'])}\n\nSkipped in plan-only mode: dependency creation/replacement/rename is pending.")
                 continue
-            if stack == "agent-memory" and item.get("database_key") in pending_databases:
-                summary(f"## Terraform plan: agent-memory {cell(item['name'])}\n\nSkipped in plan-only mode: backing database is not yet available.")
-                continue
+            summary(f"## Deferred plan: {cell(stack + ' ' + item['name'])}\n\nIts dependency is pending. The actual plan will be generated and checked after the single approval, before applying this phase.")
+            directory = backend(stack, item["state_key"])
+            variables = f"variables-{index}.json"
+            lock = f"lock-{index}.hcl"
+            shutil.copyfile(item["tfvars_path"], bundle / variables)
+            shutil.copyfile(directory / ".terraform.lock.hcl", bundle / lock)
+            review["plans"].append({"stack": stack, "title": stack + " " + item["name"],
+                "state_key": item["state_key"], "deferred": True,
+                "variables": variables, "variables_sha256": digest(bundle / variables),
+                "lock": lock, "lock_sha256": digest(bundle / lock)})
+            needs_apply = True
+            continue
         directory = backend(stack, item["state_key"])
         if args.phase == "destroy":
             # An empty state must not trigger name lookups against deleted parents.
@@ -157,7 +178,7 @@ def plan_phase(args):
         describe(stack + " " + item["name"], plan)
         if args.phase != "destroy" and any(item.get("type") == "rediscloud_agent_memory" and "delete" in item["change"]["actions"] for item in plan.get("resource_changes", [])):
             raise ValueError("Plan would delete or replace an Agent Memory service. Use the Redis Cloud Config Destroy workflow for explicit destructive operations.")
-        if args.phase == "preview":
+        if args.phase in {"preview", "rollout"}:
             if stack == "subscription":
                 pending_subscription = dependency_status(plan, "rediscloud_subscription") == "pending"
             elif stack == "database" and dependency_status(plan, "rediscloud_subscription_database") == "pending":
@@ -190,7 +211,8 @@ def plan_phase(args):
         "--body", str(archive), "--server-side-encryption", "AES256", capture=True)
     output("bundle_key", key)
     output("bundle_sha256", digest(archive))
-    summary(f"\n## Approval required: {args.phase}\n\nReview the plans above before approving the **dev** deployment. The apply job downloads the same encrypted bundle and never replans. Approval expires one hour after planning.\n\n- Config commit: `{review['commit']}`\n- Provider: `{review['provider_ref']}`\n- Bundle SHA-256: `{digest(archive)}`\n- [Open this run's plan summaries]({os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{review['run_id']})")
+    execution = "The single approval authorizes the whole configuration. Reviewed plans are reused; only explicitly deferred plans are generated after dependencies become available, with the same provider and frozen inputs." if args.phase == "rollout" else "The apply job downloads the same encrypted bundle and never replans."
+    summary(f"\n## Approval required: {args.phase}\n\nReview the plans above before approving the **dev** deployment. {execution} Approval expires one hour after planning.\n\n- Config commit: `{review['commit']}`\n- Provider: `{review['provider_ref']}`\n- Bundle SHA-256: `{digest(archive)}`\n- [Open this run's plan summaries]({os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{review['run_id']})")
 
 
 def load_bundle(args):
@@ -220,9 +242,12 @@ def validate_bundle(bundle, phase):
     if age < -60 or age > 3600:
         raise ValueError("Reviewed plan expired; generate and approve a new plan.")
     for item in review["plans"]:
-        if item["stack"] not in STACKS or (phase != "destroy" and item["stack"] != phase):
+        if item["stack"] not in STACKS or (phase not in {"destroy", "rollout"} and item["stack"] != phase):
             raise ValueError("Unexpected stack in reviewed plan.")
-        for path_key, hash_key in (("file", "sha256"), ("lock", "lock_sha256")):
+        payload = ("variables", "variables_sha256") if item.get("deferred") else ("file", "sha256")
+        if item.get("deferred") and phase != "rollout":
+            raise ValueError("Deferred plans require whole-configuration approval.")
+        for path_key, hash_key in (payload, ("lock", "lock_sha256")):
             if Path(item[path_key]).name != item[path_key] or digest(bundle / item[path_key]) != item[hash_key]:
                 raise ValueError("Reviewed plan file checksum mismatch.")
     if "provider_sha256" in review and digest(bundle / "terraform-provider-rediscloud") != review["provider_sha256"]:
@@ -234,6 +259,9 @@ def apply_phase(args):
     review = validate_bundle(args.bundle, args.phase)
     if "provider_sha256" in review and digest(Path(os.environ["PROVIDER_BINARY"])) != review["provider_sha256"]:
         raise ValueError("The active provider is not the reviewed provider binary.")
+    if args.phase == "rollout":
+        apply_rollout(args.bundle, review)
+        return
     # Validate every file before any apply in this phase.
     for item in review["plans"]:
         directory = Path("stacks") / item["stack"]
@@ -248,11 +276,48 @@ def apply_phase(args):
         summary(f"## Approved plan applied: {cell(item['title'])}\n\nSHA-256: `{item['sha256']}`")
 
 
+def apply_rollout(bundle, review):
+    # All reviewed files/provider were checked before the first mutation.
+    # Generate every deferred plan in a phase before applying any sibling.
+    for stack in ("subscription", "database", "agent-memory"):
+        phase = []
+        for index, item in enumerate(review["plans"]):
+            if item["stack"] != stack:
+                continue
+            directory = Path("stacks") / stack
+            shutil.copyfile(bundle / item["lock"], directory / ".terraform.lock.hcl")
+            backend(stack, item["state_key"])
+            if digest(directory / ".terraform.lock.hcl") != item["lock_sha256"]:
+                raise ValueError("Provider dependencies changed after approval; generate a new plan.")
+            if item.get("deferred"):
+                name = f"deferred-{index}.tfplan"
+                run("terraform", f"-chdir={directory}", "plan", "-input=false",
+                    f"-var-file={(bundle / item['variables']).resolve()}", f"-out={name}")
+                plan = json.loads(run("terraform", f"-chdir={directory}", "show", "-json", name, capture=True))
+                describe("Post-approval deferred plan: " + item["title"], plan)
+                if any(change.get("type") == "rediscloud_agent_memory" and "delete" in change["change"]["actions"] for change in plan.get("resource_changes", [])):
+                    raise ValueError("Deferred plan would delete or replace an Agent Memory service. Use the Redis Cloud Config Destroy workflow.")
+                # A deferred plan also rechecks its dependency/input bindings via Terraform.
+                path = bundle / name
+                shutil.copyfile(directory / name, path)
+            else:
+                path = bundle / item["file"]
+            phase.append((item, path))
+        for item, path in phase:
+            directory = backend(stack, item["state_key"])
+            if digest(directory / ".terraform.lock.hcl") != item["lock_sha256"]:
+                raise ValueError("Provider dependencies changed after approval; generate a new plan.")
+            shutil.copyfile(path, directory / "approved.tfplan")
+            print("Applying " + item["title"], flush=True)
+            run("terraform", f"-chdir={directory}", "apply", "-input=false", "-auto-approve", "approved.tfplan")
+            summary(f"## Approved configuration applied: {cell(item['title'])}\n\nPlan SHA-256: `{digest(path)}`")
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["plan", "load", "apply"])
-    parser.add_argument("--phase", required=True, choices=[*sorted(STACKS), "preview", "destroy"])
+    parser.add_argument("--phase", required=True, choices=[*sorted(STACKS), "preview", "destroy", "rollout"])
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--bundle", required=True, type=Path)
     parser.add_argument("--key")

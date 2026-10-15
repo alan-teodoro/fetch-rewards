@@ -174,29 +174,36 @@ The config-driven workflow renders Terraform tfvars from the JSON file and runs 
 2. `stacks/database`
 3. `stacks/agent-memory`
 
-In `apply` mode, each phase is fully planned before the saved plans for that
-phase are applied. This catches plan failures across all databases before any
-database is applied, and catches Agent Memory plan or destroy-guard failures
-before any Agent Memory service is applied.
+In `apply` mode, the customer reviews one summary and approves the `dev`
+environment **once for the whole execution**, including subscription, databases,
+and every configured Agent Memory. Open the run summary or the non-sensitive
+`plan-summary-rollout-<attempt>` artifact before approving. With existing
+dependencies, actual plans for all stacks are generated before approval and
+those saved files are applied afterward. An unchanged execution needs no approval.
 
-Each phase writes its plan summary before the `dev` deployment approval.
-Open the run summary or the non-sensitive `plan-summary-<phase>-<attempt>`
-artifact before approving. Phases without changes request no approval. Fresh
-creation can require three approvals: subscription, databases, then Agent
-Memory, because later plans need the earlier resources to exist. The destroy
-workflow plans every selected state first, then requests one approval and
-applies the saved plans in reverse dependency order.
+On fresh creation, replacement or renaming of a dependency, the summary shows
+its actual plan plus an inventory of dependent resources whose plans are
+**deferred**. Review the linked configuration at the exact commit: approval
+also authorizes planning and applying those dependent stacks after the parent
+exists. A deferred inventory is not a Terraform plan. The job plans all stacks
+in each deferred phase and checks Agent Memory deletion/replacement guards
+before applying any sibling. A failure stops later phases; completed changes
+remain in Terraform state and are not automatically rolled back. Correct the
+cause and run a new review/apply to converge.
 
-Plan-only output includes downstream managed resources when their dependencies
-already exist. The runner skips them when a dependency is being created,
-replaced, or renamed. Apply jobs do not replan: they download the reviewed
-plans and the exact provider binary from encrypted private S3 storage, verify
-SHA-256 and run/commit metadata, and apply those files. Plans expire after one
-hour; start a new run or rerun all jobs to generate fresh plans if expired or
-if a state became stale. Do not rerun only a failed apply from a different
-run attempt. Raw plans and provider binaries are never published as GitHub
-artifacts. The current S3 bundle is deleted after apply; bucket versioning
-retains historical versions under the backend retention policy.
+Plan-only mode never applies and skips downstream plans with unavailable
+dependencies. The approved apply job downloads the exact provider binary,
+reviewed plans and frozen deferred variable files from encrypted private S3,
+verifying SHA-256 and commit/run/attempt metadata. It reuses available reviewed
+plans; it generates only explicitly deferred plans afterward and includes them
+in the execution summary. Approval must start within one hour of planning;
+start a new run or rerun all jobs if expired or if state became stale. Do not
+rerun only a failed apply from another run attempt. Raw plans and provider
+binaries are never published as GitHub artifacts. Current S3 bundles are deleted
+after apply; bucket versioning retains historical versions under backend retention.
+
+The destroy workflow reviews every selected deletion plan first, then requests
+one approval and applies those saved plans in reverse dependency order.
 Rehearse configuration updates and an unchanged reapply before relying on the
 flow for a customer demonstration. See the maintenance example in the demo
 guide.

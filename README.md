@@ -89,8 +89,7 @@ Use the focused manual workflows:
 
 - **Redis Cloud Config Apply** reads a subscription config file, renders
   Terraform variable files, and runs Terraform in subscription, database, then
-  Agent Memory phases. In apply mode, each phase is fully planned before the
-  saved plans for that phase are applied.
+  Agent Memory phases, with one manual approval for the whole configuration.
 - **Redis Cloud Config Destroy** reads the same subscription config file and
   destroys managed resources in reverse dependency order: Agent Memory,
   databases, then the subscription when the config manages it.
@@ -100,12 +99,17 @@ checkpoint when `operation = apply`; `operation = plan` runs without approval.
 The destroy workflow also uses the `dev` approval checkpoint. The apply
 workflow blocks Agent Memory delete/replace plans so intentional Agent Memory
 cleanup happens through the destroy workflow. Terraform plan summaries are
-written **before manual approval**. Each changed apply phase requests its
-own approval; destroy plans all selected states before one approval. The
-approved job applies the same checksum-verified plan and provider binary,
-without replanning. Plans are encrypted in the private state bucket, expire
-after one hour, and summaries omit sensitive values. Unchanged phases do not
-request approval.
+written **before one manual approval for the entire execution**. Existing
+resources have actual saved plans for review. On fresh creation or dependency
+renaming, the summary lists dependent resources whose plans cannot yet be
+produced; those plans are generated after approval when dependencies exist.
+Reviewing and approving the pinned configuration authorizes those deferred
+steps too. Every Agent Memory plan is checked before any Agent Memory apply.
+Reviewed plans are reused, with the exact provider binary and frozen inputs
+from encrypted private S3 storage. Approval must start within one hour of
+planning. An unchanged execution requests no approval. Destroy also uses one
+approval after reviewing all deletion plans. Failure stops execution without
+automatically rolling back completed resources.
 
 The apply workflow exposes `config_path`, `operation`, and temporary
 provider-source inputs while Agent Memory provider support is unreleased. The

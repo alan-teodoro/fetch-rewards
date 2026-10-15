@@ -162,15 +162,21 @@ python3 scripts/rediscloud_config.py render \
 The manifest tells any runner which stack tfvars to apply and which remote state
 key to use. GitHub Actions should be a thin wrapper around the same commands.
 The workflow applies by dependency phase: subscription, databases, then Agent
-Memory. In `apply` mode, every stack in a phase is planned before any saved plan
-from that phase is applied. The shared `rediscloud-phase.yml` workflow writes
-a non-sensitive review summary before a `dev` environment gate for each
-changed phase. The approved job uses saved plans and the exact provider binary
-from an encrypted S3 bundle, bound to the config commit, workflow run/attempt,
-checksums, and a one-hour approval lifetime. It never replans. Destroy reviews
-all selected states before a single gate and applies in reverse order. Raw
-plans stay out of GitHub artifacts; bucket versioning retains previous S3
-artifact versions according to backend retention policy. In `plan` mode, the runner inspects each dependency
+Memory. In `apply` mode, `rediscloud-phase.yml` uses a single `rollout`
+review bundle and one `dev` environment gate for the entire configuration.
+Existing dependency chains are fully planned before approval. Missing or
+renamed parents defer downstream plans; the review explicitly identifies those
+resources and links to the approved configuration revision. Deferred variable
+files are frozen inside the encrypted bundle. After approval, the controller
+applies reviewed plans and produces only the deferred plans as dependencies
+become available. It checks all Agent Memory plans before applying any service
+in that phase. A failure stops later work without automatic rollback.
+
+The exact provider binary, saved plans, frozen inputs and lockfiles are bound
+to checksums and commit/run/attempt metadata. Approval must start within one
+hour. Destroy reviews all selected states before a single gate and applies in
+reverse order. Raw plans stay out of GitHub artifacts; bucket versioning retains
+previous S3 bundle versions according to backend retention policy. In `plan` mode, the runner inspects each dependency
 plan. A managed subscription or database that already exists can be used for
 downstream plans, including when its settings are updated in place. Downstream
 stacks are skipped when their subscription or database is being created,

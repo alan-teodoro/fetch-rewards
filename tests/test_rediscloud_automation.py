@@ -45,7 +45,7 @@ def workflow_script(filename, step):
 
 
 MOCK_TERRAFORM = r'''#!/usr/bin/env python3
-import json,os,pathlib,sys
+import hashlib,json,os,pathlib,sys
 args=sys.argv[1:]
 stack=pathlib.Path(next(a.split('=',1)[1] for a in args if a.startswith('-chdir=')))
 command=args[1]
@@ -61,6 +61,8 @@ if command=='state':
     if key not in json.loads(os.environ.get('MOCK_EMPTY_STATES','[]')): print('managed.example')
     sys.exit(0)
 if command=='plan':
+    variables=pathlib.Path(next(a.split('=',1)[1] for a in args if a.startswith('-var-file=')))
+    variables_hash=hashlib.sha256(variables.read_bytes()).hexdigest()
     fixtures=json.loads(os.environ['MOCK_CHANGES'])
     resource_type={'subscription':'rediscloud_subscription','database':'rediscloud_subscription_database','agent-memory':'rediscloud_agent_memory'}[kind]
     override=fixtures.get(key,fixtures.get(kind,{}))
@@ -80,7 +82,8 @@ elif command=='apply':
 else:
     raise SystemExit('Unsupported mock command: '+command)
 with open(os.environ['MOCK_EVENTS'],'a') as f:
-    f.write(json.dumps({'command':command,'kind':kind,'state_key':key})+'\n')
+    f.write(json.dumps({'command':command,'kind':kind,'state_key':key,**({'variables_hash':variables_hash} if command=='plan' else {})})+'\n')
+if command=='apply' and os.environ.get('MOCK_FAIL_APPLY')==kind: sys.exit(2)
 '''
 
 
@@ -209,6 +212,7 @@ class WorkflowTests(unittest.TestCase):
         self.manifest=config_module.render(self.config,self.render,destroy=destroy,agent_memory_key=key)
         for item in [self.manifest["subscription"],*self.manifest["databases"],*self.manifest["agent_memory_stores"]]:
             if "tfvars_path" in item:item["tfvars_path"]=str(Path(item["tfvars_path"]).relative_to(self.work))
+        self.manifest["config_path"]="configs/fetch-rewards/subscriptions/test.json"
         (self.render/"manifest.json").write_text(json.dumps(self.manifest))
 
     def execute(self,command,phase,**options):
@@ -368,7 +372,90 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("short_term_ttl_seconds",self.summary())
         self.assertIn("Approval required",self.summary())
 
-    def test_gate_depends_on_plan_and_apply_step_never_plans(self):
+    def test_single_approval_fresh_rollout_freezes_deferred_inputs(self):
+        self.env["MOCK_CHANGES"]=json.dumps({kind:{"actions":["create"]} for kind in ("subscription","database","agent-memory")})
+        self.assertEqual(self.execute("plan","rollout").returncode,0)
+        self.assertEqual(self.outputs["needs_apply"],"true")
+        self.assertEqual([e["kind"] for e in self.events()],["subscription"])
+        self.assertIn("One approval for the full configuration",self.summary())
+        self.assertIn("/blob/"+self.env["GITHUB_SHA"]+"/configs/fetch-rewards/subscriptions/test.json",self.summary())
+        self.assertEqual(self.summary().count("## Deferred plan:"),3)
+        index=json.loads((self.work/"bundle-rollout/index.json").read_text())
+        hashes=[item["variables_sha256"] for item in index["plans"] if item.get("deferred")]
+        for item in [*self.manifest["databases"],*self.manifest["agent_memory_stores"]]:
+            (self.work/item["tfvars_path"]).write_text("changed after approval")
+        result=self.approved_apply("rollout")
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual([(e["command"],e["kind"]) for e in self.events()],[
+            ("plan","subscription"),("apply","subscription"),("plan","database"),("apply","database"),
+            ("plan","agent-memory"),("plan","agent-memory"),("apply","agent-memory"),("apply","agent-memory")])
+        self.assertEqual([e["variables_hash"] for e in self.events()[1:] if e["command"]=="plan"],hashes)
+
+    def test_existing_rollout_reuses_all_reviewed_plans(self):
+        self.env["MOCK_CHANGES"]=json.dumps({"agent-memory":{"actions":["update"]}})
+        self.assertEqual(self.execute("plan","rollout").returncode,0)
+        self.assertEqual(len(self.events()),4)
+        self.assertNotIn("## Deferred plan:",self.summary())
+        self.assertEqual(self.approved_apply("rollout").returncode,0)
+        self.assertEqual([e["command"] for e in self.events()],["plan"]*4+["apply"]*4)
+
+    def test_unchanged_rollout_needs_no_approval(self):
+        self.assertEqual(self.execute("plan","rollout").returncode,0)
+        self.assertEqual(self.outputs,{"needs_apply":"false"})
+        self.assertFalse((self.work/"s3").exists())
+
+    def test_deferred_inputs_tampering_rejects_all_applies(self):
+        self.env["MOCK_CHANGES"]=json.dumps({"subscription":{"actions":["create"]}})
+        self.assertEqual(self.execute("plan","rollout").returncode,0)
+        bundle=self.work/"bundle-rollout"
+        index=json.loads((bundle/"index.json").read_text())
+        item=next(item for item in index["plans"] if item.get("deferred"))
+        (bundle/item["variables"]).write_text("tampered")
+        self.assertNotEqual(self.execute("apply","rollout").returncode,0)
+        self.assertFalse(any(e["command"]=="apply" for e in self.events()))
+
+    def test_deferred_replacement_stops_every_agent_apply(self):
+        self.env["MOCK_CHANGES"]=json.dumps({"subscription":{"actions":["create"]}})
+        self.assertEqual(self.execute("plan","rollout").returncode,0)
+        self.env["MOCK_CHANGES"]=json.dumps({"subscriptions/demo-ai-us-east-1/agent-memory/support_agent.tfstate":{"actions":["delete","create"]}})
+        result=self.approved_apply("rollout")
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn("Deferred plan would delete or replace",result.stderr)
+        self.assertFalse(any(e["command"]=="apply" and e["kind"]=="agent-memory" for e in self.events()))
+
+    def test_rollout_stops_on_apply_failure(self):
+        self.env["MOCK_CHANGES"]=json.dumps({"subscription":{"actions":["create"]}})
+        self.assertEqual(self.execute("plan","rollout").returncode,0)
+        self.env["MOCK_FAIL_APPLY"]="subscription"
+        self.assertNotEqual(self.approved_apply("rollout").returncode,0)
+        self.assertEqual([e["kind"] for e in self.events()],["subscription","subscription"])
+
+    def test_rollout_with_new_database_defers_only_its_agents(self):
+        self.env["MOCK_CHANGES"]=json.dumps({"database":{"actions":["create"]}})
+        self.assertEqual(self.execute("plan","rollout").returncode,0)
+        self.assertEqual([e["kind"] for e in self.events()],["subscription","database"])
+        self.assertEqual(self.summary().count("## Deferred plan:"),2)
+        self.assertEqual(self.approved_apply("rollout").returncode,0)
+
+    def test_mixed_rollout_reviews_ready_agents_and_defers_only_new_database_agent(self):
+        config=json.loads(self.config.read_text())
+        config["databases"]["new_database"]=deepcopy(next(iter(config["databases"].values())))
+        config["databases"]["new_database"]["name"]="new-database"
+        config["agent_memory_stores"]["support_agent"]["database"]="new_database"
+        self.config.write_text(json.dumps(config));self.render_config()
+        new_database=next(item for item in self.manifest["databases"] if item["key"]=="new_database")
+        self.env["MOCK_CHANGES"]=json.dumps({new_database["state_key"]:{"actions":["create"]}})
+        self.assertEqual(self.execute("plan","rollout").returncode,0)
+        self.assertEqual(self.summary().count("## Deferred plan:"),1)
+        reviewed=[e["state_key"] for e in self.events()]
+        shopping=next(item for item in self.manifest["agent_memory_stores"] if item["key"]=="shopping_agent")
+        support=next(item for item in self.manifest["agent_memory_stores"] if item["key"]=="support_agent")
+        self.assertIn(shopping["state_key"],reviewed)
+        self.assertNotIn(support["state_key"],reviewed)
+        self.assertEqual(self.approved_apply("rollout").returncode,0)
+        self.assertEqual(len([e for e in self.events() if e["command"]=="plan" and e["state_key"]==shopping["state_key"]]),1)
+
+    def test_single_gate_depends_on_full_configuration_review(self):
         source=(ROOT/".github/workflows/rediscloud-phase.yml").read_text()
         self.assertIn("needs: plan",source)
         self.assertIn("if: inputs.apply && needs.plan.outputs.needs_apply == 'true'",source)
@@ -376,7 +463,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("environment:",apply)
         self.assertIn("rediscloud_review.py apply",apply)
         self.assertNotIn("rediscloud_review.py plan",apply)
-        self.assertNotIn("always()",(ROOT/".github/workflows/rediscloud-config.yml").read_text())
+        config=(ROOT/".github/workflows/rediscloud-config.yml").read_text()
+        self.assertNotIn("always()",config)
+        self.assertEqual(config.count("apply: true"),1)
+        self.assertIn("phase: rollout",config)
+        self.assertNotIn("needs: subscription",config)
 
 
 if __name__ == "__main__":

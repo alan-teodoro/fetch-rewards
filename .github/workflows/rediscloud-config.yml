@@ -48,33 +48,14 @@ jobs:
       config_path: ${{ inputs.config_path }}
       provider_source: ${{ inputs.rediscloud_provider_source }}
       provider_ref: ${{ inputs.rediscloud_provider_ref }}
-  subscription:
+  infrastructure:
+    name: Review and deploy configuration
     if: inputs.operation == 'apply'
     uses: ./.github/workflows/rediscloud-phase.yml
     secrets: inherit
     with:
-      phase: subscription
+      phase: rollout
       apply: true
       config_path: ${{ inputs.config_path }}
       provider_source: ${{ inputs.rediscloud_provider_source }}
       provider_ref: ${{ inputs.rediscloud_provider_ref }}
-  databases:
-    needs: subscription
-    uses: ./.github/workflows/rediscloud-phase.yml
-    secrets: inherit
-    with:
-      phase: database
-      apply: true
-      config_path: ${{ inputs.config_path }}
-      provider_source: ${{ inputs.rediscloud_provider_source }}
-      provider_ref: ${{ needs.subscription.outputs.provider_ref }}
-  agent_memory:
-    needs: [subscription, databases]
-    uses: ./.github/workflows/rediscloud-phase.yml
-    secrets: inherit
-    with:
-      phase: agent-memory
-      apply: true
-      config_path: ${{ inputs.config_path }}
-      provider_source: ${{ inputs.rediscloud_provider_source }}
-      provider_ref: ${{ needs.subscription.outputs.provider_ref }}
