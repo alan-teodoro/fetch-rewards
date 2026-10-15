@@ -72,9 +72,10 @@ jobs:
             echo "Provider commit: \`$CANDIDATE\`"
             echo 'Uses only the existing fetch-provider-readiness / agent-memory-readiness-db QA database.'
             if [[ "$FAULT_ONLY" == 'true' ]]; then
-              echo 'Controlled response-loss recovery only: creates two uniquely named temporary Agent Memory/key fixtures, one at a time.'
+              echo 'Controlled response-loss recovery only: creates three uniquely named temporary Agent Memory/key fixtures, one at a time.'
               echo 'A loopback proxy suppresses a successful store-create response after the API accepts it; the test identifies and imports that owned store before applying again.'
               echo 'A second case loses an accepted key-create response; the test revokes only its identified unrecoverable key, then retries key creation.'
+              echo 'A third case removes the resource from the completed fixture task response; the provider must return an error without panic, and the identified store is imported before retry.'
               echo 'Verifies one store per fixture, expected key counts, no-op and complete fixture destruction. No service outage is injected into existing agents or the API itself.'
             elif [[ "$STATE_ONLY" == 'true' ]]; then
               echo "Baseline provider commit: \`$BASELINE\`"
