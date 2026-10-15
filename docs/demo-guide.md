@@ -23,7 +23,10 @@ Alan asked to remove the presentation infrastructure too and recreate it later.
 This supersedes the earlier instruction to retain the currently running baseline.
 [Demo destroy](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38743233099)
 has a reviewed plan of 12 deletions: Agent Memory stack 4, database stack 6 and
-subscription stack 2. It awaits Alan’s manual `dev` approval. Bundle SHA-256:
+subscription stack 2. It subsequently **passed** after Alan’s manual `dev` approval. All 12 resources
+were removed in dependency order with no errors. Final API checks confirmed
+both demo and QA have no subscription, databases or Agent Memory stores.
+Bundle SHA-256:
 `2493f4117bbdc3ebc9a711fe1a0854c9181f1161776b2d7b2f38bd89254f4aad`.
 The configuration and encrypted AWS state backend are retained for recreation.
 Later, use the same demo JSON, `operation=apply` and provider `c87f535`, with one
@@ -168,7 +171,7 @@ apply and destroy. Keep `.env`, Terraform state and generated credentials closed
 [Latest baseline plan](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38741249031)
 passed: all 3 presentation states unchanged, no apply, no approval.
 
-The last validated baseline (before the newly requested removal) is subscription `fetch-demo-lifecycle` (`3450367`),
+The removed baseline (IDs retained here only as test evidence) was subscription `fetch-demo-lifecycle` (`3450367`),
 database `agent-memory-demo-db` (`14693865`) and one READY shopping Agent Memory
 (`caa3bf46c99a4edbab48f4e1e92666c9`). These are presentation resources; QA uses
 a different config and subscription.
