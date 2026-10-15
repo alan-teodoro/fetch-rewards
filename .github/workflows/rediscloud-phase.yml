@@ -83,7 +83,7 @@ jobs:
           path: ${{ steps.plan.outputs.summary_path }}
           retention-days: 1
   apply:
-    name: Approve once and apply ${{ inputs.phase == 'rollout' && 'configuration' || inputs.phase }}
+    name: Approve once and execute reviewed changes
     needs: plan
     if: inputs.apply && needs.plan.outputs.needs_apply == 'true'
     environment:

@@ -243,6 +243,15 @@ runtime key. Both stores are READY. This resolves the pipeline lockfile issue
 in the real multi-agent maintenance path; production-readiness limitations in
 the backlog still apply. The presentation baseline remains separate.
 
+[Unchanged reapply 38739790515](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38739790515)
+**passed**: all 4 states reported no changes, no apply ran, and the approval job
+was automatically skipped. [Selective QA deletion](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38739922425)
+is waiting for Alan’s approval to delete only `support_agent`; the presentation
+namespace is excluded. The published summary was checked: exactly 4 deletions
+(store, runtime key and 2 validation resources), no other stacks, no creates or
+updates. Bundle SHA-256:
+`ba2b47c41b3cad7893a28cfb43f9388a3b913751396f83303249d52d31d00b4f`.
+
 ### Candidate and evidence
 
 - Known rehearsal provider: `a0c7d29254b6f2f115bbe1e454d2926fbe5a678e`.
@@ -270,9 +279,9 @@ the backlog still apply. The presentation baseline remains separate.
 
 ### Additional provider tests
 
-These are **planned**, not passed. P0 items are required before a production
-recommendation for the tested scope. P1 items extend that assessment; an
-unexecuted case remains an explicit limitation. Morning time limits must not
+The table defines the acceptance criteria; current execution status is listed
+below. P0 items are required before a production recommendation for the tested
+scope. P1 items extend that assessment; an unexecuted case remains an explicit limitation. Morning time limits must not
 turn an unexecuted case into a pass or imply that production is approved.
 
 | ID | Priority / execution | Case and acceptance criteria |
@@ -290,7 +299,22 @@ turn an unexecuted case into a pass or imply that production is approved.
 | Q11 | P1 / scratch | Rotate only a disposable runtime key; verify the old key is revoked, the new key works, and other agents/keys retain IDs. Confirm the delivery procedure for the replacement secret before enabling rotation for customers. |
 | Q12 | P1 / separate service smoke | If time permits, use a disposable store/key for one synthetic data-plane write/read and a cross-store authorization check. Keep this separate from Terraform-provider acceptance and from a full load/isolation assessment of the Agent Memory service. |
 
-Starting local commands, executed tomorrow from an isolated checkout of the
+Current status for provider `c87f535` (October 15):
+
+| Cases | Evidence and remaining scope |
+| --- | --- |
+| Q01 | Unit 148 / race 49 / vet passed; exact dependency delta reviewed. Full Nix CI and upstream acceptance remain unexecuted. |
+| Q02 | Malformed and transient 404/500/503 create-read recovery passed in mock API, including API defaults. Connection-loss injection and live fault recovery remain unexecuted. |
+| Q03 | SDK task failure, lost/malformed response, 429/503 and bounded context checks exercised in mock API; ambiguous accepted creation still requires explicit reconciliation. |
+| Q04 | Missing-parent key deletion passes; 403/500 remain errors. Key-create failure and out-of-band deletion scenarios remain unexecuted live. |
+| Q05 | Accepted-update/follow-up-read failure injection remains unexecuted. Normal live update and subsequent reads passed. |
+| Q06 | Failed: fake credential echoed by API appears in Terraform diagnostics (B04). Production blocker pending correction. |
+| Q07 | Fresh creation, second agent, in-place updates and unchanged reapply passed live. Selective delete/recreate and QA cleanup are in progress. |
+| Q08–Q09 | Real import/drift and old-provider-state upgrade/rollback remain unexecuted on this candidate. |
+| Q10 | Existing negative-case provider tests and automation guards passed; October 14 live replacement rejection uses the prior revision. |
+| Q11–Q12 | Disposable runtime-key rotation and data-plane/isolation smoke remain unexecuted. |
+
+Starting local commands, executed from an isolated checkout of the
 selected provider commit with mock credentials and the intended Terraform
 binary available to the test helper:
 
@@ -318,7 +342,7 @@ severity, proposed fix, regression test, fixing commit, and retest evidence.
 
 | ID | Owner / priority | Status and next action |
 | --- | --- | --- |
-| B01 | Provider / P0 | **Confirmed on October 15:** invalid follow-up read after accepted create caused 2 creates / 0 deletes on retry. Patch plus regression passed the full suite/race/vet in an isolated checkout. Alan authorized application and live retesting; the published candidate `c87f535` passed 148 unit checks, 49 race checks and vet; live integration is pending. See progress above (Q02). |
+| B01 | Provider / P0 | **Confirmed on October 15:** invalid follow-up read after accepted create caused 2 creates / 0 deletes on retry. Patch plus regression passed the full suite/race/vet in an isolated checkout. Alan authorized application and live retesting; the published candidate `c87f535` passed 148 unit checks, 49 race checks and vet. Fresh live creation and multi-agent maintenance also passed; fault-recovery injection is mock-only. See progress above (Q02). |
 | B02 | Provider + SDK / P0 | **Partly exercised:** failed task, lost/malformed response and 503 return errors with no ID and no extra POST in mock tests; task wait honors cancellation. HTTP 429 retries POST (2 observed in 1.5 seconds, SDK maximum 10 attempts). Live ambiguity/idempotency and API-key-create loss remain unproven; reconcile via API before retrying a create whose outcome is unknown (Q03/Q04). |
 | B03 | Provider + SDK / P0 | **Regression passed:** DELETE with missing-parent HTTP 404 succeeds; 403 and 500 remain actionable errors. The pinned SDK maps HTTP 404 to `APIKeyNotFound`, already handled by the provider. No code change needed for this case (Q04). |
 | B04 | Provider + SDK / P0 | **Confirmed with a fake credential:** an API error body echoing that credential reaches the Terraform Delete diagnostic unchanged through SDK `HTTPError.Error()` and provider `err.Error()`. No real credential exposure was observed. Redact/omit unsafe response bodies, test every CRUD diagnostic/warning path and SDK debug logging before production. Sensitive schema fields do not redact diagnostic strings (Q06). |
@@ -442,10 +466,12 @@ evidence and a clear limitation, not an unvalidated live workaround.
 
 ## Lifecycle Rehearsal Matrix
 
-Use the isolated `demo-lifecycle-us-east-1.json` config for live tests. Its
-subscription is `fetch-demo-lifecycle`, database is `agent-memory-demo-db`,
-and every managed state lives under `subscriptions/demo-lifecycle-us-east-1/`.
-Use one provider commit throughout the rehearsal and demo.
+The October 14 rehearsal used `demo-lifecycle-us-east-1.json`. On October 15
+that namespace is the prepared presentation baseline; preserve it through the
+meeting. Additional live tests use `qa-provider-readiness-us-east-1.json`,
+subscription `fetch-provider-readiness`, database `agent-memory-readiness-db`
+and state prefix `subscriptions/provider-readiness-20261015/`. Use provider
+`c87f53502bb92ec5b55e48abdfdf6b8f779cc038` for the current tests and presentation.
 
 | Scenario | Expected result |
 | --- | --- |
