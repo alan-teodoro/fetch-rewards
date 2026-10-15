@@ -1251,3 +1251,11 @@ disabled and no service call. These checks used fake credentials only. The
 provider binary has the same production implementation as candidate `39d6752`.
 These checks do not constitute a live-cloud removal test of the new controller.
 The four stacks validated; Terraform formatting and actionlint passed.
+
+Final validation for automation commit `e4b3372`: 56 local tests passed and one
+optional SDK test skipped. [CI 38774029224](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38774029224)
+passed. [Plan-only integration 38774033237](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38774033237)
+also passed against the actual S3 backend with provider `39d6752`; it proposed
+two subscription resources and skipped unavailable dependent plans, with all
+apply jobs skipped. No live omission-deletion apply is claimed by that preview.
+No new QA or presentation resources were created during this implementation.
