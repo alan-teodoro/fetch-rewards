@@ -148,15 +148,23 @@ older B04/open-test status in the historical handoff below. Secret delivery to
 applications and migration of immutable custom-memory definitions remain
 deployment/operations requirements, separate from provider test success.
 
-### Post-test cleanup
+### QA retention after testing
 
-All temporary fixtures and probe keys were removed; final API snapshots found
-the original two QA stores and keys unchanged. The requested cleanup of the
-remaining QA baseline is [prepared here](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38759940358)
-and awaits Alan's manual dev approval. Its published sanitized review was checked:
-16 deletions (4 + 4 Agent Memory, 6 database/ACL, 2 subscription). This removes
-only the isolated QA baseline; configuration and encrypted state backend remain.
-The presentation namespace remains removed and paused.
+All temporary fixtures and probe keys were removed; the snapshot after testing
+confirmed the original QA stores and keys were unchanged. Alan subsequently
+asked to keep QA. Cancellation of the already-running
+[cleanup](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38759940358)
+arrived after its apply step had completed all 16 deletions (4 + 4 Agent Memory,
+6 database/ACL, 2 subscription). Although the workflow is marked cancelled,
+the apply logs and API confirm the QA resources were removed.
+
+[QA restoration](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38761372427)
+is prepared from the preserved configuration, pinned to provider
+`39d6752e915a71c7b58f7ee4b0f63304be3528df`, and requires Alan's manual dev
+approval. Recreated resources receive new IDs and runtime keys; this does not
+restore any previous memory contents. Keep QA after restoration unless Alan
+explicitly requests another cleanup. Configuration and the encrypted state
+backend remain intact; the presentation namespace remains removed and paused.
 
 Use this guide to present the config-driven Redis Cloud and Agent Memory PoC.
 The goal of the demo is to show that infrastructure can be reviewed as a JSON
