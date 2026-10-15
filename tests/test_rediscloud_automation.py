@@ -52,6 +52,8 @@ command=args[1]
 backend=stack/'.mock-backend'
 if command=='init':
     backend.write_text(next(a.split('key=',1)[1] for a in args if a.startswith('-backend-config=key=')))
+    if os.environ.get('MOCK_REWRITE_LOCK'):
+        (stack/'.terraform.lock.hcl').write_text('unapproved dependency change')
     sys.exit(0)
 key=backend.read_text()
 kind=stack.name
@@ -325,7 +327,7 @@ class WorkflowTests(unittest.TestCase):
     def test_expired_or_wrong_run_bundle_is_rejected_before_any_apply(self):
         self.prepare_changed_phase()
         index=self.work/"bundle-agent-memory/index.json";original=json.loads(index.read_text())
-        for field,value in (("created",0),("run_id","different"),("commit","different"),("phase","database")):
+        for field,value in (("created",0),("run_id","different"),("attempt","2"),("commit","different"),("phase","database")):
             with self.subTest(field=field):
                 changed=deepcopy(original);changed[field]=value;index.write_text(json.dumps(changed))
                 self.assertNotEqual(self.execute("apply","agent-memory").returncode,0)
@@ -344,6 +346,14 @@ class WorkflowTests(unittest.TestCase):
         wrong=self.work/"wrong-provider";wrong.write_text("another binary")
         self.env["PROVIDER_BINARY"]=str(wrong)
         self.assertNotEqual(self.execute("apply","agent-memory").returncode,0)
+        self.assertFalse(any(e["command"]=="apply" for e in self.events()))
+
+    def test_dependency_change_during_apply_init_is_rejected(self):
+        self.prepare_changed_phase()
+        self.env["MOCK_REWRITE_LOCK"]="1"
+        result=self.execute("apply","agent-memory")
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn("Provider dependencies changed after approval",result.stderr)
         self.assertFalse(any(e["command"]=="apply" for e in self.events()))
 
     def test_summary_omits_secret_and_sensitive_values(self):

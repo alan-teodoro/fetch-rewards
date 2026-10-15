@@ -65,6 +65,55 @@ destroy tomorrow's presentation environment before the presentation.
   binary from encrypted S3 with checksum and run/commit verification. Plans
   expire after one hour. Local automation tests passed; live verification is
   still pending and must be recorded separately.
+- Full local provider unit suite: 140 passing checks; 115 acceptance tests
+  skipped with `TF_ACC` disabled. Candidate upstream check-runs report its CI
+  and acceptance jobs skipped, so they are not evidence of a completed release
+  gate. The Nix `make ci` toolchain is not installed locally.
+- `govulncheck` on Linux/amd64 reports no affected called symbols and no
+  affected imported packages. It reports one module-only advisory,
+  [GO-2026-5932](https://pkg.go.dev/vuln/GO-2026-5932), about the unmaintained
+  OpenPGP packages in `golang.org/x/crypto`; the scan did not find those
+  packages used by the provider. Do not interpret a module-only finding as a
+  demonstrated exploitable provider path or as a clean security audit.
+- B01 reproduced against the candidate: an accepted create followed by an
+  invalid `databaseId` in GET, then retry, produced **2 creates / 0 deletes**,
+  leaving an orphan in the mock API. The isolated proposed fix preserves the
+  acknowledged ID even when read diagnostics fail, so Terraform can clean up
+  a tainted resource before replacement. A deliberate tainted replacement is
+  allowed; an unexplained extra live object is not.
+- Proposed fix: [reviewable provider patch](provider-review/agent-memory-create-read-recovery.patch).
+  It includes the regression `TestReviewCreateMalformedReadKeepsResourceID`.
+  Against the patched disposable checkout, the full suite passed 141 checks
+  (115 acceptance skips), the Agent Memory race suite passed 40 tests plus
+  2 subtests, and vet passed. Alan authorized applying and retesting this fix on October 15. It is now
+  applied in the provider repository branch `fix/agent-memory-create-read-recovery`
+  through an isolated worktree; the original working checkout is preserved.
+  The actual branch also passed 141 unit checks (115 acceptance skips),
+  42 race checks, and vet. Local fix commit:
+  `cb5bff6e09dd715ce15ff046f9f6d3489614a282`.
+  Alan explicitly authorized publishing the new fix branch for live integration.
+  A second recovery regression reproduced invalid unknown computed values
+  after transient GET 404/500/503. The complementary fix resolves unavailable
+  computed fields to null while preserving known inputs and the acknowledged ID.
+  Final published candidate: `c87f53502bb92ec5b55e48abdfdf6b8f779cc038`.
+  Full unit suite: 148 passing checks, 115 acceptance skips; race: 49 passing
+  checks; vet passed. Six transient-read scenarios cover explicit values and API
+  defaults, with exactly one create and no premature delete. Malformed-read retry
+  leaves one live store (2 creates / 1 tracked delete).
+- The first real new-workflow plan (38724862141) stopped during init because
+  development overrides normalize lockfiles and read-only init rejected that.
+  No infrastructure was applied. The fix captures normalized locks in the
+  reviewed bundle and verifies the same lock after init before apply.
+- [New plan-before-approval run](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38725503331)
+  generated the subscription plan and published `plan-summary-subscription-1`
+  before its manual gate. Review confirmed 2 creates, 0 updates/deletes/
+  replacements and no secret values. That run was cancelled before any apply when Alan selected the provider
+  fix. A new plan must use the corrected immutable provider commit and receive
+  a new approval; this is not yet a completed apply test.
+- [Corrected-provider live QA run](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38728473797)
+  started with provider `c87f53502bb92ec5b55e48abdfdf6b8f779cc038`.
+  Before dispatch, a read-only API snapshot confirmed no QA subscription,
+  databases, or stores existed. Each changed phase still requires Alan’s approval.
 - Isolated live test config:
   `configs/fetch-rewards/subscriptions/qa-provider-readiness-us-east-1.json`,
   namespace `provider-readiness-20261015`, subscription `fetch-provider-readiness`.
@@ -145,10 +194,10 @@ severity, proposed fix, regression test, fixing commit, and retest evidence.
 
 | ID | Owner / priority | Status and next action |
 | --- | --- | --- |
-| B01 | Provider / P0 | **Risk to reproduce:** in `provider/agentmemory/resource_agent_memory_crud.go`, create saves state after reading/decoding the created object; a decoding diagnostic returns before `State.Set`. Test successful create plus invalid `databaseId` in the read response (Q02). Do not label this a confirmed orphan defect without reproduction. |
+| B01 | Provider / P0 | **Confirmed on October 15:** invalid follow-up read after accepted create caused 2 creates / 0 deletes on retry. Patch plus regression passed the full suite/race/vet in an isolated checkout. Alan authorized application and live retesting; the published candidate `c87f535` passed 148 unit checks, 49 race checks and vet; live integration is pending. See progress above (Q02). |
 | B02 | Provider + SDK / P0 | **Risk to reproduce:** create/key-create response loss and asynchronous errors may leave an object whose ID was not returned. Trace SDK task polling and idempotency before adding retries (Q03/Q04); document reconciliation for an ambiguous result. |
-| B03 | Provider + SDK / P0 | **Handling difference to investigate:** API-key Read handles both missing key and missing store; Delete explicitly handles only missing key in `resource_agent_memory_api_key_crud.go`. Test how the SDK maps a missing parent before proposing a fix (Q04). |
-| B04 | Provider + SDK / P0 | **Review pending:** CRUD diagnostics include `err.Error()`. Test fake-secret-bearing errors and inspect SDK/log redaction (Q06). The key schema already marks `api_key` sensitive; that alone does not prove every error/log path is redacted. |
+| B03 | Provider + SDK / P0 | **Regression passed:** DELETE with missing-parent HTTP 404 succeeds; 403 and 500 remain actionable errors. The pinned SDK maps HTTP 404 to `APIKeyNotFound`, already handled by the provider. No code change needed for this case (Q04). |
+| B04 | Provider + SDK / P0 | **Confirmed with a fake credential:** an API error body echoing that credential reaches the Terraform Delete diagnostic unchanged through SDK `HTTPError.Error()` and provider `err.Error()`. No real credential exposure was observed. Redact/omit unsafe response bodies, test every CRUD diagnostic/warning path and SDK debug logging before production. Sensitive schema fields do not redact diagnostic strings (Q06). |
 | B05 | Workflow / P1 | **Observed, cause unresolved:** run 38631611397 was cancelled overall despite successful jobs and three completed applies. Inspect cancellation events and the apply job's `always()` condition in `.github/workflows/rediscloud-config.yml`. Reproduce safely before changing semantics; this is not a confirmed provider failure. |
 | B06 | Workflow/integration / P1 | **Confirmed unfinished integration:** generated runtime keys are not automatically published to `secret_ref`. Define creation/import/rotation delivery and secret-manager access, then implement and test it if required for the customer handoff. This is not a provider CRUD defect. |
 | B07 | Provider documentation / P1 | **Confirmed constraint:** custom memory type definitions cannot be removed/redefined in the rehearsed version. Additions and extraction strategy edits work. Document supported edits and an explicit migration path; do not promise an unsupported in-place schema change. |
