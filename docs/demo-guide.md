@@ -1,5 +1,63 @@
 # Demo Guide
 
+## Current priority: provider production readiness — October 15
+
+Alan paused presentation work to focus on the provider. The demo remains
+removed. The historical lifecycle evidence below uses `c87f535`; the current
+production candidate is **`2f123a32f14429f29f4e3dd7eedd3ea4156900c3`**, published
+only on `fix/agent-memory-create-read-recovery`. No merge or release has occurred.
+
+### Corrections and evidence in this candidate
+
+- `03cfcaa` fixes B04 for Agent Memory diagnostics and warnings, including
+  malformed database IDs. Shared SDK request/response loggers now emit only
+  HTTP method/status and static progress messages; bodies, URLs, headers and
+  arbitrary task/error descriptions are omitted. Provider credentials are
+  sensitive in both mux schemas. This does not audit every legacy resource's
+  diagnostic path or certify Terraform's own trace output.
+- The previously separate update-read and key-create regression patches are now
+  committed tests. Twelve diagnostic scenarios and actual SDK round trips check
+  that fictitious credentials never escape while errors remain errors and
+  accepted-create read failures remain warnings where intended.
+- With **Go 1.26.9**, the full unit suite passed **196 test/check events**,
+  with **116 infrastructure acceptance tests skipped**. The scoped race suite
+  passed **110 events**, with 81 acceptance skips. Vet, golangci-lint,
+  `go mod tidy -diff`, formatting and workflow Actionlint passed.
+- Fuzzing the safe diagnostic/log formatter passed **2,119,419 executions in
+  30 seconds** on Go 1.26.9. This tests redaction properties, not service load.
+- Linux/amd64 govulncheck passed with no affected called symbols or imported
+  packages; one module-only advisory remains outside called code. GitHub's
+  three default-branch gRPC alerts require versions through 1.83.0; this
+  candidate already contains gRPC 1.83.2. No dependency version was upgraded
+  during this hardening work; only obsolete go.sum entries were removed.
+- `2f123a3` adds an explicitly opted-in real acceptance test for create,
+  import, in-place update, externally introduced TTL drift and reconciliation,
+  runtime-key replacement, no-op and cleanup. The fixture owns only one unique
+  `tfacc-*` store/key on an existing QA database. Import verification uses the
+  harness's temporary state; the original test state owns cleanup. Key-secret
+  import is intentionally excluded because the API cannot return that secret.
+- The Nix shell now selects Go 1.26 to match the module and its analysis tools.
+  A manual CI-only option preserves default acceptance behavior and avoids
+  creating unrelated cloud accounts for this targeted check. Recovery and
+  safe key-cutover procedures were added to the provider resource docs.
+
+### Gates still required before recommending production
+
+| Gate | Current evidence / required next action |
+| --- | --- |
+| Official provider CI | [Nix make ci](https://github.com/RedisLabs/terraform-provider-rediscloud/actions/runs/38748103657) running on the published candidate; acceptance intentionally disabled for this run. Resolve failures, do not equate local lint with this gate. |
+| Real acceptance and state compatibility | [Isolated QA baseline](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38746945197) awaits Alan's manual dev approval. It uses c87f535 to establish old state. Then plan with the new candidate and run the protected opt-in acceptance job added to Terraform Validate. No new-candidate live result exists yet. |
+| Key functionality and isolation | Acceptance checks replacement metadata and absence of the old key in the Admin API. Actual data-plane authentication, revoked-key rejection and cross-store isolation remain required separate checks. |
+| Failure recovery | Acknowledged-ID recovery is covered by regressions. Accepted-but-lost store/key responses without an ID still need controlled integration testing and review of the documented reconciliation procedure; do not promise automatic idempotency. |
+| Upgrade / rollback | Verify a no-op against old state, exercise a new-candidate update, and review supported rollback. A shared Go schema is not evidence of a tested state upgrade. |
+| Release review | Integrate all four fix-branch commits into the feature PR only after review. PR #1024 remains draft into release/2.19.2; run the release owner's required acceptance/release checks before publishing. |
+
+**Verdict remains: not approved for production.** B04 has a tested code correction
+in the review candidate, but the remaining gates above are open. This replaces
+the older "B04 has no fix" status in the historical handoff below. Secret delivery
+to applications and migration of immutable custom-memory definitions remain
+deployment/operations requirements, separate from provider test success.
+
 Use this guide to present the config-driven Redis Cloud and Agent Memory PoC.
 The goal of the demo is to show that infrastructure can be reviewed as a JSON
 desired-state file, applied through GitHub Actions, and evolved safely over
@@ -34,7 +92,7 @@ approval. Allow provisioning/recovery margin before the 15:30 meeting; fresh
 creation previously took about 18 minutes. After recreation, retain the baseline
 through the presentation.
 
-## Engineering handoff — what we did today
+## Historical engineering handoff — c87f535 before production hardening
 
 **Verdict:** the supported Terraform lifecycle is demonstrated and tested;
 production approval is still blocked. The CI of this automation repository is

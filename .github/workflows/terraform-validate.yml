@@ -2,6 +2,15 @@ name: Terraform Validate
 
 on:
   workflow_dispatch:
+    inputs:
+      provider_readiness:
+        description: Run protected Agent Memory acceptance tests against the existing isolated QA database.
+        type: boolean
+        default: false
+      provider_candidate:
+        description: Exact 40-character provider commit for the optional acceptance test.
+        type: string
+        default: ''
   pull_request:
   push:
     branches:
@@ -18,6 +27,76 @@ env:
   PROVIDER_BUILD_PATH: .provider/terraform-provider-rediscloud
 
 jobs:
+  readiness-review:
+    name: Review isolated provider acceptance test
+    if: github.event_name == 'workflow_dispatch' && inputs.provider_readiness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Describe the mutations before approval
+        env:
+          CANDIDATE: ${{ inputs.provider_candidate }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE" =~ ^[0-9a-f]{40}$ ]] || { echo 'An exact provider commit is required.' >&2; exit 1; }
+          {
+            echo '## Provider production-readiness acceptance test'
+            echo "Provider commit: \`$CANDIDATE\`"
+            echo 'Uses only the existing fetch-provider-readiness / agent-memory-readiness-db QA database.'
+            echo 'Creates one uniquely named tfacc Agent Memory store and runtime key.'
+            echo 'Verifies import, updates TTL, introduces and reconciles external drift, replaces the runtime key, checks no-op, and destroys its own store/key.'
+            echo 'The QA subscription/database and existing agents are retained. Demo resources are not used.'
+            echo 'This is a test sequence rather than a saved Terraform plan; approve only if these QA mutations are intended.'
+            echo 'The harness owns cleanup. If the runner is interrupted, reconcile the tfacc store before retrying.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  provider-readiness:
+    name: Approve isolated Agent Memory acceptance test
+    needs: readiness-review
+    environment: dev
+    timeout-minutes: 50
+    runs-on: ubuntu-latest
+    env:
+      REDISCLOUD_ACCESS_KEY: ${{ secrets.REDISCLOUD_ACCESS_KEY }}
+      REDISCLOUD_SECRET_KEY: ${{ secrets.REDISCLOUD_SECRET_KEY }}
+      REDISCLOUD_URL: ${{ secrets.REDISCLOUD_URL || vars.REDISCLOUD_URL }}
+      TF_LOG: ''
+      TF_ACC: '1'
+      AGENT_MEMORY_TEST_PREFIX: tfacc-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          repository: RedisLabs/terraform-provider-rediscloud
+          ref: ${{ inputs.provider_candidate }}
+          path: .provider/readiness
+          token: ${{ secrets.REDISCLOUD_PROVIDER_CHECKOUT_TOKEN || github.token }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .provider/readiness/go.mod
+          cache-dependency-path: .provider/readiness/go.sum
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.3
+          terraform_wrapper: false
+      - name: Resolve the existing QA database
+        id: qa
+        run: |
+          python3 scripts/rediscloud_lookup.py \
+            --subscription-name fetch-provider-readiness \
+            --database-name agent-memory-readiness-db
+      - name: Run real lifecycle, import, drift and key replacement checks
+        working-directory: .provider/readiness
+        env:
+          AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
+        run: |
+          set -euo pipefail
+          test -n "$AGENT_MEMORY_TEST_DATABASE_ID"
+          export TF_ACC_TERRAFORM_PATH="$(command -v terraform)"
+          go test ./provider/agentmemory -v \
+            -run '^TestAccAgentMemory_ProductionReadiness_CRUDI$' \
+            -count=1 -parallel=1 -timeout=40m
+
   validate:
     runs-on: ubuntu-latest
     strategy:
