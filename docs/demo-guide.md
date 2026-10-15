@@ -220,7 +220,13 @@ mandatory. Regression coverage includes multiple Agent Memory siblings,
 Registry mode rejection and an altered `hashicorp/random` dependency.
 All 34 automation tests passed, with Actionlint and formatting also passing.
 A local real-Terraform study confirmed saved-plan apply succeeds after restoring
-its original lock; the exact runner rewrite still needs the corrected live run.
+its original lock; the exact runner rewrite still needs the corrected live apply.
+[Correction CI](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38738811346)
+passed. [Recovery run](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38738829507)
+completed its new review and awaits Alan’s single approval. Verified plan:
+subscription/database unchanged, 1 Agent Memory update and 4 support-agent
+stack creates, zero deletes/replacements. Bundle SHA-256:
+`38711fc5cec988769e9d11dea6b79b09c4c56b97c53d4b818bddf38e6b2be4f5`.
 
 ### Candidate and evidence
 
