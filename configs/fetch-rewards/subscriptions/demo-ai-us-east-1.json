@@ -249,62 +249,6 @@
         "environment": "demo",
         "agent": "shopping"
       }
-    },
-    "support_agent": {
-      "mode": "managed",
-      "name": "support-agent-memory",
-      "database": "shared_agent_memory",
-      "short_term_ttl_seconds": 86400,
-      "long_term_ttl_seconds": 31536000,
-      "extraction_cadence_seconds": 300,
-      "summarization": {
-        "enabled": true,
-        "trigger_strategy": "event_count",
-        "event_count": {
-          "threshold": 30,
-          "retain_count": 12
-        }
-      },
-      "custom_memory_types": [],
-      "long_term_memory_exclusions": {
-        "enabled": true,
-        "semantic": {
-          "enabled": true,
-          "prompt": "Do not remember secrets, credentials, card data, government identifiers, or authentication material."
-        },
-        "built_in_detectors": {
-          "enabled": true,
-          "detectors": [
-            {
-              "id": "email",
-              "enabled": true,
-              "action": "redact"
-            },
-            {
-              "id": "phone",
-              "enabled": true,
-              "action": "redact"
-            }
-          ]
-        },
-        "custom_detectors": {
-          "enabled": false,
-          "detectors": []
-        }
-      },
-      "api_keys": {
-        "runtime": {
-          "mode": "managed",
-          "name": "support-agent-runtime",
-          "enabled": true,
-          "secret_ref": "aws-secrets-manager:/fetch-rewards/demo/support-agent-memory/runtime"
-        }
-      },
-      "tags": {
-        "customer": "fetch-rewards",
-        "environment": "demo",
-        "agent": "support"
-      }
     }
   }
 }

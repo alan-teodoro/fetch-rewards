@@ -119,12 +119,13 @@ selective deletion. The provider repository is fixed in the
 workflow; only the branch/tag/commit needs to be selected while using branch
 mode. The default demo file is
 [configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json](configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json),
-which uses platform-managed Agent Memory models so it does not require
+which starts with one complete Agent Memory service and uses platform-managed models so it does not require
 model-provider secrets. See
 [docs/config-driven-architecture.md](docs/config-driven-architecture.md).
 
-Use [docs/demo-guide.md](docs/demo-guide.md) for the customer demo checklist,
-talk track, and PoC limitations.
+Use [docs/demo-guide.md](docs/demo-guide.md) for the single-example demo, including
+the JSON fragment to add a second agent. Alternate demo examples are internal
+fixtures under `tests/fixtures/configs/`; development/QA files are not presentation inputs.
 
 Leave `REDISCLOUD_URL` unset for the public Redis Cloud API. Set
 `REDISCLOUD_URL` only when the repository is intentionally targeting a

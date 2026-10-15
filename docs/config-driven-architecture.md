@@ -9,7 +9,6 @@ those databases.
 
 ```text
 configs/fetch-rewards/subscriptions/
-  demo-agent-memory-playground-us-east-1.json
   demo-ai-us-east-1.json
   dev-ai-us-east-1.json
 ```
@@ -20,7 +19,7 @@ subscriptions without changing the runner. Production files should follow the
 same pattern once the customer confirms names, regions, billing, and networking.
 
 The checked-in `demo-ai-us-east-1.json` file is intentionally verbose, but it
-uses platform-managed Agent Memory models so it can run without model-provider
+starts with one Agent Memory and uses platform-managed models so it can run without model-provider
 secrets. Customers can use it as the demo input and then remove unused fields as
 their production config stabilizes. Customer-managed LLM and embedding configs
 use the same shape, but reference model-provider credentials by environment

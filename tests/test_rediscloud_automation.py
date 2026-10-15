@@ -29,7 +29,7 @@ config_module = load_module("rediscloud_config")
 plan_module = load_module("rediscloud_plan")
 sys.path.insert(0, str(ROOT / "scripts"))
 review_module = load_module("rediscloud_review")
-CONFIG_PATH = ROOT / "configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json"
+CONFIG_PATH = ROOT / "tests/fixtures/configs/two-agents.json"
 
 
 def change(resource_type, actions, before="existing", after="existing"):
@@ -93,6 +93,23 @@ if command=='apply' and os.environ.get('MOCK_FAIL_APPLY')==kind: sys.exit(2)
 
 
 class ConfigTests(unittest.TestCase):
+    def test_documented_demo_starts_with_one_agent_and_accepts_second_agent_fragment(self):
+        path = ROOT / "configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json"
+        baseline = config_module.load_and_validate(path)
+        self.assertEqual(list(baseline["agent_memory_stores"]), ["shopping_agent"])
+        guide = (ROOT / "docs/demo-guide.md").read_text()
+        fragment = json.loads("{" + guide.split("```json\n", 1)[1].split("```", 1)[0] + "}")
+        updated = json.loads(path.read_text())
+        updated["agent_memory_stores"].update(fragment)
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "demo.json"
+            config_path.write_text(json.dumps(updated))
+            manifest = config_module.render(config_path, Path(tmp) / "render")
+            self.assertEqual(len(manifest["agent_memory_stores"]), 2)
+            self.assertEqual({item["database_key"] for item in manifest["agent_memory_stores"]}, {"shared_agent_memory"})
+            self.assertEqual(len({item["state_key"] for item in manifest["agent_memory_stores"]}), 2)
+            self.assertEqual(updated["agent_memory_stores"]["shopping_agent"], baseline["agent_memory_stores"]["shopping_agent"])
+
     def test_missing_or_empty_field_description_fails_config_validation(self):
         original = json.loads(CONFIG_PATH.read_text())
         for value in (None, "", " ", "x" * 201):
