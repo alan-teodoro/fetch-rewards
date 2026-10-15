@@ -100,26 +100,26 @@ def run_probe(control, make_client, database_id, prefix):
         first, first_secret, first_id = create(targets[0], "a")
         second, second_secret, _ = create(targets[1], "b")
         print("Probe stage: authenticate each store with its own key", flush=True)
-        first.list_sessions(limit=1)
-        second.list_sessions(limit=1)
+        first.list_sessions(limit=1, include_all=True)
+        second.list_sessions(limit=1, include_all=True)
         print("Probe stage: reject cross-store access", flush=True)
         for target, secret in ((targets[0], second_secret), (targets[1], first_secret)):
             cross = make_client(target[1], store_id=target[0], api_key=secret, timeout_ms=15000, retry_config=None)
             clients.append(cross)
-            if not denied(lambda: cross.list_sessions(limit=1)):
+            if not denied(lambda: cross.list_sessions(limit=1, include_all=True)):
                 raise ProbeError("A runtime key was accepted by the other store")
         print("Probe stage: authenticate replacement key", flush=True)
         rotated, _, _ = create(targets[0], "rotated")
-        rotated.list_sessions(limit=1)
+        rotated.list_sessions(limit=1, include_all=True)
         print("Probe stage: revoke old key and verify rejection", flush=True)
         control.request(f"/memory-stores/{targets[0][0]}/api-keys/{first_id}", "DELETE")
         deadline = time.monotonic() + 60
-        while not denied(lambda: first.list_sessions(limit=1)):
+        while not denied(lambda: first.list_sessions(limit=1, include_all=True)):
             if time.monotonic() >= deadline:
                 raise ProbeError("Revoked runtime key remained accepted after 60 seconds")
             time.sleep(2)
-        rotated.list_sessions(limit=1)
-        second.list_sessions(limit=1)
+        rotated.list_sessions(limit=1, include_all=True)
+        second.list_sessions(limit=1, include_all=True)
     finally:
         print("Probe stage: remove temporary keys", flush=True)
         cleanup_failed = False
