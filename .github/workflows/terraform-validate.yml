@@ -19,6 +19,10 @@ on:
         description: Create a temporary QA fixture to test old/new/old provider state updates and cleanup.
         type: boolean
         default: false
+      fault_recovery_only:
+        description: Test reconciliation after controlled loss of accepted store/key create responses, on isolated QA fixtures.
+        type: boolean
+        default: false
       baseline_provider:
         description: Exact prior provider commit for the optional state compatibility check.
         type: string
@@ -49,10 +53,16 @@ jobs:
           CANDIDATE: ${{ inputs.provider_candidate }}
           AUTH_ONLY: ${{ inputs.auth_probe_only }}
           STATE_ONLY: ${{ inputs.state_compatibility_only }}
+          FAULT_ONLY: ${{ inputs.fault_recovery_only }}
           BASELINE: ${{ inputs.baseline_provider }}
         run: |
           set -euo pipefail
           [[ "$CANDIDATE" =~ ^[0-9a-f]{40}$ ]] || { echo 'An exact provider commit is required.' >&2; exit 1; }
+          selected=0
+          for mode in "$AUTH_ONLY" "$STATE_ONLY" "$FAULT_ONLY"; do
+            if [[ "$mode" == 'true' ]]; then selected=$((selected + 1)); fi
+          done
+          [[ "$selected" -le 1 ]] || { echo 'Select only one restricted test mode.' >&2; exit 1; }
           if [[ "$STATE_ONLY" == 'true' ]]; then
             [[ "$BASELINE" =~ ^[0-9a-f]{40}$ ]] || { echo 'An exact baseline commit is required.' >&2; exit 1; }
             [[ "$AUTH_ONLY" != 'true' ]] || { echo 'Select only one restricted test mode.' >&2; exit 1; }
@@ -61,7 +71,12 @@ jobs:
             echo '## Provider production-readiness acceptance test'
             echo "Provider commit: \`$CANDIDATE\`"
             echo 'Uses only the existing fetch-provider-readiness / agent-memory-readiness-db QA database.'
-            if [[ "$STATE_ONLY" == 'true' ]]; then
+            if [[ "$FAULT_ONLY" == 'true' ]]; then
+              echo 'Controlled response-loss recovery only: creates two uniquely named temporary Agent Memory/key fixtures, one at a time.'
+              echo 'A loopback proxy suppresses a successful store-create response after the API accepts it; the test identifies and imports that owned store before applying again.'
+              echo 'A second case loses an accepted key-create response; the test revokes only its identified unrecoverable key, then retries key creation.'
+              echo 'Verifies one store per fixture, expected key counts, no-op and complete fixture destruction. No service outage is injected into existing agents or the API itself.'
+            elif [[ "$STATE_ONLY" == 'true' ]]; then
               echo "Baseline provider commit: \`$BASELINE\`"
               echo 'State compatibility only: creates one temporary Agent Memory and key with the baseline binary, reads and updates its TTL with the candidate, then reads and restores TTL with the baseline.'
               echo 'Verifies unchanged store/key IDs and retained secret across both versions, then destroys the fixture with the candidate and verifies API absence.'
@@ -72,7 +87,7 @@ jobs:
             else
               echo 'Authentication-only run: no Agent Memory store is created or changed; the Terraform lifecycle test is skipped.'
             fi
-            if [[ "$STATE_ONLY" != 'true' ]]; then
+            if [[ "$STATE_ONLY" != 'true' && "$FAULT_ONLY" != 'true' ]]; then
               echo 'Then creates three temporary runtime keys on the two configured QA stores to verify SDK authentication, cross-store denial and revoked-key rejection. These keys are removed afterward; no session or long-term memories are written.'
             fi
             echo 'The QA subscription/database and existing agents are retained. Demo resources are not used.'
@@ -117,7 +132,7 @@ jobs:
             --subscription-name fetch-provider-readiness \
             --database-name agent-memory-readiness-db
       - name: Run real lifecycle, import, drift and key replacement checks
-        if: ${{ !inputs.auth_probe_only && !inputs.state_compatibility_only }}
+        if: ${{ !inputs.auth_probe_only && !inputs.state_compatibility_only && !inputs.fault_recovery_only }}
         working-directory: .provider/readiness
         env:
           AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
@@ -131,6 +146,21 @@ jobs:
           go test ./provider/agentmemory -v \
             -run '^TestAccAgentMemory_ProductionReadiness_CRUDI$' \
             -count=1 -parallel=1 -timeout=40m
+      - name: Verify reconciliation after controlled accepted response loss
+        if: inputs.fault_recovery_only
+        working-directory: .provider/readiness
+        env:
+          AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
+        run: |
+          set -euo pipefail
+          test -n "$AGENT_MEMORY_TEST_DATABASE_ID"
+          export TF_ACC_TERRAFORM_PATH="$(command -v terraform)"
+          go test ./provider/agentmemory \
+            -list '^TestAccAgentMemory_AcceptedLostResponseRecovery$' \
+            | grep -Fx 'TestAccAgentMemory_AcceptedLostResponseRecovery'
+          go test ./provider/agentmemory -v \
+            -run '^TestAccAgentMemory_AcceptedLostResponseRecovery$' \
+            -count=1 -parallel=1 -timeout=35m
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -139,7 +169,7 @@ jobs:
       - name: Verify SDK request protocol without cloud mutations
         run: python -m unittest discover -s tests -p test_agent_memory_auth_probe_sdk.py -v
       - name: Check real authentication, store isolation and key revocation
-        if: ${{ !inputs.state_compatibility_only }}
+        if: ${{ !inputs.state_compatibility_only && !inputs.fault_recovery_only }}
         env:
           AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
         run: python scripts/agent_memory_auth_probe.py
