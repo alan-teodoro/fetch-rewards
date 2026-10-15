@@ -133,6 +133,28 @@ jobs:
           python3 scripts/rediscloud_lookup.py \
             --subscription-name fetch-provider-readiness \
             --database-name agent-memory-readiness-db
+      - name: Require the configured QA baseline before fixture tests
+        env:
+          AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
+          PYTHONPATH: scripts
+        run: |
+          python3 - <<'PY'
+          import os
+          from agent_memory_auth_probe import ControlPlane
+
+          try:
+              database_id = os.environ['AGENT_MEMORY_TEST_DATABASE_ID']
+              stores = ControlPlane().request('/memory-stores').get('data', [])
+              ready = {
+                  store.get('name') for store in stores
+                  if str(store.get('databaseId')) == database_id and store.get('status') == 'READY'
+              }
+              if not {'readiness-agent', 'readiness-support-agent'} <= ready:
+                  raise ValueError('QA baseline is not ready')
+          except Exception:
+              raise SystemExit('QA baseline is not ready; finish its provisioning before running fixture tests.') from None
+          print('Both configured QA agents are READY on the isolated database.')
+          PY
       - name: Run real lifecycle, import, drift and key replacement checks
         if: ${{ !inputs.auth_probe_only && !inputs.state_compatibility_only && !inputs.fault_recovery_only }}
         working-directory: .provider/readiness
