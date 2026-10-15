@@ -2,6 +2,14 @@
 
 ## One configuration throughout the presentation
 
+The presentation baseline is ready: `fetch-demo-ai` and `agent-memory-db` are
+active, and the single `shopping-agent-memory` service is READY with its runtime
+key. [Creation run 38774530013](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38774530013)
+passed with one approval.
+[Follow-up plan 38776688611](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38776688611)
+reported no changes for all three stacks, with no apply. Keep this environment
+available for the presentation unless Alan explicitly requests its removal.
+
 Use `configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json` for every step.
 It starts with one managed subscription, one shared database and one Agent
 Memory named `shopping-agent-memory`. Other configurations under `configs/`
@@ -140,4 +148,5 @@ and release remain pending. Detailed evidence and historical run links are in
 The QA cleanup requested before this demo completed successfully in
 [run 38770072079](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38770072079);
 API verification confirmed the QA subscription, databases and stores absent.
-This preparation did not provision a new demo environment.
+The presentation baseline was subsequently provisioned and verified as described
+above. Detailed runtime IDs and verification evidence are in the internal history.

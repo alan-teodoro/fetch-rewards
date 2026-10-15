@@ -1259,3 +1259,25 @@ also passed against the actual S3 backend with provider `39d6752`; it proposed
 two subscription resources and skipped unavailable dependent plans, with all
 apply jobs skipped. No live omission-deletion apply is claimed by that preview.
 No new QA or presentation resources were created during this implementation.
+
+## Presentation baseline ready — October 15
+
+Alan subsequently authorized creating the single-agent demo and manually
+approved [run 38774530013](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38774530013).
+It passed using config commit `432d5fa` and provider
+`39d6752e915a71c7b58f7ee4b0f63304be3528df`: 2 subscription, 6 database/ACL and
+4 Agent Memory resources created, 12 total. API verification confirms:
+
+- Subscription `fetch-demo-ai`, ID `3450778`, active.
+- Database `agent-memory-db`, ID `14694747`, active.
+- Only `shopping-agent-memory`, ID `8ff74335dcde4a258ec94bc5ce339c79`, READY,
+  attached to that database/subscription, with one `shopping-agent-runtime` key.
+- Expected TTLs, cadence, three custom memory types and database alerts match
+  the configuration. No support agent was created.
+
+[Follow-up plan 38776688611](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38776688611)
+passed with three no-change results, no errors and no apply. Keep this baseline
+for the presentation; earlier QA cleanup instructions do not authorize removing
+these presentation resources. Add the second agent only when Alan requests it
+or changes the JSON for the presentation. The single demo guide contains the
+validated fragment. This no-op check does not add live omission-deletion coverage.
