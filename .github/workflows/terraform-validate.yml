@@ -44,6 +44,7 @@ jobs:
             echo 'Uses only the existing fetch-provider-readiness / agent-memory-readiness-db QA database.'
             echo 'Creates one uniquely named tfacc Agent Memory store and runtime key.'
             echo 'Verifies import, updates TTL, introduces and reconciles external drift, replaces the runtime key, checks no-op, and destroys its own store/key.'
+            echo 'Then creates three temporary runtime keys on the two configured QA stores to verify SDK authentication, cross-store denial and revoked-key rejection. These keys are removed afterward; no session or long-term memories are written.'
             echo 'The QA subscription/database and existing agents are retained. Demo resources are not used.'
             echo 'This is a test sequence rather than a saved Terraform plan; approve only if these QA mutations are intended.'
             echo 'The harness owns cleanup. If the runner is interrupted, reconcile the tfacc store before retrying.'
@@ -96,6 +97,15 @@ jobs:
           go test ./provider/agentmemory -v \
             -run '^TestAccAgentMemory_ProductionReadiness_CRUDI$' \
             -count=1 -parallel=1 -timeout=40m
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the official data-plane SDK
+        run: python -m pip install 'redis-agent-memory==0.4.1'
+      - name: Check real authentication, store isolation and key revocation
+        env:
+          AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
+        run: python scripts/agent_memory_auth_probe.py
 
   validate:
     runs-on: ubuntu-latest

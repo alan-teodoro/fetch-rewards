@@ -4,8 +4,10 @@
 
 Alan paused presentation work to focus on the provider. The demo remains
 removed. The historical lifecycle evidence below uses `c87f535`; the current
-production candidate is **`2f123a32f14429f29f4e3dd7eedd3ea4156900c3`**, published
+production candidate is **`4798ac11bf637032235ed49d7059094a82aa207f`**, published
 only on `fix/agent-memory-create-read-recovery`. No merge or release has occurred.
+The five commits are reviewable in draft [provider PR #1031](https://github.com/RedisLabs/terraform-provider-rediscloud/pull/1031),
+targeting `alan/agent-memory-terraform-provider`, rather than the release branch.
 
 ### Corrections and evidence in this candidate
 
@@ -40,17 +42,31 @@ only on `fix/agent-memory-create-read-recovery`. No merge or release has occurre
   A manual CI-only option preserves default acceptance behavior and avoids
   creating unrelated cloud accounts for this targeted check. Recovery and
   safe key-cutover procedures were added to the provider resource docs.
+- Official [Nix make ci](https://github.com/RedisLabs/terraform-provider-rediscloud/actions/runs/38748561050)
+  **passed on exact 4798ac1**, including vulnerability/dependency checks, both
+  Go/provider linters, Terraform formatting, documentation, GoReleaser and
+  Markdown validation, build, unit tests and provider-schema generation. The
+  first CI run caught tfproviderlint's redundant provider-block rule in the new
+  acceptance test; `4798ac1` removed the block and the repeated gate passed.
+- The protected acceptance workflow also prepares SDK authentication/isolation
+  checks using official Python SDK `redis-agent-memory==0.4.1`. It creates three
+  transient keys on the two existing QA stores, checks each store's own key,
+  cross-store rejection, replacement-key acceptance and revoked-key rejection,
+  then removes its fixture keys. It writes no session/long-term memories.
+  Local tests cover failure/cleanup and reject HTTP 503 as an authentication
+  result; the actual SDK's HTTP 403 exception was verified with mock transport.
+  **No live data-plane pass is claimed.** Automation tests now total 36 passes.
 
 ### Gates still required before recommending production
 
 | Gate | Current evidence / required next action |
 | --- | --- |
-| Official provider CI | [Nix make ci](https://github.com/RedisLabs/terraform-provider-rediscloud/actions/runs/38748103657) running on the published candidate; acceptance intentionally disabled for this run. Resolve failures, do not equate local lint with this gate. |
+| Official provider CI | **Passed**: [Nix make ci](https://github.com/RedisLabs/terraform-provider-rediscloud/actions/runs/38748561050) on exact 4798ac1. Broad infrastructure acceptance was intentionally disabled for this run. |
 | Real acceptance and state compatibility | [Isolated QA baseline](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38746945197) awaits Alan's manual dev approval. It uses c87f535 to establish old state. Then plan with the new candidate and run the protected opt-in acceptance job added to Terraform Validate. No new-candidate live result exists yet. |
-| Key functionality and isolation | Acceptance checks replacement metadata and absence of the old key in the Admin API. Actual data-plane authentication, revoked-key rejection and cross-store isolation remain required separate checks. |
+| Key functionality and isolation | The protected job now includes the SDK probe described above; its live execution remains pending. Replacement metadata alone is not proof of data-plane revocation. Memory-event writes/promotion remain outside this authentication-only probe. |
 | Failure recovery | Acknowledged-ID recovery is covered by regressions. Accepted-but-lost store/key responses without an ID still need controlled integration testing and review of the documented reconciliation procedure; do not promise automatic idempotency. |
 | Upgrade / rollback | Verify a no-op against old state, exercise a new-candidate update, and review supported rollback. A shared Go schema is not evidence of a tested state upgrade. |
-| Release review | Integrate all four fix-branch commits into the feature PR only after review. PR #1024 remains draft into release/2.19.2; run the release owner's required acceptance/release checks before publishing. |
+| Release review | Integrate all five fix-branch commits into the feature PR only after review. PR #1024 remains draft into release/2.19.2; run the release owner's required acceptance/release checks before publishing. |
 
 **Verdict remains: not approved for production.** B04 has a tested code correction
 in the review candidate, but the remaining gates above are open. This replaces
