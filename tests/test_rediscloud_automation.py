@@ -45,15 +45,20 @@ def workflow_script(filename, step):
 
 
 MOCK_TERRAFORM = r'''#!/usr/bin/env python3
-import hashlib,json,os,pathlib,sys
+import hashlib,json,os,pathlib,re,sys
 args=sys.argv[1:]
 stack=pathlib.Path(next(a.split('=',1)[1] for a in args if a.startswith('-chdir=')))
 command=args[1]
 backend=stack/'.mock-backend'
 if command=='init':
     backend.write_text(next(a.split('key=',1)[1] for a in args if a.startswith('-backend-config=key=')))
+    if os.environ.get('MOCK_OVERRIDE_LOCK') and stack.name=='agent-memory':
+        lock=stack/'.terraform.lock.hcl'
+        raw=lock.read_text()
+        raw=re.sub(r'^provider "registry\.terraform\.io/redislabs/rediscloud" \{\n.*?^\}\n?', '', raw,flags=re.M|re.S)
+        lock.write_text(raw+'\nprovider "registry.terraform.io/redislabs/rediscloud" {\n  version = "2.19.1"\n}\n')
     if os.environ.get('MOCK_REWRITE_LOCK'):
-        (stack/'.terraform.lock.hcl').write_text('unapproved dependency change')
+        (stack/'.terraform.lock.hcl').write_text('provider "registry.terraform.io/hashicorp/random" {\n version = "9.9.9"\n}\n' if os.environ['MOCK_REWRITE_LOCK']=='random' else 'unapproved dependency change')
     sys.exit(0)
 key=backend.read_text()
 kind=stack.name
@@ -358,6 +363,32 @@ class WorkflowTests(unittest.TestCase):
         result=self.execute("apply","agent-memory")
         self.assertNotEqual(result.returncode,0)
         self.assertIn("Provider dependencies changed after approval",result.stderr)
+        self.assertFalse(any(e["command"]=="apply" for e in self.events()))
+
+    def test_multiple_agents_tolerate_ignored_registry_lock_rewrite(self):
+        self.env["MOCK_CHANGES"]=json.dumps({"agent-memory":{"actions":["update"]}})
+        self.assertEqual(self.execute("plan","rollout").returncode,0)
+        index=json.loads((self.work/"bundle-rollout/index.json").read_text())
+        agent_locks=[item for item in index["plans"] if item["stack"]=="agent-memory"]
+        self.env["MOCK_OVERRIDE_LOCK"]="1"
+        result=self.approved_apply("rollout")
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(len([e for e in self.events() if e["command"]=="apply" and e["kind"]=="agent-memory"]),2)
+        final_lock=self.work/"stacks/agent-memory/.terraform.lock.hcl"
+        self.assertEqual(hashlib.sha256(final_lock.read_bytes()).hexdigest(),agent_locks[-1]["lock_sha256"])
+
+    def test_registry_mode_rejects_rediscloud_lock_change(self):
+        self.env.pop("PROVIDER_BINARY")
+        self.prepare_changed_phase()
+        self.env["MOCK_OVERRIDE_LOCK"]="1"
+        self.assertNotEqual(self.approved_apply("agent-memory").returncode,0)
+        self.assertFalse(any(e["command"]=="apply" for e in self.events()))
+
+    def test_override_does_not_allow_random_provider_change(self):
+        self.prepare_changed_phase()
+        self.env["MOCK_OVERRIDE_LOCK"]="1"
+        self.env["MOCK_REWRITE_LOCK"]="random"
+        self.assertNotEqual(self.execute("apply","agent-memory").returncode,0)
         self.assertFalse(any(e["command"]=="apply" for e in self.events()))
 
     def test_summary_omits_secret_and_sensitive_values(self):

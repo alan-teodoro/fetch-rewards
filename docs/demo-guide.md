@@ -197,6 +197,31 @@ IDs are new. Subsequent
 checks: unchanged reapply, selective support-agent deletion/recreation, then
 scratch cleanup. Each mutation still needs Alan’s one approval per run.
 
+### October 15 maintenance lockfile failure
+
+[Maintenance run 38732918784](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38732918784)
+failed before any Agent Memory apply. Subscription was unchanged; database alert
+80 → 85 was applied successfully. API confirmed the original store/key IDs,
+TTL 86400, cadence 300, and no support agent. The presentation namespace remains
+separate and provisioned.
+
+The pipeline compared raw lockfile bytes after each init. Development overrides
+allow init to rewrite the unused Redis Cloud Registry entry or lockfile header
+between siblings. That produced a false dependency-change rejection before any
+Agent Memory apply. This is an automation issue; no
+provider CRUD failure occurred in this run.
+
+The correction compares dependency content, ignores only comments and the
+unused Redis Cloud Registry block when an independently SHA-256-verified binary
+is active, and restores the exact reviewed lock before plan/apply. Registry
+mode still checks Redis Cloud dependency changes; changes to other providers
+remain blocked. Raw bundle file checksums and active binary verification remain
+mandatory. Regression coverage includes multiple Agent Memory siblings,
+Registry mode rejection and an altered `hashicorp/random` dependency.
+All 34 automation tests passed, with Actionlint and formatting also passing.
+A local real-Terraform study confirmed saved-plan apply succeeds after restoring
+its original lock; the exact runner rewrite still needs the corrected live run.
+
 ### Candidate and evidence
 
 - Known rehearsal provider: `a0c7d29254b6f2f115bbe1e454d2926fbe5a678e`.

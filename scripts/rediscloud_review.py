@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -100,11 +101,35 @@ def backend(stack, state_key):
     run("terraform", f"-chdir={directory}", "init", "-reconfigure", "-input=false",
         f"-backend-config=bucket={os.environ['TF_STATE_BUCKET_NAME']}",
         f"-backend-config=region={os.environ['TF_STATE_REGION_NAME']}", f"-backend-config=key={state_key}")
-    # Development overrides normalize lock entries during init. Capture that
-    # result in the plan job, then require the exact result in the apply job.
+    # Keep the raw init result with each saved plan, including empty override locks.
     lock = directory / ".terraform.lock.hcl"
     if not lock.exists():
         lock.write_text("")
+    return directory
+
+
+def dependency_lock_content(path, overridden_provider=False):
+    content = path.read_text()
+    if overridden_provider:
+        # This Registry entry does not select the active development binary.
+        # Its identity is independently enforced by the reviewed binary SHA-256.
+        content = re.sub(r'^provider "registry\.terraform\.io/redislabs/rediscloud" \{\n.*?^\}\n?',
+                         "", content, flags=re.MULTILINE | re.DOTALL)
+    return "\n".join(line.rstrip() for line in content.splitlines()
+                     if line.strip() and not line.lstrip().startswith("#"))
+
+
+def prepare_apply_backend(bundle, item, overridden_provider):
+    directory = Path("stacks") / item["stack"]
+    reviewed_lock = bundle / item["lock"]
+    lock = directory / ".terraform.lock.hcl"
+    shutil.copyfile(reviewed_lock, lock)
+    backend(item["stack"], item["state_key"])
+    if dependency_lock_content(lock, overridden_provider) != dependency_lock_content(reviewed_lock, overridden_provider):
+        raise ValueError("Provider dependencies changed after approval; generate a new plan.")
+    # Apply must see exactly the lock snapshot embedded in its saved plan.
+    # init can add/remove an ignored Registry entry under dev_overrides.
+    shutil.copyfile(reviewed_lock, lock)
     return directory
 
 
@@ -264,11 +289,7 @@ def apply_phase(args):
         return
     # Validate every file before any apply in this phase.
     for item in review["plans"]:
-        directory = Path("stacks") / item["stack"]
-        shutil.copyfile(args.bundle / item["lock"], directory / ".terraform.lock.hcl")
-        backend(item["stack"], item["state_key"])
-        if digest(directory / ".terraform.lock.hcl") != item["lock_sha256"]:
-            raise ValueError("Provider dependencies changed after approval; generate a new plan.")
+        directory = prepare_apply_backend(args.bundle, item, "provider_sha256" in review)
         target = directory / "approved.tfplan"
         shutil.copyfile(args.bundle / item["file"], target)
         print(("Destroying " if args.phase == "destroy" else "Applying ") + item["title"], flush=True)
@@ -284,11 +305,7 @@ def apply_rollout(bundle, review):
         for index, item in enumerate(review["plans"]):
             if item["stack"] != stack:
                 continue
-            directory = Path("stacks") / stack
-            shutil.copyfile(bundle / item["lock"], directory / ".terraform.lock.hcl")
-            backend(stack, item["state_key"])
-            if digest(directory / ".terraform.lock.hcl") != item["lock_sha256"]:
-                raise ValueError("Provider dependencies changed after approval; generate a new plan.")
+            directory = prepare_apply_backend(bundle, item, "provider_sha256" in review)
             if item.get("deferred"):
                 name = f"deferred-{index}.tfplan"
                 run("terraform", f"-chdir={directory}", "plan", "-input=false",
@@ -304,9 +321,7 @@ def apply_rollout(bundle, review):
                 path = bundle / item["file"]
             phase.append((item, path))
         for item, path in phase:
-            directory = backend(stack, item["state_key"])
-            if digest(directory / ".terraform.lock.hcl") != item["lock_sha256"]:
-                raise ValueError("Provider dependencies changed after approval; generate a new plan.")
+            directory = prepare_apply_backend(bundle, item, "provider_sha256" in review)
             shutil.copyfile(path, directory / "approved.tfplan")
             print("Applying " + item["title"], flush=True)
             run("terraform", f"-chdir={directory}", "apply", "-input=false", "-auto-approve", "approved.tfplan")
