@@ -84,6 +84,23 @@ targeting `alan/agent-memory-terraform-provider`, rather than the release branch
   preflight pass; that diagnosis explicitly blocked every POST/DELETE. Error
   reporting now exposes only static stage labels and numeric HTTP status.
   The workflow supports an auth-only repeat under its normal manual dev gate.
+- The auth-only run then reached the service and exposed a probe request error:
+  SDK 0.4.1 requires `include_all=True` when listing sessions without filters.
+  The corrected probe has a real-SDK/mock-transport regression checking all eight
+  requests, authorization outcomes and fixture cleanup before cloud execution.
+- [Real authentication/isolation/revocation](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38756440780)
+  **passed**: own-store keys work, cross-store access is denied, a replacement
+  key works, the revoked key is rejected, and the unrelated key remains valid.
+  All temporary keys were removed. Final API comparison found the original two
+  stores and two keys unchanged from the provisioned baseline. No memory records
+  were written; memory promotion/content functionality is outside this probe.
+- A separate old/new/old state-write test is prepared in
+  `scripts/provider_state_compatibility.py`. It creates only its own temporary
+  store/key, verifies expected plans before each apply, checks retained IDs and
+  secret through candidate update and baseline rollback, and destroys with the
+  candidate. Private temporary local state is removed afterward. The full test
+  passed locally with Terraform, both exact binaries and a mock API; live
+  execution still requires the explicit protected compatibility-only workflow.
 - [Final provider make ci](https://github.com/RedisLabs/terraform-provider-rediscloud/actions/runs/38754853072)
   passed on exact 919bac9. Its only change after live-tested 54e7054 makes the
   test's auxiliary API client honor REDISCLOUD_URL; production code is identical.
@@ -96,9 +113,9 @@ targeting `alan/agent-memory-terraform-provider`, rather than the release branch
 | --- | --- |
 | Official provider CI | **Passed**: [Nix make ci](https://github.com/RedisLabs/terraform-provider-rediscloud/actions/runs/38754853072) on exact 919bac9. Broad infrastructure acceptance was intentionally disabled for this run. |
 | Real acceptance and state compatibility | **Passed within stated scope**: four old states read with no changes; seven-step real CRUD/import/drift/key-replacement/no-op/cleanup acceptance passed on 54e7054, with identical production code to 919bac9. Existing-state apply/rollback is not included in those results. |
-| Key functionality and isolation | **Open**: the first SDK probe stopped at administrative HTTP 403 before testing runtime keys. Client headers were corrected and read-only preflight passed; the auth-only repeat still requires approval/execution. Memory writes/promotion remain outside this authentication probe. |
+| Key functionality and isolation | **Passed**: [real SDK probe](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38756440780) confirms authentication, cross-store denial, replacement acceptance and revoked-key rejection; temporary keys removed and original QA unchanged. Memory writes/promotion remain outside scope. |
 | Failure recovery | Acknowledged-ID recovery is covered by regressions. Accepted-but-lost store/key responses without an ID still need controlled integration testing and review of the documented reconciliation procedure; do not promise automatic idempotency. |
-| Upgrade / rollback | Verify a no-op against old state, exercise a new-candidate update, and review supported rollback. A shared Go schema is not evidence of a tested state upgrade. |
+| Upgrade / rollback | Old-state no-op passed. Full old/new/old read/write/rollback fixture is locally verified against a mock API and prepared for a separate protected real execution; its live result is still pending. |
 | Release review | Integrate all seven fix-branch commits into the feature PR only after review. PR #1024 remains draft into release/2.19.2; run the release owner's required acceptance/release checks before publishing. |
 
 **Verdict remains: not approved for production.** B04 has a tested code correction
