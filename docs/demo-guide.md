@@ -17,7 +17,130 @@ flowchart LR
     Database --> Support["Agent Memory: support_agent"]
 ```
 
-## Current readiness — October 15, 10:26 São Paulo
+## Removal requested after validation — October 15
+
+Alan asked to remove the presentation infrastructure too and recreate it later.
+This supersedes the earlier instruction to retain the currently running baseline.
+[Demo destroy](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38743233099)
+has a reviewed plan of 12 deletions: Agent Memory stack 4, database stack 6 and
+subscription stack 2. It awaits Alan’s manual `dev` approval. Bundle SHA-256:
+`2493f4117bbdc3ebc9a711fe1a0854c9181f1161776b2d7b2f38bd89254f4aad`.
+The configuration and encrypted AWS state backend are retained for recreation.
+Later, use the same demo JSON, `operation=apply` and provider `c87f535`, with one
+approval. Allow provisioning/recovery margin before the 15:30 meeting; fresh
+creation previously took about 18 minutes. After recreation, retain the baseline
+through the presentation.
+
+## Engineering handoff — what we did today
+
+**Verdict:** the supported Terraform lifecycle is demonstrated and tested;
+production approval is still blocked. The CI of this automation repository is
+green, but that does not establish the provider’s complete release/security gate.
+
+### Provider fixes that were actually applied
+
+Started from `1c0b452695ea5dbfa3c8eaccb3d2ad3dfd60e0d9`. The original provider
+working checkout remains on `alan/agent-memory-terraform-provider`, clean.
+An isolated worktree of the same provider repository holds published branch
+`fix/agent-memory-create-read-recovery`, ending at
+`c87f53502bb92ec5b55e48abdfdf6b8f779cc038`.
+
+1. `cb5bff6`: an accepted create followed by malformed read diagnostics returned
+   before saving the acknowledged ID. Reproduction produced 2 creates / 0
+   deletes on retry, leaving an extra live store. Fix preserves the ID/state
+   even when the follow-up read fails. The malformed-response regression allows
+   a tracked tainted replacement: 2 creates / 1 delete / 1 live store.
+2. `c87f535`: transient GET 404/500/503 left unknown computed fields in a
+   supposedly successful Create response, which Terraform rejected. Fix
+   resolves unavailable unknown fields to null without discarding known inputs
+   or the acknowledged ID. Six cases (three status codes, explicit settings/API
+   defaults) converge with 1 create and no duplicate store.
+
+These two commits modify the CRUD file and add two regression-test files.
+No SDK dependency upgrade, Registry release, provider merge or production
+release was performed. Today's live runs explicitly built the binary at `c87f535`.
+
+### Executed tests and exact limits
+
+| Layer | Result | Limit |
+| --- | --- | --- |
+| Full provider unit suite, `go test -p=2 -json -count=1 ./...` | 148 passing test/check events, no failures | 115 infrastructure acceptance tests skipped with `TF_ACC` disabled |
+| Agent Memory race suite, `go test -race -json -count=1 ./provider/agentmemory` | 49 passing events, no failures | Mock API, not load testing the real service |
+| `go vet ./provider/agentmemory` | Passed | Scoped to Agent Memory package |
+| Additional accepted-update/read-failure regression | HTTP 500 and malformed response both passed with race detection; same ID/TTL recovered, no repeated create/PATCH | Extra test patch, not yet committed to the provider branch |
+| Additional rejected-key-create regression | Passed with race detection; parent retained, retry creates only key | Accepted-but-lost key responses remain unproven; test patch not yet in provider branch |
+| Missing-parent key deletion | HTTP 404 accepted; 403/500 remain errors | Mock API and pinned SDK behavior |
+| SDK task/context/error cases | Failed task, lost/malformed create response and 503 return errors; context bounds wait; 429 repeats POST (2 in 1.5 s, max 10 attempts in SDK) | Unknown outcome without returned ID still requires reconciliation; no blind retry guarantee for every case |
+| `govulncheck`, Linux/amd64 on exact `c87f535` | Exit 0; no affected called symbols/imported packages; 1 module-only advisory not called | Dependency advisory analysis does not detect all application/provider security bugs |
+| Fake-secret diagnostic redaction | **Failed again against corrected CRUD source** | Confirmed production blocker B04; no real secret was used/exposed by this reproduction |
+| Automation tests / formatting / Actionlint / four-stack CI | 34 tests and required checks passed | Separate from full provider release CI |
+| Real Redis Cloud lifecycle | Fresh creation; second store; database/TTL/cadence/prompt/type updates; no-op; selective delete; recreation; full QA cleanup all passed | Control-plane lifecycle, not data-plane isolation/load certification |
+
+API snapshots verified surviving subscription/database/store/key IDs, intended
+settings, READY status, only selected resources disappearing, new store/key IDs
+after recreation, and complete QA removal. Live workflow URLs and API checks
+are recorded below. Controlled fault injection used local mock servers, not
+production API failures. The provider Nix `make ci` environment was unavailable;
+upstream CI/acceptance jobs on the starting candidate were skipped. Those gates
+must not be counted as passed.
+
+### Confirmed unresolved production and delivery items
+
+- **B04 / blocker:** an API error body containing a fake credential is forwarded
+  through SDK `HTTPError.Error()` and provider `err.Error()` to a Terraform
+  diagnostic. Sensitive schema fields do not sanitize diagnostic strings.
+  Fix safe error formatting/redaction across CRUD/warnings and inspect debug
+  logging, then rerun the failing [regression](provider-review/agent-memory-error-redaction.patch).
+- Lost create/key-create responses or task results may leave an unknown outcome;
+  define reconciliation/idempotency handling. Live fault injection remains open.
+- Complete required provider release/acceptance gates and real import/drift,
+  old-state upgrade/rollback, runtime-key rotation and data-plane checks that
+  remain unexecuted in the matrix. Current results do not certify those paths.
+- `secret_ref` is configuration metadata; the automation does not yet deliver
+  generated credentials to Secrets Manager. Implement and test that integration
+  if it is required for handoff.
+- Existing custom memory type definitions cannot be removed/redefined in place;
+  additions and extraction-strategy changes passed. Document migration for other
+  changes instead of promising unsupported updates.
+
+### Automation changes, separate from provider code
+
+Changed the pipeline to show sanitized plans before approval and use one gate
+for the entire configuration. Existing plans are reused; missing/renamed parent
+dependencies explicitly defer downstream plans until after approval. The job
+uses reviewed binaries/frozen inputs, checksum/run/commit/attempt verification,
+encrypted S3 bundles and a one-hour approval-start limit. No-op runs skip the gate;
+Agent Memory delete/replace is blocked outside explicit destroy.
+
+A maintenance run exposed an automation lockfile check failure after its database
+alert had applied. Terraform rewrote unused development-provider lock metadata
+between Agent Memory instances. The fix compares active dependency content,
+verifies the actual provider binary independently and restores each reviewed
+lock snapshot. Other providers and Registry-mode dependency changes remain
+protected. Repeated real maintenance, no-op, selective/full destroy and recreation
+subsequently passed. This failure and fix belong to the automation repository,
+not to provider CRUD code.
+
+### Merge and release status
+
+- Provider fix branch is 2 commits ahead / 0 behind
+  `alan/agent-memory-terraform-provider`. **No merge was done and no fix-branch
+  PR was opened.** Integrate `fix/agent-memory-create-read-recovery` into that
+  original feature branch to carry the two fixes into the existing PR.
+- Existing [provider PR #1024](https://github.com/RedisLabs/terraform-provider-rediscloud/pull/1024)
+  remains **draft**, from `alan/agent-memory-terraform-provider` into
+  `release/2.19.2`. Do not treat integrating the two fixes as production approval:
+  resolve B04 and complete/review release gates before promoting that PR/release.
+- The extra update-read and key-create tests are retained as separate patches in
+  `docs/provider-review`; add them to provider tests as part of the follow-up.
+  The redaction patch is intentionally failing until its bug is corrected.
+- Automation [PR #2](https://github.com/alan-teodoro/fetch-rewards/pull/2) is open,
+  `feature/agent-memory-config-driven` → `main`. It has not been merged either.
+- Workflow default provider ref still names the original feature branch.
+  Until it includes the fixes, explicitly use tested SHA `c87f535`; merging
+  into a moving branch does not automatically preserve the reviewed SHA.
+
+## Validated baseline before removal — October 15, 10:26 São Paulo
 
 - **Presentation ready:** subscription `3450367` and database `14693865` active;
   shopping Agent Memory `caa3bf46c99a4edbab48f4e1e92666c9` READY at its baseline.
@@ -45,7 +168,7 @@ apply and destroy. Keep `.env`, Terraform state and generated credentials closed
 [Latest baseline plan](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38741249031)
 passed: all 3 presentation states unchanged, no apply, no approval.
 
-The prepared baseline is subscription `fetch-demo-lifecycle` (`3450367`),
+The last validated baseline (before the newly requested removal) is subscription `fetch-demo-lifecycle` (`3450367`),
 database `agent-memory-demo-db` (`14693865`) and one READY shopping Agent Memory
 (`caa3bf46c99a4edbab48f4e1e92666c9`). These are presentation resources; QA uses
 a different config and subscription.
@@ -61,8 +184,8 @@ a different config and subscription.
 | 7 | Remove the deleted `support_agent` entry from JSON, validate and commit/push. | Desired configuration matches the remaining infrastructure. Keeping the entry would recreate it on the next apply. |
 
 Full cleanup uses empty `agent_memory_key` and deletes all managed resources
-from the selected config. Explain it during the demo; keep presentation resources
-until the meeting ends. The demonstrated lifecycle is validated separately from
+from the selected config. Alan requested the current baseline removed and later
+recreated. After that recreation, keep presentation resources until the meeting ends. The demonstrated lifecycle is validated separately from
 production readiness: diagnostic redaction and the other explicitly unexecuted
 provider checks in the backlog remain limitations.
 
