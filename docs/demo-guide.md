@@ -4,9 +4,9 @@
 
 Alan paused presentation work to focus on the provider. The demo remains
 removed. The historical lifecycle evidence below uses `c87f535`; the current
-production candidate is **`4798ac11bf637032235ed49d7059094a82aa207f`**, published
+production candidate is **`919bac942443d77d17306cb849105ce5c2ecbda5`**, published
 only on `fix/agent-memory-create-read-recovery`. No merge or release has occurred.
-The five commits are reviewable in draft [provider PR #1031](https://github.com/RedisLabs/terraform-provider-rediscloud/pull/1031),
+The seven commits are reviewable in draft [provider PR #1031](https://github.com/RedisLabs/terraform-provider-rediscloud/pull/1031),
 targeting `alan/agent-memory-terraform-provider`, rather than the release branch.
 
 ### Corrections and evidence in this candidate
@@ -55,18 +55,51 @@ targeting `alan/agent-memory-terraform-provider`, rather than the release branch
   then removes its fixture keys. It writes no session/long-term memories.
   Local tests cover failure/cleanup and reject HTTP 503 as an authentication
   result; the actual SDK's HTTP 403 exception was verified with mock transport.
-  **No live data-plane pass is claimed.** Automation tests now total 36 passes.
+  **No live data-plane pass is claimed.** The latest probe regressions also cover
+  HTTP status reporting without SDK body disclosure and administrative request
+  headers; 38 automation checks pass locally.
+
+### Real results after QA approval
+
+- [QA provision](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38746945197)
+  passed with 16 resources. Subscription `3450517`, database `14694196`, and both
+  configured stores are active/READY. The presentation environment remains removed.
+- [State read compatibility](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38752867041)
+  passed: candidate 4798ac1 read all four states created by c87f535 and produced
+  four "No changes" results. No apply or state rollback was performed.
+- The [first real test](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38752982140)
+  stopped at store import because the API's default summarization block is
+  intentionally adopted during import but omitted from the original minimal
+  create configuration. Commit 54e7054 compares that imported block to the live
+  API while retaining strict equality for the remaining attributes. This fixes
+  the test expectation and documents import behavior; it changes no CRUD code.
+- [Repeated real test](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38754021885):
+  **Terraform acceptance passed in 17.90 seconds** on exact 54e7054: create,
+  store/key import, in-place update, externally introduced TTL drift and repair,
+  key replacement with old-key absence, no-op and complete fixture destruction.
+  Public API snapshots confirm both original QA stores/keys remained unchanged.
+  Overall workflow failed in the subsequent probe; do not mark the whole run green.
+- The probe failed on an administrative GET with HTTP 403, before any data-plane
+  authentication result. Adding explicit client/Accept headers made read-only
+  preflight pass; that diagnosis explicitly blocked every POST/DELETE. Error
+  reporting now exposes only static stage labels and numeric HTTP status.
+  The workflow supports an auth-only repeat under its normal manual dev gate.
+- [Final provider make ci](https://github.com/RedisLabs/terraform-provider-rediscloud/actions/runs/38754853072)
+  passed on exact 919bac9. Its only change after live-tested 54e7054 makes the
+  test's auxiliary API client honor REDISCLOUD_URL; production code is identical.
+  The complete seven-step acceptance harness also passed against a local mock
+  API with server defaults and removed its store/keys; this is simulation evidence.
 
 ### Gates still required before recommending production
 
 | Gate | Current evidence / required next action |
 | --- | --- |
-| Official provider CI | **Passed**: [Nix make ci](https://github.com/RedisLabs/terraform-provider-rediscloud/actions/runs/38748561050) on exact 4798ac1. Broad infrastructure acceptance was intentionally disabled for this run. |
-| Real acceptance and state compatibility | [Isolated QA baseline](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38746945197) awaits Alan's manual dev approval. It uses c87f535 to establish old state. Then plan with the new candidate and run the protected opt-in acceptance job added to Terraform Validate. No new-candidate live result exists yet. |
-| Key functionality and isolation | The protected job now includes the SDK probe described above; its live execution remains pending. Replacement metadata alone is not proof of data-plane revocation. Memory-event writes/promotion remain outside this authentication-only probe. |
+| Official provider CI | **Passed**: [Nix make ci](https://github.com/RedisLabs/terraform-provider-rediscloud/actions/runs/38754853072) on exact 919bac9. Broad infrastructure acceptance was intentionally disabled for this run. |
+| Real acceptance and state compatibility | **Passed within stated scope**: four old states read with no changes; seven-step real CRUD/import/drift/key-replacement/no-op/cleanup acceptance passed on 54e7054, with identical production code to 919bac9. Existing-state apply/rollback is not included in those results. |
+| Key functionality and isolation | **Open**: the first SDK probe stopped at administrative HTTP 403 before testing runtime keys. Client headers were corrected and read-only preflight passed; the auth-only repeat still requires approval/execution. Memory writes/promotion remain outside this authentication probe. |
 | Failure recovery | Acknowledged-ID recovery is covered by regressions. Accepted-but-lost store/key responses without an ID still need controlled integration testing and review of the documented reconciliation procedure; do not promise automatic idempotency. |
 | Upgrade / rollback | Verify a no-op against old state, exercise a new-candidate update, and review supported rollback. A shared Go schema is not evidence of a tested state upgrade. |
-| Release review | Integrate all five fix-branch commits into the feature PR only after review. PR #1024 remains draft into release/2.19.2; run the release owner's required acceptance/release checks before publishing. |
+| Release review | Integrate all seven fix-branch commits into the feature PR only after review. PR #1024 remains draft into release/2.19.2; run the release owner's required acceptance/release checks before publishing. |
 
 **Verdict remains: not approved for production.** B04 has a tested code correction
 in the review candidate, but the remaining gates above are open. This replaces

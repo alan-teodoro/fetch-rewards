@@ -1,6 +1,10 @@
 import importlib.util
+import contextlib
+import io
+import os
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 
 spec = importlib.util.spec_from_file_location(
@@ -11,6 +15,32 @@ spec.loader.exec_module(probe)
 
 
 class AuthProbeTests(unittest.TestCase):
+    def test_control_plane_headers_and_error_body_redaction(self):
+        failure = probe.HTTPError(
+            "https://api.redislabs.com/v1/memory-stores", 403, "Forbidden", {},
+            io.BytesIO(b'FAKE_CREDENTIAL_ECHOED_BY_API'),
+        )
+        settings = {"REDISCLOUD_ACCESS_KEY": "FAKE_ACCESS", "REDISCLOUD_SECRET_KEY": "FAKE_SECRET", "REDISCLOUD_URL": "https://api.redislabs.com/v1"}
+        with patch.dict(os.environ, settings), patch.object(probe, "urlopen", side_effect=failure) as call:
+            with self.assertRaises(probe.ProbeError) as raised:
+                probe.ControlPlane().request("/memory-stores")
+        request = call.call_args.args[0]
+        self.assertEqual(request.get_header("Accept"), "application/json")
+        self.assertEqual(request.get_header("User-agent"), "rediscloud-provider-readiness-tests/1.0")
+        self.assertEqual(str(raised.exception), "Control-plane request failed: HTTP 403")
+        self.assertNotIn("FAKE_CREDENTIAL", str(raised.exception))
+
+    def test_cli_emits_status_without_echoing_sdk_response(self):
+        class Failure(Exception):
+            status_code = 401
+
+        stderr = io.StringIO()
+        with patch.object(probe, "main", side_effect=Failure("FAKE_SECRET_IN_SDK_BODY")):
+            with contextlib.redirect_stderr(stderr):
+                self.assertEqual(probe.cli(), 1)
+        self.assertIn("HTTP 401", stderr.getvalue())
+        self.assertNotIn("FAKE_SECRET", stderr.getvalue())
+
     def test_server_error_is_not_an_authentication_denial(self):
         class Failure(Exception):
             status_code = 503

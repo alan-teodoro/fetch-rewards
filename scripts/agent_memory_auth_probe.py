@@ -26,6 +26,8 @@ class ControlPlane:
                 "x-api-key": os.environ["REDISCLOUD_ACCESS_KEY"],
                 "x-api-secret-key": os.environ["REDISCLOUD_SECRET_KEY"],
                 "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "rediscloud-provider-readiness-tests/1.0",
             },
         )
         try:
@@ -33,7 +35,9 @@ class ControlPlane:
                 payload = response.read()
                 return json.loads(payload) if payload else {}
         except HTTPError as error:
-            raise ProbeError(f"Control-plane request failed: HTTP {error.code}") from None
+            status = error.code
+            error.close()
+            raise ProbeError(f"Control-plane request failed: HTTP {status}") from None
 
 
 def denied(operation):
@@ -44,11 +48,13 @@ def denied(operation):
         status = getattr(error, "status_code", None)
         if status in (401, 403):
             return True
-        raise ProbeError("Authorization check returned an unexpected error; details omitted") from None
+        code = f"HTTP {status}" if type(status) is int and 100 <= status <= 599 else "SDK/transport error"
+        raise ProbeError(f"Authorization check returned {code}, expected HTTP 401 or 403; details omitted") from None
     return False
 
 
 def run_probe(control, make_client, database_id, prefix):
+    print("Probe stage: inspect QA stores and endpoints", flush=True)
     stores = control.request("/memory-stores").get("data", [])
     targets = []
     for name in ("readiness-agent", "readiness-support-agent"):
@@ -90,17 +96,22 @@ def run_probe(control, make_client, database_id, prefix):
         return instance, response["apiKey"], candidates[0]["apiKeyId"]
 
     try:
+        print("Probe stage: create temporary keys", flush=True)
         first, first_secret, first_id = create(targets[0], "a")
         second, second_secret, _ = create(targets[1], "b")
+        print("Probe stage: authenticate each store with its own key", flush=True)
         first.list_sessions(limit=1)
         second.list_sessions(limit=1)
+        print("Probe stage: reject cross-store access", flush=True)
         for target, secret in ((targets[0], second_secret), (targets[1], first_secret)):
             cross = make_client(target[1], store_id=target[0], api_key=secret, timeout_ms=15000, retry_config=None)
             clients.append(cross)
             if not denied(lambda: cross.list_sessions(limit=1)):
                 raise ProbeError("A runtime key was accepted by the other store")
+        print("Probe stage: authenticate replacement key", flush=True)
         rotated, _, _ = create(targets[0], "rotated")
         rotated.list_sessions(limit=1)
+        print("Probe stage: revoke old key and verify rejection", flush=True)
         control.request(f"/memory-stores/{targets[0][0]}/api-keys/{first_id}", "DELETE")
         deadline = time.monotonic() + 60
         while not denied(lambda: first.list_sessions(limit=1)):
@@ -110,6 +121,7 @@ def run_probe(control, make_client, database_id, prefix):
         rotated.list_sessions(limit=1)
         second.list_sessions(limit=1)
     finally:
+        print("Probe stage: remove temporary keys", flush=True)
         cleanup_failed = False
         for store, name, before in reversed(fixtures):
             try:
@@ -144,10 +156,21 @@ def main():
     print("PASS: both keys authenticate; cross-store access denied; revoked key rejected; replacement and unrelated key work; fixture keys removed")
 
 
-if __name__ == "__main__":
+def cli():
     try:
         main()
-    except Exception:
+        return 0
+    except ProbeError as error:
+        # ProbeError messages are constructed here from static text/numeric status.
+        print(f"FAIL: {error}", file=sys.stderr)
+        return 1
+    except Exception as error:
         # SDK exceptions may embed request headers or response bodies.
-        print("FAIL: QA authentication probe did not complete. Credentials/error bodies omitted; inspect the fixture prefix for cleanup.", file=sys.stderr)
-        sys.exit(1)
+        status = getattr(error, "status_code", None)
+        code = f" HTTP {status}" if type(status) is int and 100 <= status <= 599 else ""
+        print(f"FAIL: QA authentication probe did not complete{code}. Credentials/error bodies omitted; inspect the fixture prefix for cleanup.", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(cli())
