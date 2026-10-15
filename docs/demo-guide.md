@@ -228,6 +228,21 @@ subscription/database unchanged, 1 Agent Memory update and 4 support-agent
 stack creates, zero deletes/replacements. Bundle SHA-256:
 `38711fc5cec988769e9d11dea6b79b09c4c56b97c53d4b818bddf38e6b2be4f5`.
 
+### October 15 corrected maintenance result
+
+[Recovery run 38738829507](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38738829507)
+**passed** with the reviewed lockfile correction: 1 in-place Agent Memory
+update and 4 support-agent stack creates; no deletions, replacements or errors.
+The runner successfully handled both Agent Memory states in one approved job.
+
+API verification passed all 13 checks: subscription/database IDs preserved,
+original store `045be7f9beec4f108f8d4e9bec1ce16f` and runtime-key IDs preserved,
+TTL 21600, cadence 120, updated preference prompt, added `shopping_goal`, database
+alert 85, and new store `99e9163acfa94c57b733cc718695fa95` with TTL 43200 and its
+runtime key. Both stores are READY. This resolves the pipeline lockfile issue
+in the real multi-agent maintenance path; production-readiness limitations in
+the backlog still apply. The presentation baseline remains separate.
+
 ### Candidate and evidence
 
 - Known rehearsal provider: `a0c7d29254b6f2f115bbe1e454d2926fbe5a678e`.
