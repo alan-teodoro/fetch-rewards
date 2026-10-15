@@ -252,6 +252,33 @@ namespace is excluded. The published summary was checked: exactly 4 deletions
 updates. Bundle SHA-256:
 `ba2b47c41b3cad7893a28cfb43f9388a3b913751396f83303249d52d31d00b4f`.
 
+### October 15 selective-deletion result
+
+[Selective QA deletion 38739922425](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38739922425)
+**passed**: exactly 4 resources removed from the `support_agent` state, no
+other state applied and no errors. API comparison with the maintenance snapshot
+confirmed the original Agent Memory (including its updated settings and key
+IDs), subscription and database were unchanged; only the support store is absent.
+[Recreation run](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38740343220)
+uses the same retained JSON entry and state key. Its review is complete and
+awaits approval: only 4 support-agent stack creates; subscription, database and
+original Agent Memory unchanged; no deletions/replacements. Bundle SHA-256:
+`e615151267464a7f9f133087d96c81284d519dd9a38854323c683691f9bc594c`.
+After apply, compare new store/key IDs with the deleted instance. The presentation
+baseline is untouched.
+
+### Additional accepted-update recovery checks
+
+Against the `c87f535` CRUD implementation with mock API credentials,
+`TestReviewAcceptedUpdateFailedReadRecovers` passed both HTTP 500 and malformed
+`databaseId` follow-up reads under `go test -race`. After the expected update
+error, refresh/reapply recovered the same store ID and accepted TTL with exactly
+1 create and 1 PATCH, without duplicate mutations. No additional provider code
+change was needed. This supplements the 148-check candidate suite; it is not
+included retroactively in that count and is not live failure injection.
+[Reviewable regression](provider-review/agent-memory-update-read-recovery.patch)
+is preserved for adding to the provider tests later.
+
 ### Candidate and evidence
 
 - Known rehearsal provider: `a0c7d29254b6f2f115bbe1e454d2926fbe5a678e`.
@@ -307,9 +334,9 @@ Current status for provider `c87f535` (October 15):
 | Q02 | Malformed and transient 404/500/503 create-read recovery passed in mock API, including API defaults. Connection-loss injection and live fault recovery remain unexecuted. |
 | Q03 | SDK task failure, lost/malformed response, 429/503 and bounded context checks exercised in mock API; ambiguous accepted creation still requires explicit reconciliation. |
 | Q04 | Missing-parent key deletion passes; 403/500 remain errors. Key-create failure and out-of-band deletion scenarios remain unexecuted live. |
-| Q05 | Accepted-update/follow-up-read failure injection remains unexecuted. Normal live update and subsequent reads passed. |
+| Q05 | Mock update-then-GET 500 and malformed response recovery passed with race detection: original ID and updated TTL recovered with exactly 1 create and 1 PATCH. Custom-type/cadence/key failure-injection variants and live fault injection remain unexecuted. Normal live updates passed. |
 | Q06 | Failed: fake credential echoed by API appears in Terraform diagnostics (B04). Production blocker pending correction. |
-| Q07 | Fresh creation, second agent, in-place updates and unchanged reapply passed live. Selective delete/recreate and QA cleanup are in progress. |
+| Q07 | Fresh creation, second agent, in-place updates and unchanged reapply passed live. Selective deletion also passed; recreation and QA cleanup are in progress. |
 | Q08–Q09 | Real import/drift and old-provider-state upgrade/rollback remain unexecuted on this candidate. |
 | Q10 | Existing negative-case provider tests and automation guards passed; October 14 live replacement rejection uses the prior revision. |
 | Q11–Q12 | Disposable runtime-key rotation and data-plane/isolation smoke remain unexecuted. |
