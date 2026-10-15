@@ -147,6 +147,20 @@ plans. This supersedes the multiple-approval behavior in earlier run evidence.
 Run 38728473797 finished its subscription and database applies successfully and
 was cancelled while awaiting the old Agent Memory gate, before its apply.
 Those resources are retained for the new single-approval integration run.
+Read-only API verification confirmed subscription `3450307` and database
+`14693774` are active, with no QA Agent Memory yet.
+
+The updated controller passed 31 automation tests, Actionlint and Terraform
+formatting. [CI validation](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38732109325)
+passed all stack validation jobs and the automation tests at commit `7f6a9ae`.
+[Single-approval QA integration](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38732134452)
+completed its combined review and is waiting at exactly one `dev` approval.
+The reviewed plans show no subscription/database changes and 4 Agent Memory
+stack creations (store, runtime key and 2 Terraform validation resources),
+with no updates, deletes or replacements. Provider `c87f535` and configuration
+commit `7f6a9ae` are confirmed in the pre-approval artifact. Bundle SHA-256:
+`12af9bd6e7bec11a36ebb67ac6190349802fc7eb5edbe171db0cebc9f9eef2ad`.
+The apply has not run; do not count this as a completed cloud integration yet.
 
 ### Candidate and evidence
 
