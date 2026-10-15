@@ -1,111 +1,152 @@
-# Demo Guide
+# Redis Cloud configuration demo
 
-Use this guide to present the config-driven Redis Cloud and Agent Memory PoC.
-The goal of the demo is to show that infrastructure can be reviewed as a JSON
-desired-state file, applied through GitHub Actions, and evolved safely over
-time.
+## One configuration throughout the presentation
 
-## Demo Story
+The presentation baseline is ready: `fetch-demo-ai` and `agent-memory-db` are
+active, and the single `shopping-agent-memory` service is READY with its runtime
+key. [Creation run 38774530013](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38774530013)
+passed with one approval.
+[Follow-up plan 38776688611](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38776688611)
+reported no changes for all three stacks, with no apply. Keep this environment
+available for the presentation unless Alan explicitly requests its removal.
 
-1. Show the config file.
-   - Open `configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json`.
-   - Point out that one subscription can contain one or more databases and one
-     or more Agent Memory services.
-   - Show that multiple Agent Memory services can reference the same database
-     with the stable database key.
+Use `configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json` for every step.
+It starts with one managed subscription, one shared database and one Agent
+Memory named `shopping-agent-memory`. Other configurations under `configs/`
+are internal development/QA scenarios. Former alternate demo examples and the
+two-agent regression fixture live under `tests/fixtures/configs/`.
 
-2. Explain resource ownership.
-   - `mode = "managed"` means Terraform creates and updates the resource.
-   - `mode = "external"` means the resource already exists and is referenced by
-     ID or name.
-   - Stable map keys such as `shared_agent_memory` and `shopping_agent` drive
-     state paths and should be treated as durable IDs.
+The main example includes TLS, network allowlists, database alerts, ACLs,
+short/long-term TTL, summarization, extraction cadence, custom memory types,
+memory exclusions and a runtime API key. Models are platform-managed, so this
+example does not require separate LLM/embedding credentials.
 
-3. Show secret handling.
-   - Redis Cloud account API keys are GitHub secrets.
-   - Customer-managed LLM and embedding credentials are referenced by env var
-     name, for example `AGENT_MEMORY_LLM_API_KEY`.
-   - Agent Memory data-plane API keys are different from Redis Cloud account
-     API keys. Terraform marks them sensitive and does not print them.
+Before using it in another account, review billing, region, CIDR and source IPs.
+The included values match the demo account; customers must supply their own.
+`secret_ref` records the intended secret destination; this repository does not
+publish generated keys to Secrets Manager automatically.
 
-4. Run `plan`.
-   - Use **Actions > Redis Cloud Config Apply > Run workflow**.
-   - Set `config_path` to the demo config or to the customer-specific QA config.
-   - Set `operation = plan`.
-   - Review the GitHub Actions summary before apply.
+The tested provider commit is:
 
-5. Run `apply`.
-   - Set `operation = apply` only after the plan summary looks correct.
-   - The workflow applies by dependency phase: subscription, databases, then
-     Agent Memory.
-   - Each phase is planned before any saved plan in that phase is applied.
-
-6. Show the result.
-   - In Redis Cloud, show the subscription, database, and Agent Memory service.
-   - In the Actions summary, show the state keys, plan counts, and runtime notes.
-
-## Pre-Demo Checklist
-
-- Remote Terraform state is bootstrapped with `stacks/state-backend`.
-- GitHub variables are configured:
-  - `TF_STATE_BUCKET`
-  - `TF_STATE_REGION`
-  - `AWS_GITHUB_ACTIONS_ROLE_ARN`
-- Redis Cloud secrets are configured:
-  - `REDISCLOUD_ACCESS_KEY`
-  - `REDISCLOUD_SECRET_KEY`
-- If using QA credentials, also configure:
-  - `REDISCLOUD_ACCESS_KEY_QA`
-  - `REDISCLOUD_SECRET_KEY_QA`
-  - `REDISCLOUD_URL_QA`
-- If using customer-managed models, configure:
-  - `AGENT_MEMORY_LLM_API_KEY`
-  - `AGENT_MEMORY_EMBEDDING_API_KEY`
-- Until the official Terraform provider includes Agent Memory resources, keep
-  the config workflow provider source set to `branch`. The workflow builds the
-  Agent Memory provider branch before running Terraform.
-
-## Local Dry Run
-
-Validate all config files:
-
-```bash
-for config in configs/fetch-rewards/subscriptions/*.json; do
-  python3 scripts/rediscloud_config.py validate --config "$config"
-done
+```text
+39d6752e915a71c7b58f7ee4b0f63304be3528df
 ```
 
-Render the demo config:
+Until its fixes are integrated and released, explicitly select this commit as
+`rediscloud_provider_ref`, with `rediscloud_provider_source = branch`.
 
-```bash
-export AGENT_MEMORY_LLM_API_KEY="<model-provider-api-key>"
-export AGENT_MEMORY_EMBEDDING_API_KEY="<embedding-provider-api-key>"
+## 1. Create the baseline
 
-python3 scripts/rediscloud_config.py render \
-  --config configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json \
-  --out-dir .generated/rediscloud/demo-ai-us-east-1
+Open **Actions > Redis Cloud Config Apply**, select the branch containing your
+configuration commit and set:
+
+```text
+config_path = configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json
+operation = apply
+rediscloud_provider_source = branch
+rediscloud_provider_ref = 39d6752e915a71c7b58f7ee4b0f63304be3528df
 ```
 
-The generated files under `.generated/` are runtime artifacts and should not be
-committed.
+Review the run summary before approving `dev`. Fresh creation shows the
+subscription plan and the inventory of dependent resources. Database and Agent
+Memory plans are generated after their dependencies exist. One approval covers
+the frozen configuration and those explicitly deferred steps. Failure stops
+later steps; completed changes remain managed in Terraform state.
 
-## Safe Demo Defaults
+Show the resulting subscription, database and the single READY agent.
 
-- Start with `operation = plan`.
-- Keep `allow_agent_memory_destroy = false`.
-- Use `external` mode for customer resources that already exist and should not
-  be managed by this PoC.
-- Do not remove a resource from JSON expecting Terraform to destroy it. The PoC
-  intentionally avoids implicit deletes from config removal.
+## 2. Add a second agent to the same file
 
-## Current PoC Limits
+Add the following sibling entry beside `shopping_agent` inside
+`agent_memory_stores`. Insert a comma after the existing shopping-agent object.
+This is a fragment of the same configuration, not another configuration file.
 
-- The config-driven workflow can create and update resources. Config-driven
-  destroy is intentionally not automated yet.
-- Publishing generated Agent Memory data-plane API keys to the referenced
-  `secret_ref` is still a follow-up step.
-- While Agent Memory support is not in the official Redis Cloud Terraform
-  provider, demos that use Agent Memory should run with
-  `rediscloud_provider_source = branch`.
-- During the Agent Memory public preview, use an eligible Redis Cloud database
-  with public endpoint access and the default user enabled.
+```json
+"support_agent": {
+  "mode": "managed",
+  "name": "support-agent-memory",
+  "database": "shared_agent_memory",
+  "short_term_ttl_seconds": 43200,
+  "long_term_ttl_seconds": 31536000,
+  "extraction_cadence_seconds": 300,
+  "summarization": {
+    "enabled": true,
+    "trigger_strategy": "event_count",
+    "event_count": {
+      "threshold": 20,
+      "retain_count": 10
+    }
+  },
+  "custom_memory_types": [],
+  "api_keys": {
+    "runtime": {
+      "mode": "managed",
+      "name": "support-agent-runtime",
+      "secret_ref": "aws-secrets-manager:/fetch-rewards/demo/support-agent-memory/runtime"
+    }
+  }
+}
+```
+
+Validate, commit and push the edited JSON:
+
+```bash
+python3 scripts/rediscloud_config.py validate \
+  --config configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json
+```
+
+Run the same apply workflow. With an unchanged baseline, the review should show
+only the second agent stack being created: its store, runtime key and two
+Terraform validation resources. The subscription, database and shopping agent
+should have no changes. Review the actual plan rather than assuming this result.
+After approval, show two READY agents sharing the same database.
+
+## 3. Update a setting
+
+Change `shopping_agent.short_term_ttl_seconds` from `86400` to `43200`, commit
+and push. Run apply again. Show the in-place Agent Memory update and confirm
+that the store ID stays the same. Keep map keys such as `shopping_agent` stable:
+they identify Terraform state paths, not display labels.
+
+## 4. Show an unchanged run
+
+Run apply with the same configuration. All stacks should report no changes and
+no deployment approval should be requested.
+
+## 5. Delete the second agent through the same JSON
+
+Remove `support_agent` from `agent_memory_stores`, commit and push, then run the
+same Config Apply workflow. The review should show deletion of only that agent,
+its key and validation resources. Approve once and show that the shopping agent,
+shared database and subscription remain. The saved deletion plan runs before
+creates/updates; the runner does not silently forget the removed entry's state.
+
+The same behavior applies to databases removed from `databases`, including their
+ACLs. Remove their dependent agents too. A remaining reference to a missing
+database key or to the removed database's ID blocks reconciliation. Agents are
+deleted before databases. Keep stable map keys and `subscription_key` unchanged.
+Changing a managed resource to `external` is an explicit ownership transfer.
+
+Config Destroy remains available for full subscription cleanup and for selective
+agent deletion while its entry is still present. If using selective destroy,
+remove the entry after successful deletion so a later apply does not recreate it.
+Deleting the entire configuration file does not run any action.
+
+## 6. Full cleanup
+
+Use Config Destroy with the same configuration, `confirm_destroy = true` and
+an empty `agent_memory_key`. Review every deletion before approving. This
+removes managed agents, database/ACLs and subscription in dependency order;
+external resources and the state backend are retained. Do this only when the
+presentation environment is no longer needed.
+
+## Validation evidence
+
+The provider's planned technical matrix passed; maintainer review, integration
+and release remain pending. Detailed evidence and historical run links are in
+[the internal validation history](internal/demo-validation-history.md).
+The QA cleanup requested before this demo completed successfully in
+[run 38770072079](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38770072079);
+API verification confirmed the QA subscription, databases and stores absent.
+The presentation baseline was subsequently provisioned and verified as described
+above. Detailed runtime IDs and verification evidence are in the internal history.

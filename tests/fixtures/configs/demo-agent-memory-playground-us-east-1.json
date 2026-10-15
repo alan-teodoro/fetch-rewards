@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "customer": "fetch-rewards",
+  "environment": "demo",
+  "subscription_key": "demo-agent-memory-playground-us-east-1",
+  "subscription": {
+    "mode": "external",
+    "name": "fetch-demo-ai"
+  },
+  "databases": {
+    "shared_agent_memory": {
+      "mode": "managed",
+      "name": "agent-memory-playground-db",
+      "agent_memory_compatible": true,
+      "dataset_size_in_gb": 1,
+      "redis_version": "8.6",
+      "throughput_ops_per_second": 1000,
+      "replication": true,
+      "enable_tls": true,
+      "enable_default_user": true,
+      "auto_minor_version_upgrade": true,
+      "support_oss_cluster_api": false,
+      "external_endpoint_for_oss_cluster_api": false,
+      "persistence_mode": "aof-every-1-second",
+      "data_eviction": "allkeys-lru",
+      "alerts": [
+        {
+          "name": "dataset-size",
+          "value": 80
+        },
+        {
+          "name": "throughput-higher-than",
+          "value": 80
+        }
+      ]
+    }
+  },
+  "agent_memory_stores": {
+    "playground_agent": {
+      "mode": "managed",
+      "name": "playground-agent-memory",
+      "database": "shared_agent_memory",
+      "short_term_ttl_seconds": 86400,
+      "long_term_ttl_seconds": 7776000,
+      "extraction_cadence_seconds": 120,
+      "summarization": {
+        "enabled": true,
+        "trigger_strategy": "event_count",
+        "event_count": {
+          "threshold": 45,
+          "retain_count": 12
+        }
+      },
+      "custom_memory_types": [
+        {
+          "name": "customer_profile",
+          "description": "Durable customer profile details for support and sales workflows",
+          "fields": [
+            {
+              "name": "preferred_product",
+              "type": "str",
+              "description": "product or service the customer prefers"
+            },
+            {
+              "name": "account_tier",
+              "type": "str",
+              "description": "customer account tier"
+            },
+            {
+              "name": "lifetime_value",
+              "type": "float",
+              "description": "estimated lifetime value"
+            },
+            {
+              "name": "is_strategic",
+              "type": "bool",
+              "description": "whether this customer is strategic"
+            },
+            {
+              "name": "topics",
+              "type": "list[str]",
+              "description": "topics associated with the customer"
+            }
+          ],
+          "extraction_strategy": {
+            "enabled": true,
+            "prompt": "Extract only durable customer profile facts that are useful across future conversations. Ignore one-off experiments."
+          }
+        },
+        {
+          "name": "support_case",
+          "description": "Persistent support case context extracted from conversations",
+          "fields": [
+            {
+              "name": "case_priority",
+              "type": "int",
+              "description": "case priority from one to five"
+            },
+            {
+              "name": "affected_region",
+              "type": "str",
+              "description": "cloud or application region affected by the issue"
+            },
+            {
+              "name": "sentiment_score",
+              "type": "float",
+              "description": "customer sentiment score"
+            }
+          ],
+          "extraction_strategy": {
+            "enabled": false,
+            "prompt": "Extract persistent support case context only when explicitly marked as reusable."
+          }
+        },
+        {
+          "name": "deployment_preference",
+          "description": "Durable deployment preferences for future automation",
+          "fields": [
+            {
+              "name": "cloud",
+              "type": "str",
+              "description": "preferred cloud provider"
+            },
+            {
+              "name": "region",
+              "type": "str",
+              "description": "preferred deployment region"
+            }
+          ],
+          "extraction_strategy": {
+            "enabled": true,
+            "prompt": "Extract durable deployment preferences only when the user states a lasting preference."
+          }
+        }
+      ],
+      "long_term_memory_exclusions": {
+        "enabled": true,
+        "built_in_detectors": {
+          "enabled": true,
+          "detectors": [
+            {
+              "id": "credit-card",
+              "enabled": true,
+              "action": "drop"
+            },
+            {
+              "id": "email",
+              "enabled": true,
+              "action": "redact"
+            },
+            {
+              "id": "ip-address",
+              "enabled": true,
+              "action": "redact"
+            },
+            {
+              "id": "phone",
+              "enabled": true,
+              "action": "drop"
+            },
+            {
+              "id": "us-ssn",
+              "enabled": true,
+              "action": "drop"
+            }
+          ]
+        },
+        "custom_detectors": {
+          "enabled": true,
+          "detectors": [
+            {
+              "name": "tenant_id",
+              "enabled": true,
+              "action": "redact",
+              "matcher": {
+                "kind": "regex",
+                "regex": {
+                  "pattern": "TEN-[0-9]{6}"
+                }
+              }
+            },
+            {
+              "name": "recovery_code",
+              "enabled": true,
+              "action": "drop",
+              "matcher": {
+                "kind": "regex",
+                "regex": {
+                  "pattern": "RC-[A-Z0-9]{8}"
+                }
+              }
+            }
+          ]
+        },
+        "semantic": {
+          "enabled": true,
+          "prompt": "Exclude recovery codes, credentials, tenant identifiers, payment data, and any operational secrets from long-term memory."
+        }
+      },
+      "api_keys": {
+        "runtime": {
+          "mode": "managed",
+          "name": "playground-agent-runtime",
+          "enabled": true,
+          "secret_ref": "aws-secrets-manager:/fetch-rewards/demo/playground-agent-memory/runtime"
+        }
+      },
+      "tags": {
+        "customer": "fetch-rewards",
+        "environment": "demo",
+        "agent": "playground"
+      }
+    }
+  }
+}

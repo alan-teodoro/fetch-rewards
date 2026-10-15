@@ -140,13 +140,11 @@ variable "alerts" {
     condition = alltrue([
       for alert in var.alerts : contains([
         "dataset-size",
-        "datasets-size",
         "throughput-higher-than",
         "throughput-lower-than",
         "latency",
         "syncsource-error",
-        "syncsource-lag",
-        "connections-limit"
+        "syncsource-lag"
       ], alert.name)
     ])
     error_message = "alerts[*].name must be a supported Redis Cloud alert name."

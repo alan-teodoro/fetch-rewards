@@ -1,0 +1,122 @@
+name: Redis Cloud Terraform setup
+description: Configure the pinned provider, Terraform and optional configuration rendering.
+inputs:
+  config-path:
+    required: true
+    description: Versioned JSON configuration.
+  provider-source:
+    required: true
+    description: branch or registry.
+  provider-ref:
+    required: true
+    description: Provider commit, tag or branch.
+  provider-binary:
+    default: ""
+    description: Previously reviewed provider binary, for approved apply jobs.
+  render-mode:
+    default: skip
+    description: apply, destroy or skip.
+  agent-memory-key:
+    default: ""
+    description: Optional selective destroy key.
+outputs:
+  provider-ref:
+    value: ${{ steps.provider.outputs.ref }}
+    description: Resolved immutable provider commit or registry mode.
+runs:
+  using: composite
+  steps:
+    - name: Validate versioned config
+      shell: bash
+      env:
+        CONFIG_PATH: ${{ inputs.config-path }}
+      run: |
+        set -euo pipefail
+        case "${CONFIG_PATH}" in
+          configs/fetch-rewards/subscriptions/*.json) ;;
+          *) echo "Invalid subscription config path." >&2; exit 1 ;;
+        esac
+        python3 scripts/rediscloud_config.py validate --config "${CONFIG_PATH}"
+    - name: Checkout pinned provider
+      if: inputs.provider-source == 'branch' && inputs.provider-binary == ''
+      uses: actions/checkout@v4
+      with:
+        repository: RedisLabs/terraform-provider-rediscloud
+        ref: ${{ inputs.provider-ref }}
+        path: .provider/terraform-provider-rediscloud
+        token: ${{ env.PROVIDER_CHECKOUT_TOKEN }}
+    - name: Set up Go
+      if: inputs.provider-source == 'branch' && inputs.provider-binary == ''
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: .provider/terraform-provider-rediscloud/go.mod
+        cache-dependency-path: .provider/terraform-provider-rediscloud/go.sum
+    - name: Configure reviewed provider
+      id: provider
+      shell: bash
+      env:
+        PROVIDER_SOURCE: ${{ inputs.provider-source }}
+        PROVIDER_REF: ${{ inputs.provider-ref }}
+        REVIEWED_BINARY: ${{ inputs.provider-binary }}
+      run: |
+        set -euo pipefail
+        umask 077
+        binary="${REVIEWED_BINARY}"
+        resolved_ref="registry"
+        if [ -n "${binary}" ]; then
+          chmod 700 "${binary}"
+          resolved_ref="${PROVIDER_REF}"
+        elif [ "${PROVIDER_SOURCE}" = "branch" ]; then
+          install_dir="${RUNNER_TEMP}/rediscloud-provider-dev"
+          mkdir -p "${install_dir}"
+          binary="${install_dir}/terraform-provider-rediscloud"
+          resolved_ref="$(git -C .provider/terraform-provider-rediscloud rev-parse HEAD)"
+          (
+            cd .provider/terraform-provider-rediscloud
+            go build -trimpath -o "${binary}" .
+          )
+        elif [ -n "${PROVIDER_DEV_OVERRIDE_DIR:-}" ]; then
+          binary="${PROVIDER_DEV_OVERRIDE_DIR}/terraform-provider-rediscloud"
+          test -f "${binary}"
+        fi
+        if [ -n "${binary}" ]; then
+          install_dir="$(dirname "${binary}")"
+          cat > "${RUNNER_TEMP}/terraformrc" <<CONFIG
+        provider_installation {
+          dev_overrides {
+            "RedisLabs/rediscloud" = "${install_dir}"
+          }
+          direct {}
+        }
+        CONFIG
+          echo "TF_CLI_CONFIG_FILE=${RUNNER_TEMP}/terraformrc" >> "$GITHUB_ENV"
+          echo "PROVIDER_BINARY=${binary}" >> "$GITHUB_ENV"
+        fi
+        echo "ref=${resolved_ref}" >> "$GITHUB_OUTPUT"
+        echo "Provider revision: ${resolved_ref}"
+    - name: Validate Redis Cloud credentials
+      shell: bash
+      run: python3 scripts/rediscloud_auth_check.py
+    - name: Render configuration
+      if: inputs.render-mode != 'skip'
+      shell: bash
+      env:
+        CONFIG_PATH: ${{ inputs.config-path }}
+        RENDER_MODE: ${{ inputs.render-mode }}
+        AGENT_MEMORY_KEY: ${{ inputs.agent-memory-key }}
+      run: |
+        set -euo pipefail
+        umask 077
+        mkdir -p "$(dirname "${RENDER_DIR}")"
+        if [ "${RENDER_MODE}" = "destroy" ]; then
+          python3 scripts/rediscloud_config.py render-destroy --config "${CONFIG_PATH}" \
+            --agent-memory-key "${AGENT_MEMORY_KEY}" --out-dir "${RENDER_DIR}" > "${RENDER_DIR}.summary.json"
+        else
+          python3 scripts/rediscloud_config.py render --config "${CONFIG_PATH}" \
+            --out-dir "${RENDER_DIR}" > "${RENDER_DIR}.summary.json"
+        fi
+    - name: Set up pinned Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+        terraform_wrapper: false

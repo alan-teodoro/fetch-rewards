@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import os
 import re
@@ -62,6 +63,15 @@ DATABASE_FIELDS = {
     "acl_user_password_override",
     "tags",
     "enable_resource_tags",
+}
+
+DATABASE_ALERT_NAMES = {
+    "dataset-size",
+    "throughput-higher-than",
+    "throughput-lower-than",
+    "latency",
+    "syncsource-error",
+    "syncsource-lag",
 }
 
 AGENT_MEMORY_FIELDS = {
@@ -205,6 +215,22 @@ def copy_fields(source: dict[str, Any], field_names: set[str]) -> dict[str, Any]
     return {field: source[field] for field in sorted(field_names) if field in source}
 
 
+def subscription_state_prefix(config: dict[str, Any]) -> str:
+    return f"subscriptions/{config['subscription_key']}"
+
+
+def subscription_state_key(config: dict[str, Any]) -> str:
+    return f"{subscription_state_prefix(config)}/subscription.tfstate"
+
+
+def database_state_key(config: dict[str, Any], database_key: str) -> str:
+    return f"{subscription_state_prefix(config)}/databases/{database_key}.tfstate"
+
+
+def agent_memory_state_key(config: dict[str, Any], store_key: str) -> str:
+    return f"{subscription_state_prefix(config)}/agent-memory/{store_key}.tfstate"
+
+
 def validate_env_var_name(path: str, value: str) -> None:
     if not ENV_VAR_PATTERN.fullmatch(value):
         raise ConfigError(f"{path} must be a valid environment variable name.")
@@ -303,6 +329,17 @@ def load_and_validate(path: Path) -> dict[str, Any]:
             raise ConfigError(f"$.databases.{key}.name is required for managed databases.")
         if mode == "external" and "name" not in database and "database_id" not in database:
             raise ConfigError(f"$.databases.{key} must set name or database_id when mode is external.")
+        alerts = database.get("alerts", [])
+        if not isinstance(alerts, list):
+            raise ConfigError(f"$.databases.{key}.alerts must be a list.")
+        for index, alert in enumerate(alerts):
+            alert = require_object(f"$.databases.{key}.alerts[{index}]", alert)
+            alert_name = require_string(f"$.databases.{key}.alerts[{index}].name", alert.get("name"))
+            if alert_name not in DATABASE_ALERT_NAMES:
+                raise ConfigError(
+                    f"$.databases.{key}.alerts[{index}].name must be one of: "
+                    f"{', '.join(sorted(DATABASE_ALERT_NAMES))}."
+                )
 
     agent_memory_stores = optional_object("$.agent_memory_stores", config.get("agent_memory_stores"))
     referenced_databases: set[str] = set()
@@ -338,6 +375,27 @@ def load_and_validate(path: Path) -> dict[str, Any]:
             if database_key not in databases:
                 raise ConfigError(f"$.agent_memory_stores.{key}.database references unknown database {database_key!r}.")
             referenced_databases.add(database_key)
+        memory_types = store.get("custom_memory_types", [])
+        if not isinstance(memory_types, list):
+            raise ConfigError(f"$.agent_memory_stores.{key}.custom_memory_types must be a list.")
+        for index, memory_type in enumerate(memory_types):
+            memory_path = f"$.agent_memory_stores.{key}.custom_memory_types[{index}]"
+            memory_type = require_object(memory_path, memory_type)
+            require_string(f"{memory_path}.name", memory_type.get("name"))
+            description = require_string(f"{memory_path}.description", memory_type.get("description"))
+            if len(description) > 200:
+                raise ConfigError(f"{memory_path}.description must be at most 200 characters.")
+            fields = memory_type.get("fields", [])
+            if not isinstance(fields, list):
+                raise ConfigError(f"{memory_path}.fields must be a list.")
+            for field_index, field in enumerate(fields):
+                field_path = f"{memory_path}.fields[{field_index}]"
+                field = require_object(field_path, field)
+                require_string(f"{field_path}.name", field.get("name"))
+                field_description = require_string(f"{field_path}.description", field.get("description"))
+                if len(field_description) > 200:
+                    raise ConfigError(f"{field_path}.description must be at most 200 characters.")
+                require_string(f"{field_path}.type", field.get("type"))
         api_keys = optional_object(f"$.agent_memory_stores.{key}.api_keys", store.get("api_keys"))
         for api_key_key, api_key in api_keys.items():
             validate_key(f"$.agent_memory_stores.{key}.api_keys.{api_key_key}", api_key_key)
@@ -400,7 +458,7 @@ def render_subscription(config: dict[str, Any], out_dir: Path, manifest: dict[st
     path = out_dir / "subscription.auto.tfvars.json"
     write_json(path, tfvars)
     manifest["subscription"]["tfvars_path"] = str(path)
-    manifest["subscription"]["state_key"] = f"subscriptions/{config['subscription_key']}.tfstate"
+    manifest["subscription"]["state_key"] = subscription_state_key(config)
 
 
 def render_database(
@@ -417,7 +475,7 @@ def render_database(
         "mode": mode,
         "name": database_name,
         "database_id": database.get("database_id"),
-        "state_key": f"databases/{config['subscription_key']}/{database_key}.tfstate",
+        "state_key": database_state_key(config, database_key),
     }
 
     if mode != "managed":
@@ -454,7 +512,8 @@ def render_agent_memory(
         "mode": mode,
         "name": store_name,
         "database_key": store.get("database"),
-        "state_key": f"agent-memory/{config['subscription_key']}/{store_key}.tfstate",
+        "database_id": store.get("database_id", config.get("databases", {}).get(store.get("database"), {}).get("database_id")),
+        "state_key": agent_memory_state_key(config, store_key),
         "api_key_secret_refs": {},
         "model_credential_env_vars": {},
     }
@@ -528,17 +587,43 @@ def build_manifest(config: dict[str, Any], config_path: Path) -> dict[str, Any]:
         "subscription": {
             "mode": config["_normalized"]["subscription_mode"],
             "name": config["_normalized"]["subscription_name"],
-            "state_key": f"subscriptions/{config['subscription_key']}.tfstate",
+            "state_key": subscription_state_key(config),
         },
         "databases": [],
         "agent_memory_stores": [],
     }
 
 
-def render(config_path: Path, out_dir: Path) -> dict[str, Any]:
+def select_destroy_config(config: dict[str, Any], agent_memory_key: str | None) -> dict[str, Any]:
+    if not agent_memory_key:
+        return config
+    stores = config.get("agent_memory_stores", {})
+    if agent_memory_key not in stores:
+        raise ConfigError(f"Unknown Agent Memory key {agent_memory_key!r} for selective destroy.")
+    store = stores[agent_memory_key]
+    if get_mode(f"$.agent_memory_stores.{agent_memory_key}", store) != "managed":
+        raise ConfigError(f"Agent Memory {agent_memory_key!r} is external and cannot be destroyed by this config.")
+    selected = deepcopy(config)
+    selected["subscription"]["mode"] = "external"
+    selected["_normalized"]["subscription_mode"] = "external"
+    selected["databases"] = {
+        key: {**database, "mode": "external"}
+        for key, database in selected.get("databases", {}).items()
+    }
+    selected["agent_memory_stores"] = {agent_memory_key: deepcopy(store)}
+    return selected
+
+
+def render(config_path: Path, out_dir: Path, *, destroy: bool = False, agent_memory_key: str | None = None) -> dict[str, Any]:
     config = load_and_validate(config_path)
+    if agent_memory_key and not destroy:
+        raise ConfigError("Selecting an Agent Memory key is only supported for destroy rendering.")
+    if destroy:
+        config = select_destroy_config(config, agent_memory_key)
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = build_manifest(config, config_path)
+    if destroy:
+        manifest["destroy_scope"] = "agent_memory" if agent_memory_key else "all_managed_resources"
 
     render_subscription(config, out_dir, manifest)
 
@@ -577,6 +662,19 @@ def render_command(args: argparse.Namespace) -> None:
     print(json.dumps(manifest, indent=2, sort_keys=True))
 
 
+def validate_destroy_command(args: argparse.Namespace) -> None:
+    config = select_destroy_config(load_and_validate(args.config), args.agent_memory_key)
+    print(json.dumps({
+        "valid": True,
+        "destroy_scope": "agent_memory" if args.agent_memory_key else "all_managed_resources",
+        "agent_memory_keys": [key for key, store in config.get("agent_memory_stores", {}).items() if get_mode(key, store) == "managed"],
+    }, indent=2, sort_keys=True))
+
+
+def render_destroy_command(args: argparse.Namespace) -> None:
+    print(json.dumps(render(args.config, args.out_dir, destroy=True, agent_memory_key=args.agent_memory_key), indent=2, sort_keys=True))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate and render Redis Cloud subscription config files.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -589,6 +687,17 @@ def main() -> None:
     render_parser.add_argument("--config", required=True, type=Path)
     render_parser.add_argument("--out-dir", required=True, type=Path)
     render_parser.set_defaults(func=render_command)
+
+    validate_destroy_parser = subparsers.add_parser("validate-destroy", help="Validate the complete config or an Agent Memory key for destroy.")
+    validate_destroy_parser.add_argument("--config", required=True, type=Path)
+    validate_destroy_parser.add_argument("--agent-memory-key", default=None)
+    validate_destroy_parser.set_defaults(func=validate_destroy_command)
+
+    render_destroy_parser = subparsers.add_parser("render-destroy", help="Render all managed resources or only one Agent Memory stack for destroy.")
+    render_destroy_parser.add_argument("--config", required=True, type=Path)
+    render_destroy_parser.add_argument("--out-dir", required=True, type=Path)
+    render_destroy_parser.add_argument("--agent-memory-key", default=None)
+    render_destroy_parser.set_defaults(func=render_destroy_command)
 
     args = parser.parse_args()
     try:

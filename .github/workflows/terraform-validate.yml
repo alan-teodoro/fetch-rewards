@@ -2,6 +2,31 @@ name: Terraform Validate
 
 on:
   workflow_dispatch:
+    inputs:
+      provider_readiness:
+        description: Run protected Agent Memory acceptance tests against the existing isolated QA database.
+        type: boolean
+        default: false
+      provider_candidate:
+        description: Exact 40-character provider commit for the optional acceptance test.
+        type: string
+        default: ''
+      auth_probe_only:
+        description: Run only QA authentication/isolation/revocation checks, skipping the already-tested Terraform lifecycle.
+        type: boolean
+        default: false
+      state_compatibility_only:
+        description: Create a temporary QA fixture to test old/new/old provider state updates and cleanup.
+        type: boolean
+        default: false
+      fault_recovery_only:
+        description: Test reconciliation after controlled loss of accepted store/key create responses, on isolated QA fixtures.
+        type: boolean
+        default: false
+      baseline_provider:
+        description: Exact prior provider commit for the optional state compatibility check.
+        type: string
+        default: c87f53502bb92ec5b55e48abdfdf6b8f779cc038
   pull_request:
   push:
     branches:
@@ -12,12 +37,165 @@ permissions:
 
 env:
   REDISCLOUD_PROVIDER_SOURCE: ${{ vars.REDISCLOUD_PROVIDER_SOURCE || 'branch' }}
-  REDISCLOUD_PROVIDER_REPOSITORY: ${{ vars.REDISCLOUD_PROVIDER_REPOSITORY || 'RedisLabs/terraform-provider-rediscloud' }}
+  REDISCLOUD_PROVIDER_REPOSITORY: RedisLabs/terraform-provider-rediscloud
   REDISCLOUD_PROVIDER_REF: ${{ vars.REDISCLOUD_PROVIDER_REF || 'alan/agent-memory-terraform-provider' }}
   PROVIDER_DEV_OVERRIDE_DIR: ${{ vars.REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR }}
   PROVIDER_BUILD_PATH: .provider/terraform-provider-rediscloud
 
 jobs:
+  readiness-review:
+    name: Review isolated provider acceptance test
+    if: github.event_name == 'workflow_dispatch' && inputs.provider_readiness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Describe the mutations before approval
+        env:
+          CANDIDATE: ${{ inputs.provider_candidate }}
+          AUTH_ONLY: ${{ inputs.auth_probe_only }}
+          STATE_ONLY: ${{ inputs.state_compatibility_only }}
+          FAULT_ONLY: ${{ inputs.fault_recovery_only }}
+          BASELINE: ${{ inputs.baseline_provider }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE" =~ ^[0-9a-f]{40}$ ]] || { echo 'An exact provider commit is required.' >&2; exit 1; }
+          selected=0
+          for mode in "$AUTH_ONLY" "$STATE_ONLY" "$FAULT_ONLY"; do
+            if [[ "$mode" == 'true' ]]; then selected=$((selected + 1)); fi
+          done
+          [[ "$selected" -le 1 ]] || { echo 'Select only one restricted test mode.' >&2; exit 1; }
+          if [[ "$STATE_ONLY" == 'true' ]]; then
+            [[ "$BASELINE" =~ ^[0-9a-f]{40}$ ]] || { echo 'An exact baseline commit is required.' >&2; exit 1; }
+            [[ "$AUTH_ONLY" != 'true' ]] || { echo 'Select only one restricted test mode.' >&2; exit 1; }
+          fi
+          {
+            echo '## Provider production-readiness acceptance test'
+            echo "Provider commit: \`$CANDIDATE\`"
+            echo 'Uses only the existing fetch-provider-readiness / agent-memory-readiness-db QA database.'
+            if [[ "$FAULT_ONLY" == 'true' ]]; then
+              echo 'Controlled response-loss recovery only: creates two uniquely named temporary Agent Memory/key fixtures, one at a time.'
+              echo 'A loopback proxy suppresses a successful store-create response after the API accepts it; the test identifies and imports that owned store before applying again.'
+              echo 'A second case loses an accepted key-create response; the test revokes only its identified unrecoverable key, then retries key creation.'
+              echo 'Verifies one store per fixture, expected key counts, no-op and complete fixture destruction. No service outage is injected into existing agents or the API itself.'
+            elif [[ "$STATE_ONLY" == 'true' ]]; then
+              echo "Baseline provider commit: \`$BASELINE\`"
+              echo 'State compatibility only: creates one temporary Agent Memory and key with the baseline binary, reads and updates its TTL with the candidate, then reads and restores TTL with the baseline.'
+              echo 'Verifies unchanged store/key IDs and retained secret across both versions, then destroys the fixture with the candidate and verifies API absence.'
+              echo 'Uses private temporary local test state, removed after cleanup; no existing infrastructure state is modified.'
+            elif [[ "$AUTH_ONLY" != 'true' ]]; then
+              echo 'Creates one uniquely named tfacc Agent Memory store and runtime key.'
+              echo 'Verifies import, updates TTL, introduces and reconciles external drift, replaces the runtime key, checks no-op, and destroys its own store/key.'
+            else
+              echo 'Authentication-only run: no Agent Memory store is created or changed; the Terraform lifecycle test is skipped.'
+            fi
+            if [[ "$STATE_ONLY" != 'true' && "$FAULT_ONLY" != 'true' ]]; then
+              echo 'Then creates three temporary runtime keys on the two configured QA stores to verify SDK authentication, cross-store denial and revoked-key rejection. These keys are removed afterward; no session or long-term memories are written.'
+            fi
+            echo 'The QA subscription/database and existing agents are retained. Demo resources are not used.'
+            echo 'This is a test sequence rather than a saved Terraform plan; approve only if these QA mutations are intended.'
+            echo 'The harness owns cleanup. If the runner is interrupted, reconcile the tfacc store before retrying.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  provider-readiness:
+    name: Approve isolated Agent Memory acceptance test
+    needs: readiness-review
+    environment: dev
+    timeout-minutes: 50
+    runs-on: ubuntu-latest
+    env:
+      REDISCLOUD_ACCESS_KEY: ${{ secrets.REDISCLOUD_ACCESS_KEY }}
+      REDISCLOUD_SECRET_KEY: ${{ secrets.REDISCLOUD_SECRET_KEY }}
+      REDISCLOUD_URL: ${{ secrets.REDISCLOUD_URL || vars.REDISCLOUD_URL }}
+      TF_LOG: ''
+      TF_ACC: '1'
+      AGENT_MEMORY_TEST_PREFIX: tfacc-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          repository: RedisLabs/terraform-provider-rediscloud
+          ref: ${{ inputs.provider_candidate }}
+          path: .provider/readiness
+          token: ${{ secrets.REDISCLOUD_PROVIDER_CHECKOUT_TOKEN || github.token }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .provider/readiness/go.mod
+          cache-dependency-path: .provider/readiness/go.sum
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.3
+          terraform_wrapper: false
+      - name: Resolve the existing QA database
+        id: qa
+        run: |
+          python3 scripts/rediscloud_lookup.py \
+            --subscription-name fetch-provider-readiness \
+            --database-name agent-memory-readiness-db
+      - name: Run real lifecycle, import, drift and key replacement checks
+        if: ${{ !inputs.auth_probe_only && !inputs.state_compatibility_only && !inputs.fault_recovery_only }}
+        working-directory: .provider/readiness
+        env:
+          AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
+        run: |
+          set -euo pipefail
+          test -n "$AGENT_MEMORY_TEST_DATABASE_ID"
+          export TF_ACC_TERRAFORM_PATH="$(command -v terraform)"
+          go test ./provider/agentmemory \
+            -list '^TestAccAgentMemory_ProductionReadiness_CRUDI$' \
+            | grep -Fx 'TestAccAgentMemory_ProductionReadiness_CRUDI'
+          go test ./provider/agentmemory -v \
+            -run '^TestAccAgentMemory_ProductionReadiness_CRUDI$' \
+            -count=1 -parallel=1 -timeout=40m
+      - name: Verify reconciliation after controlled accepted response loss
+        if: inputs.fault_recovery_only
+        working-directory: .provider/readiness
+        env:
+          AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
+        run: |
+          set -euo pipefail
+          test -n "$AGENT_MEMORY_TEST_DATABASE_ID"
+          export TF_ACC_TERRAFORM_PATH="$(command -v terraform)"
+          go test ./provider/agentmemory \
+            -list '^TestAccAgentMemory_AcceptedLostResponseRecovery$' \
+            | grep -Fx 'TestAccAgentMemory_AcceptedLostResponseRecovery'
+          go test ./provider/agentmemory -v \
+            -run '^TestAccAgentMemory_AcceptedLostResponseRecovery$' \
+            -count=1 -parallel=1 -timeout=35m
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the official data-plane SDK
+        run: python -m pip install 'redis-agent-memory==0.4.1'
+      - name: Verify SDK request protocol without cloud mutations
+        run: python -m unittest discover -s tests -p test_agent_memory_auth_probe_sdk.py -v
+      - name: Check real authentication, store isolation and key revocation
+        if: ${{ !inputs.state_compatibility_only && !inputs.fault_recovery_only }}
+        env:
+          AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
+        run: python scripts/agent_memory_auth_probe.py
+      - name: Checkout exact baseline for state compatibility
+        if: inputs.state_compatibility_only
+        uses: actions/checkout@v4
+        with:
+          repository: RedisLabs/terraform-provider-rediscloud
+          ref: ${{ inputs.baseline_provider }}
+          path: .provider/baseline
+          token: ${{ secrets.REDISCLOUD_PROVIDER_CHECKOUT_TOKEN || github.token }}
+      - name: Build both reviewed provider versions
+        if: inputs.state_compatibility_only
+        run: |
+          set -euo pipefail
+          (cd .provider/baseline && go build -o "$RUNNER_TEMP/baseline-provider" .)
+          (cd .provider/readiness && go build -o "$RUNNER_TEMP/candidate-provider" .)
+      - name: Verify old/new/old state compatibility and cleanup
+        if: inputs.state_compatibility_only
+        env:
+          AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
+        run: |
+          export BASELINE_PROVIDER_BINARY="$RUNNER_TEMP/baseline-provider"
+          export CANDIDATE_PROVIDER_BINARY="$RUNNER_TEMP/candidate-provider"
+          python scripts/provider_state_compatibility.py
+
   validate:
     runs-on: ubuntu-latest
     strategy:
@@ -52,6 +230,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Test config and workflow lifecycle behavior
+        run: python3 -m unittest discover -s tests -v
 
       - name: Validate subscription configs
         run: |
