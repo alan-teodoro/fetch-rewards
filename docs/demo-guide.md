@@ -167,14 +167,21 @@ cadence 300, the `preference` custom type and the runtime key present.
 
 [Full presentation creation](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38732769481)
 now tests fresh subscription → database → Agent Memory using provider `c87f535`
-and a single approval. API verification before dispatch found no presentation
+and a single approval. Its review completed and awaits Alan’s one approval:
+2 subscription-stack creates, no updates/deletes/replacements, plus explicitly
+deferred database and Agent Memory plans. Reviewed bundle SHA-256:
+`688fb86dc9899cb2c22e5c2fd692b5d45067ad8fa2c699c66b7879d6b3dea2cb`.
+API verification before dispatch found no presentation
 subscription, database or stores. Keep this infrastructure through the meeting;
 this is the presentation namespace, not the QA cleanup target.
 
 The separate QA config is prepared for the next maintenance run: database
 alert 80 → 85, shopping TTL 86400 → 21600, cadence 300 → 120, updated extraction
-prompt, addition of `shopping_goal`, and a new `support_agent`. Existing store
-and key IDs must remain stable, while only support-agent IDs are new. Subsequent
+prompt, addition of `shopping_goal`, and a new `support_agent`. [Maintenance run](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38732918784)
+is queued behind presentation creation under shared concurrency protection.
+[Configuration CI](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38732885984)
+passed. Existing store and key IDs must remain stable, while only support-agent
+IDs are new. Subsequent
 checks: unchanged reapply, selective support-agent deletion/recreation, then
 scratch cleanup. Each mutation still needs Alan’s one approval per run.
 
