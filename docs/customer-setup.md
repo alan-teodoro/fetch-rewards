@@ -233,6 +233,11 @@ Apply. The review lists its store, keys and validation resources as deletions.
 After approval, its saved deletion plan runs before any creates/updates. Other
 agents and the backing database remain managed.
 
+Destroy planning retains immutable custom-memory type definitions and model
+identities from state so omission is not interpreted as an unsupported in-place
+configuration change. This does not update models or rotate their credentials;
+deletion-only plans are enforced before approval.
+
 Removing a database entry from `databases` similarly proposes deletion of the
 database and its ACLs. Remove its dependent agents too; references to a missing
 database key fail configuration validation. References to the removed database

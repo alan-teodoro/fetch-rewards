@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+from copy import deepcopy
 from pathlib import Path
 import re
 import tempfile
@@ -65,12 +66,36 @@ def destroy_variables(state, stack):
     parent = values.get("database_id" if stack == "agent-memory" else "subscription_id")
     if not isinstance(name, str) or not NAME_PATTERN.fullmatch(name) or not re.fullmatch(r"[1-9][0-9]*", str(parent)):
         raise ValueError("Omitted state lacks valid name/parent identity; reconcile it manually.")
+    if stack == "agent-memory":
+        return agent_destroy_variables(values, name, int(parent))
     # Avoid evaluating coalesce(null, null) for databases originally configured
     # with an explicit ACL password (no random_password instance in state).
     # This placeholder is never applied: the runner requires a deletion-only plan.
-    return ({"agent_memory_name": name, "database_id": int(parent)} if stack == "agent-memory"
-            else {"database_name": name, "subscription_id": int(parent),
-                  "acl_user_password_override": "unused-during-destroy"})
+    return {"database_name": name, "subscription_id": int(parent),
+            "acl_user_password_override": "unused-during-destroy"}
+
+
+def agent_destroy_variables(values, name, database_id):
+    result = {"agent_memory_name": name, "database_id": database_id}
+    # Terraform can evaluate a non-null preliminary plan during destroy. Retain
+    # immutable definitions so the provider does not see an in-place removal.
+    for field in ("custom_memory_types", "summarization", "long_term_memory_exclusions",
+                  "short_term_ttl_seconds", "long_term_ttl_seconds", "extraction_cadence_seconds"):
+        if values.get(field) is not None:
+            result[field] = deepcopy(values[field])
+    if values.get("llm") is not None or values.get("embedding") is not None:
+        if not all(isinstance(values.get(block), dict) for block in ("llm", "embedding")):
+            raise ValueError("Omitted state has incomplete customer-managed model configuration; reconcile manually.")
+        for block in ("llm", "embedding"):
+            model = values[block]
+            if not all(isinstance(model.get(field), str) and model[field].strip() for field in ("provider", "model")):
+                raise ValueError("Omitted state lacks model identity; reconcile manually.")
+            result[block] = {"provider": model["provider"], "model": model["model"],
+                             "credentials": {"type": "apiKey"}}
+            # Satisfy stack input checks without copying write-only secrets.
+            # The caller must use -destroy and reject any non-deletion plan.
+            result[block + "_api_key"] = "unused-during-destroy"
+    return result
 
 
 def removed_entries(manifest, out_dir, run):

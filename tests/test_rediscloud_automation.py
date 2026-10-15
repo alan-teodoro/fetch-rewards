@@ -463,6 +463,35 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotEqual(self.execute("plan", "rollout").returncode, 0)
         self.assertEqual(self.events(), [])
 
+    def test_omitted_agent_destroy_preserves_immutable_definitions_without_model_secrets(self):
+        memory_types = [{"name": "preference", "description": "Stable preferences",
+                         "fields": [{"name": "topic", "description": "Topic", "type": "str"}],
+                         "extraction_strategy": {"enabled": True, "prompt": "Remember stable preferences"}}]
+        self.seed_state("agent-memory", "old_agent", "old-agent", custom_memory_types=memory_types,
+                        long_term_ttl_seconds=7776000,
+                        llm={"provider": "openai", "model": "gpt-4o", "credentials": {"type": "apiKey", "api_key": "FAKE_ORIGINAL_LLM_SECRET"}},
+                        embedding={"provider": "openai", "model": "text-embedding-3-small", "credentials": {"type": "apiKey", "api_key": "FAKE_ORIGINAL_EMBEDDING_SECRET"}})
+        result = self.execute("plan", "rollout")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        variables = json.loads((self.render / "removed-agent-memory-old_agent.json").read_text())
+        self.assertEqual(variables["custom_memory_types"], memory_types)
+        self.assertEqual(variables["long_term_ttl_seconds"], 7776000)
+        self.assertEqual(variables["llm"]["model"], "gpt-4o")
+        self.assertEqual(variables["embedding"]["model"], "text-embedding-3-small")
+        self.assertTrue(variables["llm_api_key"] and variables["embedding_api_key"])
+        self.assertNotIn("FAKE_ORIGINAL_", json.dumps(variables) + result.stdout + self.summary())
+        index = json.loads((self.work / "bundle-rollout/index.json").read_text())
+        removed = next(item for item in index["plans"] if item.get("removed"))
+        plan = json.loads((self.work / "bundle-rollout" / removed["file"]).read_text())
+        self.assertEqual(plan["resource_changes"][0]["change"]["actions"], ["delete"])
+
+    def test_omitted_agent_with_incomplete_models_requires_manual_reconciliation(self):
+        self.seed_state("agent-memory", "old_agent", "old-agent", llm={"provider": "openai", "model": "gpt-4o"})
+        result = self.execute("plan", "rollout")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("incomplete customer-managed model configuration", result.stderr)
+        self.assertEqual(self.events(), [])
+
     def test_fresh_plan_skips_missing_dependencies(self):
         self.env["MOCK_CHANGES"]=json.dumps({"subscription":{"actions":["create"]}})
         result=self.execute("plan","preview")
