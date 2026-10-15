@@ -175,10 +175,22 @@ API verification before dispatch found no presentation
 subscription, database or stores. Keep this infrastructure through the meeting;
 this is the presentation namespace, not the QA cleanup target.
 
+Presentation provisioning subsequently **passed**: run 38732769481 created
+all 12 Terraform resources in order (2 subscription, 6 database, 4 Agent Memory)
+with one approval and no errors. The dependent plans were generated and applied
+inside the approved job as intended. API verification confirmed subscription
+`3450367` active, database `14693865` active, and store
+`caa3bf46c99a4edbab48f4e1e92666c9` READY with the baseline TTL/cadence/type and
+runtime key metadata. The presentation baseline is now provisioned; keep it
+available through the meeting. Destructive experiments remain scoped to QA.
+
 The separate QA config is prepared for the next maintenance run: database
 alert 80 → 85, shopping TTL 86400 → 21600, cadence 300 → 120, updated extraction
 prompt, addition of `shopping_goal`, and a new `support_agent`. [Maintenance run](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38732918784)
-is queued behind presentation creation under shared concurrency protection.
+has completed its review and awaits Alan’s single approval. The reviewed plan
+shows 4 support-agent stack creates and 2 in-place updates (database and shopping
+Agent Memory), with zero deletions/replacements; subscription unchanged.
+Bundle SHA-256: `27589c990314380e1306282f279013771e511079bb0ea9f4b73e4813e3939724`.
 [Configuration CI](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38732885984)
 passed. Existing store and key IDs must remain stable, while only support-agent
 IDs are new. Subsequent
