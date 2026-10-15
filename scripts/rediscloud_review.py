@@ -97,9 +97,14 @@ def describe(title, plan):
 def backend(stack, state_key):
     directory = Path("stacks") / stack
     (directory / "backend.generated.tf").write_text('terraform {\n  backend "s3" {\n    use_lockfile = true\n  }\n}\n')
-    run("terraform", f"-chdir={directory}", "init", "-reconfigure", "-input=false", "-lockfile=readonly",
+    run("terraform", f"-chdir={directory}", "init", "-reconfigure", "-input=false",
         f"-backend-config=bucket={os.environ['TF_STATE_BUCKET_NAME']}",
         f"-backend-config=region={os.environ['TF_STATE_REGION_NAME']}", f"-backend-config=key={state_key}")
+    # Development overrides normalize lock entries during init. Capture that
+    # result in the plan job, then require the exact result in the apply job.
+    lock = directory / ".terraform.lock.hcl"
+    if not lock.exists():
+        lock.write_text("")
     return directory
 
 
@@ -234,6 +239,8 @@ def apply_phase(args):
         directory = Path("stacks") / item["stack"]
         shutil.copyfile(args.bundle / item["lock"], directory / ".terraform.lock.hcl")
         backend(item["stack"], item["state_key"])
+        if digest(directory / ".terraform.lock.hcl") != item["lock_sha256"]:
+            raise ValueError("Provider dependencies changed after approval; generate a new plan.")
         target = directory / "approved.tfplan"
         shutil.copyfile(args.bundle / item["file"], target)
         print(("Destroying " if args.phase == "destroy" else "Applying ") + item["title"], flush=True)
