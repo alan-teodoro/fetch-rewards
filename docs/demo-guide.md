@@ -17,6 +17,24 @@ flowchart LR
     Database --> Support["Agent Memory: support_agent"]
 ```
 
+## Current readiness — October 15, 10:26 São Paulo
+
+- **Presentation ready:** subscription `3450367` and database `14693865` active;
+  shopping Agent Memory `caa3bf46c99a4edbab48f4e1e92666c9` READY at its baseline.
+  [Latest plan](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38741249031)
+  found all 3 states unchanged. Final API checks after QA cleanup passed.
+- **Demonstrated lifecycle passed on provider `c87f535`:** fresh creation,
+  second-agent inclusion, in-place maintenance, unchanged reapply without an
+  approval, selective deletion, recreation with new IDs, and full QA cleanup.
+  Each mutating run used one manual approval; all surviving IDs were preserved.
+- **QA cleaned:** [cleanup](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38741515335)
+  removed all 16 QA resources in dependency order. API confirms no QA
+  subscription, databases or stores remain. Presentation resources remain intact.
+- **Production readiness remains qualified:** B04 diagnostic secret redaction
+  is a confirmed blocker. The unexecuted release/acceptance, live fault, import,
+  upgrade/rollback, rotation and data-plane cases remain explicit limitations.
+  Passing demo lifecycle tests is not production security certification.
+
 ## Presentation quick run sheet — October 15, 15:30
 
 Use branch `feature/agent-memory-config-driven` and configuration
@@ -320,8 +338,11 @@ reviewed exactly 16 deletions: two QA Agent Memory stacks (4 each), QA database
 stack (6) and QA subscription stack (2). No presentation names/states appear in
 the review. Bundle SHA-256:
 `1eeaa5862dca931032106b28785c25f38b3a0437447d1a44bebb23c54850eb94`.
-Alan approved this execution; cleanup is running and final API verification is
-pending. The presentation must remain available through the meeting.
+Alan approved this execution; cleanup **passed**, removing 4 + 4 + 6 + 2
+resources in the reviewed order with no errors. Final API verification passed
+all 7 checks: QA subscription/databases/stores absent, presentation subscription
+and database active with original IDs, original shopping store READY at TTL
+86400 and cadence 300. Presentation resources remain available through the meeting.
 
 Additional mock regression `TestReviewKeyCreateFailureRetainsParent` passed
 under `go test -race`: an initial HTTP 500 before key creation leaves the parent
@@ -388,7 +409,7 @@ Current status for provider `c87f535` (October 15):
 | Q04 | Missing-parent key deletion and key-create failure recovery pass in mock API; 403/500 remain errors. Accepted-but-lost key responses and live out-of-band deletion remain unexecuted. |
 | Q05 | Mock update-then-GET 500 and malformed response recovery passed with race detection: original ID and updated TTL recovered with exactly 1 create and 1 PATCH. Custom-type/cadence/key failure-injection variants and live fault injection remain unexecuted. Normal live updates passed. |
 | Q06 | Failed: fake credential echoed by API appears in Terraform diagnostics (B04). Production blocker pending correction. |
-| Q07 | Fresh creation, second agent, in-place updates and unchanged reapply passed live. Selective deletion and recreation also passed; QA cleanup is in progress. |
+| Q07 | Fresh creation, second agent, in-place updates and unchanged reapply passed live. Selective deletion, recreation and full QA cleanup also passed. External-ownership live evidence is from the previous October 14 provider revision. |
 | Q08–Q09 | Real import/drift and old-provider-state upgrade/rollback remain unexecuted on this candidate. |
 | Q10 | Existing negative-case provider tests and automation guards passed; October 14 live replacement rejection uses the prior revision. |
 | Q11–Q12 | Disposable runtime-key rotation and data-plane/isolation smoke remain unexecuted. |
