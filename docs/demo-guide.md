@@ -169,6 +169,14 @@ this does not restore any previous memory contents. **Keep QA unless Alan
 explicitly requests another cleanup.** Configuration and the encrypted state
 backend remain intact; the presentation namespace remains removed and paused.
 
+Alan subsequently requested removing this restored QA before creating the
+presentation environment. The new
+[QA cleanup](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38770072079)
+has a reviewed plan with 16 deletions: both Agent Memory stacks and keys (4 + 4),
+database/ACL stack (6) and subscription stack (2), pinned to provider `39d6752`.
+It awaits Alan's manual dev approval. This explicit cleanup request supersedes
+the retention instruction above; configuration and the state backend remain.
+
 Use this guide to present the config-driven Redis Cloud and Agent Memory PoC.
 The goal of the demo is to show that infrastructure can be reviewed as a JSON
 desired-state file, applied through GitHub Actions, and evolved safely over
