@@ -94,6 +94,9 @@ jobs:
           set -euo pipefail
           test -n "$AGENT_MEMORY_TEST_DATABASE_ID"
           export TF_ACC_TERRAFORM_PATH="$(command -v terraform)"
+          go test ./provider/agentmemory \
+            -list '^TestAccAgentMemory_ProductionReadiness_CRUDI$' \
+            | grep -Fx 'TestAccAgentMemory_ProductionReadiness_CRUDI'
           go test ./provider/agentmemory -v \
             -run '^TestAccAgentMemory_ProductionReadiness_CRUDI$' \
             -count=1 -parallel=1 -timeout=40m
