@@ -4,10 +4,13 @@
 
 Alan paused presentation work to focus on the provider. The demo remains
 removed. The historical lifecycle evidence below uses `c87f535`; the current
-production candidate is **`919bac942443d77d17306cb849105ce5c2ecbda5`**, published
+production candidate is **`39d6752e915a71c7b58f7ee4b0f63304be3528df`**, published
 only on `fix/agent-memory-create-read-recovery`. No merge or release has occurred.
-The seven commits are reviewable in draft [provider PR #1031](https://github.com/RedisLabs/terraform-provider-rediscloud/pull/1031),
+The eight commits are reviewable in draft [provider PR #1031](https://github.com/RedisLabs/terraform-provider-rediscloud/pull/1031),
 targeting `alan/agent-memory-terraform-provider`, rather than the release branch.
+For any new plan/apply/destroy, explicitly select the corrected SHA above until
+the fixes are integrated: workflow defaults still name the original feature
+branch, which does not yet contain these commits.
 
 ### Corrections and evidence in this candidate
 
@@ -21,10 +24,12 @@ targeting `alan/agent-memory-terraform-provider`, rather than the release branch
   committed tests. Twelve diagnostic scenarios and actual SDK round trips check
   that fictitious credentials never escape while errors remain errors and
   accepted-create read failures remain warnings where intended.
-- With **Go 1.26.9**, the full unit suite passed **196 test/check events**,
+- At the security-fix stage, with **Go 1.26.9**, the full unit suite passed **196 test/check events**,
   with **116 infrastructure acceptance tests skipped**. The scoped race suite
   passed **110 events**, with 81 acceptance skips. Vet, golangci-lint,
   `go mod tidy -diff`, formatting and workflow Actionlint passed.
+  Later opt-in acceptance additions are not counted as those unit-test passes;
+  the final exact head passed the official full CI and its recovery acceptance.
 - Fuzzing the safe diagnostic/log formatter passed **2,119,419 executions in
   30 seconds** on Go 1.26.9. This tests redaction properties, not service load.
 - Linux/amd64 govulncheck passed with no affected called symbols or imported
@@ -55,7 +60,7 @@ targeting `alan/agent-memory-terraform-provider`, rather than the release branch
   then removes its fixture keys. It writes no session/long-term memories.
   Local tests cover failure/cleanup and reject HTTP 503 as an authentication
   result; the actual SDK's HTTP 403 exception was verified with mock transport.
-  **No live data-plane pass is claimed.** The latest probe regressions also cover
+  The live result is recorded below. The latest probe regressions also cover
   HTTP status reporting without SDK body disclosure and administrative request
   headers; 38 automation checks pass locally.
 
@@ -94,35 +99,64 @@ targeting `alan/agent-memory-terraform-provider`, rather than the release branch
   All temporary keys were removed. Final API comparison found the original two
   stores and two keys unchanged from the provisioned baseline. No memory records
   were written; memory promotion/content functionality is outside this probe.
-- A separate old/new/old state-write test is prepared in
+- The separate old/new/old state-write test in
   `scripts/provider_state_compatibility.py`. It creates only its own temporary
   store/key, verifies expected plans before each apply, checks retained IDs and
   secret through candidate update and baseline rollback, and destroys with the
   candidate. Private temporary local state is removed afterward. The full test
-  passed locally with Terraform, both exact binaries and a mock API; live
-  execution still requires the explicit protected compatibility-only workflow.
-- [Final provider make ci](https://github.com/RedisLabs/terraform-provider-rediscloud/actions/runs/38754853072)
-  passed on exact 919bac9. Its only change after live-tested 54e7054 makes the
-  test's auxiliary API client honor REDISCLOUD_URL; production code is identical.
+  passed locally and then [passed in real QA](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38757785087)
+  with exact c87f535/919bac9 binaries. The candidate updated baseline-created
+  state; the baseline read candidate-written state with no change and restored
+  TTL. Store/key IDs and the runtime secret stayed identical; API absence after
+  destruction was verified. This proves compatibility of these tested versions,
+  not of an unspecified future Registry release.
+- [Controlled accepted-response loss](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38759280117)
+  **passed both real scenarios on exact 39d6752 in 18.15 seconds**. A loopback
+  proxy forwarded the actual create, then suppressed one successful response.
+  An accepted store with no saved ID was positively identified and imported into
+  the fixture's persistent test state before retry. An accepted key whose secret
+  was lost was positively identified and revoked before creating a replacement.
+  Each case retained one store, produced the expected key-create counts,
+  converged to no-op and destroyed the fixture. Both cases also passed locally
+  with race detection. This validates explicit reconciliation; it does not add
+  automatic idempotency or promise safety of blindly repeating unknown outcomes.
+- [Final provider make ci](https://github.com/RedisLabs/terraform-provider-rediscloud/actions/runs/38759199986)
+  passed on exact 39d6752. Changes after live-tested 54e7054 affect tests only:
+  919bac9 honors the configured test API URL; 39d6752 adds the recovery cases.
+  Production code is identical across these candidates.
   The complete seven-step acceptance harness also passed against a local mock
   API with server defaults and removed its store/keys; this is simulation evidence.
 
-### Gates still required before recommending production
+### Validation status and remaining release gates
 
 | Gate | Current evidence / required next action |
 | --- | --- |
-| Official provider CI | **Passed**: [Nix make ci](https://github.com/RedisLabs/terraform-provider-rediscloud/actions/runs/38754853072) on exact 919bac9. Broad infrastructure acceptance was intentionally disabled for this run. |
-| Real acceptance and state compatibility | **Passed within stated scope**: four old states read with no changes; seven-step real CRUD/import/drift/key-replacement/no-op/cleanup acceptance passed on 54e7054, with identical production code to 919bac9. Existing-state apply/rollback is not included in those results. |
+| Official provider CI | **Passed**: [Nix make ci](https://github.com/RedisLabs/terraform-provider-rediscloud/actions/runs/38759199986) on exact 39d6752. Broad infrastructure acceptance was intentionally disabled for this run. |
+| Real acceptance and state compatibility | **Passed within stated scope**: four old states read with no changes; seven-step real CRUD/import/drift/key-replacement/no-op/cleanup acceptance passed on 54e7054, with identical production code to 39d6752. |
 | Key functionality and isolation | **Passed**: [real SDK probe](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38756440780) confirms authentication, cross-store denial, replacement acceptance and revoked-key rejection; temporary keys removed and original QA unchanged. Memory writes/promotion remain outside scope. |
-| Failure recovery | Acknowledged-ID recovery is covered by regressions. Accepted-but-lost store/key responses without an ID still need controlled integration testing and review of the documented reconciliation procedure; do not promise automatic idempotency. |
-| Upgrade / rollback | Old-state no-op passed. Full old/new/old read/write/rollback fixture is locally verified against a mock API and prepared for a separate protected real execution; its live result is still pending. |
-| Release review | Integrate all seven fix-branch commits into the feature PR only after review. PR #1024 remains draft into release/2.19.2; run the release owner's required acceptance/release checks before publishing. |
+| Failure recovery | **Passed within stated scope**: acknowledged-ID read failures covered by regressions; real accepted-but-lost store/key cases reconciled explicitly, with expected create counts, no-op and cleanup. Unknown outcomes still require reconciliation rather than blind retry. |
+| Upgrade / rollback | **Passed**: [real c87f535 → 919bac9 → c87f535 reads/writes](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38757785087), stable IDs/secret and complete cleanup. |
+| Release review | **Open**: review/integrate all eight fix-branch commits into the feature branch. PR #1024 remains draft into release/2.19.2; complete the maintainer's required broader acceptance/release gates and publish an approved immutable version/artifact before production rollout. |
 
-**Verdict remains: not approved for production.** B04 has a tested code correction
-in the review candidate, but the remaining gates above are open. This replaces
-the older "B04 has no fix" status in the historical handoff below. Secret delivery
-to applications and migration of immutable custom-memory definitions remain
+**Technical verdict:** the planned Agent Memory functional/recovery validation
+matrix passed, and no reproducible functional blocker remains in that tested
+scope. B04 is corrected and regression-tested. **Production release approval is
+still pending maintainer review, required broader acceptance/release checks,
+integration and version publication.** This is not an audit of every legacy
+resource, a service load test or a guarantee of zero defects. It supersedes the
+older B04/open-test status in the historical handoff below. Secret delivery to
+applications and migration of immutable custom-memory definitions remain
 deployment/operations requirements, separate from provider test success.
+
+### Post-test cleanup
+
+All temporary fixtures and probe keys were removed; final API snapshots found
+the original two QA stores and keys unchanged. The requested cleanup of the
+remaining QA baseline is [prepared here](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38759940358)
+and awaits Alan's manual dev approval. Its published sanitized review was checked:
+16 deletions (4 + 4 Agent Memory, 6 database/ACL, 2 subscription). This removes
+only the isolated QA baseline; configuration and encrypted state backend remain.
+The presentation namespace remains removed and paused.
 
 Use this guide to present the config-driven Redis Cloud and Agent Memory PoC.
 The goal of the demo is to show that infrastructure can be reviewed as a JSON
