@@ -53,7 +53,7 @@ provider checks in the backlog remain limitations.
 All times refer to America/Sao_Paulo. Alan confirmed the presentation starts
 on **October 15 at 15:30** (**T = 15:30**); its duration is still unconfirmed.
 The October 14 rehearsal ended with all demo Redis Cloud resources removed.
-Begin tomorrow morning when Alan requests the work. This document records the plan; work started at Alan's request on October 15.
+Work started at Alan's request on October 15; the presentation baseline is now provisioned.
 Workflow executions require Alan's manual approval once for the full configuration.
 
 | Window | Work | Exit condition |
@@ -251,10 +251,10 @@ mandatory. Regression coverage includes multiple Agent Memory siblings,
 Registry mode rejection and an altered `hashicorp/random` dependency.
 All 34 automation tests passed, with Actionlint and formatting also passing.
 A local real-Terraform study confirmed saved-plan apply succeeds after restoring
-its original lock; the exact runner rewrite still needs the corrected live apply.
+its original lock; the corrected runner path subsequently passed live (see below).
 [Correction CI](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38738811346)
 passed. [Recovery run](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38738829507)
-completed its new review and awaits Alan’s single approval. Verified plan:
+completed its new review and subsequently passed after Alan’s single approval (see below). Reviewed plan:
 subscription/database unchanged, 1 Agent Memory update and 4 support-agent
 stack creates, zero deletes/replacements. Bundle SHA-256:
 `38711fc5cec988769e9d11dea6b79b09c4c56b97c53d4b818bddf38e6b2be4f5`.
@@ -277,8 +277,8 @@ the backlog still apply. The presentation baseline remains separate.
 [Unchanged reapply 38739790515](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38739790515)
 **passed**: all 4 states reported no changes, no apply ran, and the approval job
 was automatically skipped. [Selective QA deletion](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38739922425)
-is waiting for Alan’s approval to delete only `support_agent`; the presentation
-namespace is excluded. The published summary was checked: exactly 4 deletions
+subsequently passed, deleting only `support_agent`; the presentation
+namespace was excluded. The published summary was checked: exactly 4 deletions
 (store, runtime key and 2 validation resources), no other stacks, no creates or
 updates. Bundle SHA-256:
 `ba2b47c41b3cad7893a28cfb43f9388a3b913751396f83303249d52d31d00b4f`.
@@ -291,8 +291,8 @@ other state applied and no errors. API comparison with the maintenance snapshot
 confirmed the original Agent Memory (including its updated settings and key
 IDs), subscription and database were unchanged; only the support store is absent.
 [Recreation run](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38740343220)
-uses the same retained JSON entry and state key. Its review is complete and
-awaits approval: only 4 support-agent stack creates; subscription, database and
+uses the same retained JSON entry and state key. Its approved review contained
+only 4 support-agent stack creates; subscription, database and
 original Agent Memory unchanged; no deletions/replacements. Bundle SHA-256:
 `e615151267464a7f9f133087d96c81284d519dd9a38854323c683691f9bc594c`.
 The apply subsequently **passed**: only 4 support-agent stack resources were
@@ -312,6 +312,24 @@ change was needed. This supplements the 148-check candidate suite; it is not
 included retroactively in that count and is not live failure injection.
 [Reviewable regression](provider-review/agent-memory-update-read-recovery.patch)
 is preserved for adding to the provider tests later.
+
+### QA cleanup and key-failure recovery
+
+[Complete QA cleanup](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38741515335)
+reviewed exactly 16 deletions: two QA Agent Memory stacks (4 each), QA database
+stack (6) and QA subscription stack (2). No presentation names/states appear in
+the review. Bundle SHA-256:
+`1eeaa5862dca931032106b28785c25f38b3a0437447d1a44bebb23c54850eb94`.
+Alan approved this execution; cleanup is running and final API verification is
+pending. The presentation must remain available through the meeting.
+
+Additional mock regression `TestReviewKeyCreateFailureRetainsParent` passed
+under `go test -race`: an initial HTTP 500 before key creation leaves the parent
+store tracked; reapply creates the key without recreating the store (1 store
+create, 2 key attempts, 1 successful key). This does not cover an accepted key
+creation whose response is lost. No provider change was required.
+[Reviewable test patch](provider-review/agent-memory-key-create-failure.patch)
+is retained separately from the pinned provider's suite count.
 
 ### Candidate and evidence
 
@@ -367,7 +385,7 @@ Current status for provider `c87f535` (October 15):
 | Q01 | Unit 148 / race 49 / vet passed; exact dependency delta reviewed. Full Nix CI and upstream acceptance remain unexecuted. |
 | Q02 | Malformed and transient 404/500/503 create-read recovery passed in mock API, including API defaults. Connection-loss injection and live fault recovery remain unexecuted. |
 | Q03 | SDK task failure, lost/malformed response, 429/503 and bounded context checks exercised in mock API; ambiguous accepted creation still requires explicit reconciliation. |
-| Q04 | Missing-parent key deletion passes; 403/500 remain errors. Key-create failure and out-of-band deletion scenarios remain unexecuted live. |
+| Q04 | Missing-parent key deletion and key-create failure recovery pass in mock API; 403/500 remain errors. Accepted-but-lost key responses and live out-of-band deletion remain unexecuted. |
 | Q05 | Mock update-then-GET 500 and malformed response recovery passed with race detection: original ID and updated TTL recovered with exactly 1 create and 1 PATCH. Custom-type/cadence/key failure-injection variants and live fault injection remain unexecuted. Normal live updates passed. |
 | Q06 | Failed: fake credential echoed by API appears in Terraform diagnostics (B04). Production blocker pending correction. |
 | Q07 | Fresh creation, second agent, in-place updates and unchanged reapply passed live. Selective deletion and recreation also passed; QA cleanup is in progress. |
