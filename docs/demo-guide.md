@@ -159,11 +159,14 @@ arrived after its apply step had completed all 16 deletions (4 + 4 Agent Memory,
 the apply logs and API confirm the QA resources were removed.
 
 [QA restoration](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38761372427)
-is prepared from the preserved configuration, pinned to provider
-`39d6752e915a71c7b58f7ee4b0f63304be3528df`, and requires Alan's manual dev
-approval. Recreated resources receive new IDs and runtime keys; this does not
-restore any previous memory contents. Keep QA after restoration unless Alan
-explicitly requests another cleanup. Configuration and the encrypted state
+**passed** after Alan's manual dev approval, using the preserved configuration
+and provider `39d6752e915a71c7b58f7ee4b0f63304be3528df`. API verification confirms
+subscription `3450650` and the definitive database are active, with both
+`readiness-agent` and `readiness-support-agent` READY and one runtime key each.
+TTL, cadence, prompts, custom memory types, database alerts and parent
+associations match the expected baseline. Resources have new IDs and keys;
+this does not restore any previous memory contents. **Keep QA unless Alan
+explicitly requests another cleanup.** Configuration and the encrypted state
 backend remain intact; the presentation namespace remains removed and paused.
 
 Use this guide to present the config-driven Redis Cloud and Agent Memory PoC.
