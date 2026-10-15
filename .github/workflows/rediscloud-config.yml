@@ -28,7 +28,7 @@ on:
         description: Provider branch, tag, or commit used when rediscloud_provider_source is branch.
         required: true
         type: string
-        default: alan/agent-memory-terraform-provider
+        default: 39d6752e915a71c7b58f7ee4b0f63304be3528df
 
 permissions:
   contents: read

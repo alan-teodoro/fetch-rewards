@@ -118,7 +118,7 @@ repository is fixed in the workflow; the default workflow inputs use:
 
 ```text
 rediscloud_provider_source     = branch
-rediscloud_provider_ref        = alan/agent-memory-terraform-provider
+rediscloud_provider_ref        = 39d6752e915a71c7b58f7ee4b0f63304be3528df
 ```
 
 If that provider branch is private, add a repository secret named
