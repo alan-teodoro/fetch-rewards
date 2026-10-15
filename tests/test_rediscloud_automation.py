@@ -187,6 +187,13 @@ MOCK_AWS = r'''#!/usr/bin/env python3
 import os,pathlib,shutil,sys
 args=sys.argv[1:]
 command=args[1]
+if command=='list-objects-v2':
+    import json
+    if os.environ.get('MOCK_INVENTORY_FAILURE'): sys.exit(2)
+    root=pathlib.Path(os.environ['MOCK_S3'])
+    prefix=args[args.index('--prefix')+1]
+    print(json.dumps({'Contents':[{'Key':str(p.relative_to(root))} for p in root.rglob('*') if p.is_file() and str(p.relative_to(root)).startswith(prefix)]}))
+    sys.exit(0)
 key=args[args.index('--key')+1]
 path=pathlib.Path(os.environ['MOCK_S3'])/key
 if command=='put-object':
@@ -263,6 +270,198 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr)
         if self.outputs["provider_binary"]:self.env["PROVIDER_BINARY"]=self.outputs["provider_binary"]
         return self.execute("apply",phase)
+
+    def seed_state(self, stack, key, name, namespace="demo-ai-us-east-1", **attributes):
+        folder = "databases" if stack == "database" else "agent-memory"
+        resource_type = "rediscloud_subscription_database" if stack == "database" else "rediscloud_agent_memory"
+        values = {"id": "42", "db_id": "42", "name": name,
+                  "database_id": "42", "subscription_id": "99", **attributes}
+        state = {"version": 4, "resources": [{"mode": "managed", "type": resource_type,
+                 "name": "this", "instances": [{"attributes": values}]}]}
+        state_key = f"subscriptions/{namespace}/{folder}/{key}.tfstate"
+        path = Path(self.env["MOCK_S3"]) / state_key
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state))
+        return state_key, path
+
+    def test_omitted_agent_and_database_are_reviewed_then_deleted_before_updates(self):
+        agent_key, _ = self.seed_state("agent-memory", "old_agent", "old-agent", api_key="private-state-value")
+        database_key, _ = self.seed_state("database", "old_database", "old-database")
+        self.seed_state("agent-memory", "other_agent", "other-agent", namespace="other-subscription")
+        result = self.execute("plan", "rollout")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        index = json.loads((self.work / "bundle-rollout/index.json").read_text())
+        removed = [item for item in index["plans"] if item.get("removed")]
+        self.assertEqual([item["state_key"] for item in removed], [agent_key, database_key])
+        self.assertIn("Resources removed from configuration", self.summary())
+        self.assertNotIn("private-state-value", self.summary() + result.stdout)
+        self.assertFalse(any(event["command"] == "apply" for event in self.events()))
+        planned = len([event for event in self.events() if event["command"] == "plan"])
+        result = self.approved_apply("rollout")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        applied = [event["state_key"] for event in self.events() if event["command"] == "apply"]
+        self.assertEqual(applied[:2], [agent_key, database_key])
+        self.assertNotIn("other-subscription", " ".join(applied))
+        self.assertEqual(len([event for event in self.events() if event["command"] == "plan"]), planned)
+
+    def test_removed_json_entry_has_destroy_plan_in_preview_without_apply(self):
+        config = json.loads(self.config.read_text())
+        config["agent_memory_stores"].pop("support_agent")
+        self.config.write_text(json.dumps(config))
+        self.render_config()
+        state_key, _ = self.seed_state("agent-memory", "support_agent", "support-agent-memory")
+        result = self.execute("plan", "preview")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.outputs["needs_apply"], "false")
+        plans = [event for event in self.events() if event["command"] == "plan"]
+        self.assertEqual(plans[0]["state_key"], state_key)
+        plan = json.loads((self.work / "stacks/agent-memory/review-0.tfplan").read_text())
+        self.assertEqual(plan["resource_changes"][0]["change"]["actions"], ["delete"])
+        self.assertFalse(any(event["command"] == "apply" for event in self.events()))
+
+    def test_inventory_failure_stops_without_approval_or_mutation(self):
+        self.env["MOCK_INVENTORY_FAILURE"] = "1"
+        result = self.execute("plan", "rollout")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("bundle_key", self.outputs)
+        self.assertEqual(self.events(), [])
+
+    def test_managed_to_external_requires_explicit_ownership_transfer(self):
+        config = json.loads(self.config.read_text())
+        config["agent_memory_stores"]["support_agent"]["mode"] = "external"
+        self.config.write_text(json.dumps(config))
+        self.render_config()
+        self.seed_state("agent-memory", "support_agent", "support-agent-memory")
+        result = self.execute("plan", "rollout")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("transfer its ownership explicitly", result.stderr)
+        self.assertEqual(self.events(), [])
+
+    def test_key_rename_cannot_silently_destroy_same_named_resource(self):
+        self.seed_state("agent-memory", "previous_key", "support-agent-memory")
+        result = self.execute("plan", "rollout")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("migrate its state", result.stderr)
+        self.assertEqual(self.events(), [])
+
+    def test_omitted_database_still_used_by_direct_id_is_rejected(self):
+        self.seed_state("database", "old_database", "old-database")
+        config = json.loads(self.config.read_text())
+        store = config["agent_memory_stores"]["support_agent"]
+        store.pop("database")
+        store["database_id"] = 42
+        self.config.write_text(json.dumps(config))
+        self.render_config()
+        result = self.execute("plan", "rollout")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("still referenced by ID", result.stderr)
+        self.assertEqual(self.events(), [])
+
+    def test_empty_deleted_states_are_ignored_on_subsequent_runs(self):
+        _, path = self.seed_state("agent-memory", "old_agent", "old-agent")
+        path.write_text(json.dumps({"version": 4, "resources": []}))
+        result = self.execute("plan", "rollout")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.outputs["needs_apply"], "false")
+
+    def test_unrecognized_resources_in_omitted_state_stop_review(self):
+        _, path = self.seed_state("agent-memory", "old_agent", "old-agent")
+        state = json.loads(path.read_text())
+        state["resources"].append({"mode": "managed", "type": "rediscloud_subscription", "name": "this", "instances": []})
+        path.write_text(json.dumps(state))
+        result = self.execute("plan", "rollout")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Unrecognized resources", result.stderr)
+        self.assertEqual(self.events(), [])
+
+    def test_selective_destroy_does_not_include_other_omitted_states(self):
+        self.seed_state("agent-memory", "old_agent", "old-agent")
+        self.render_config(destroy=True, key="support_agent")
+        result = self.execute("plan", "destroy")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        index = json.loads((self.work / "bundle-destroy/index.json").read_text())
+        self.assertEqual(len(index["plans"]), 1)
+        self.assertTrue(index["plans"][0]["state_key"].endswith("/support_agent.tfstate"))
+
+    def test_full_destroy_includes_omitted_resources_in_dependency_order(self):
+        self.seed_state("database", "old_database", "old-database")
+        self.seed_state("agent-memory", "old_agent", "old-agent")
+        self.render_config(destroy=True)
+        result = self.execute("plan", "destroy")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        index = json.loads((self.work / "bundle-destroy/index.json").read_text())
+        self.assertEqual([item["stack"] for item in index["plans"]],
+                         ["agent-memory"] * 3 + ["database"] * 2 + ["subscription"])
+
+    def test_omitted_plan_tampering_stops_before_any_apply(self):
+        self.seed_state("agent-memory", "old_agent", "old-agent")
+        self.assertEqual(self.execute("plan", "rollout").returncode, 0)
+        index = json.loads((self.work / "bundle-rollout/index.json").read_text())
+        removed = next(item for item in index["plans"] if item.get("removed"))
+        (self.work / "bundle-rollout" / removed["file"]).write_text("tampered")
+        self.assertNotEqual(self.execute("apply", "rollout").returncode, 0)
+        self.assertFalse(any(event["command"] == "apply" for event in self.events()))
+
+    def test_retained_agent_current_binding_blocks_deletion_even_with_new_desired_database(self):
+        self.seed_state("database", "old_database", "old-database")
+        self.seed_state("agent-memory", "support_agent", "support-agent-memory", database_id="42")
+        # Desired config points to shared_agent_memory; state still uses old DB.
+        self.env["MOCK_CHANGES"] = json.dumps({"database": {"actions": ["create"]}})
+        result = self.execute("plan", "rollout")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("retained Agent Memory still uses an omitted database", result.stderr)
+        self.assertEqual(self.events(), [])
+
+    def test_removing_all_agents_and_databases_keeps_subscription(self):
+        keys = [self.seed_state("agent-memory", "shopping_agent", "shopping-agent-memory")[0],
+                self.seed_state("agent-memory", "support_agent", "support-agent-memory")[0],
+                self.seed_state("database", "shared_agent_memory", "agent-memory-db")[0]]
+        config = json.loads(self.config.read_text())
+        config["agent_memory_stores"] = {}
+        config["databases"] = {}
+        self.config.write_text(json.dumps(config))
+        self.render_config()
+        result = self.execute("plan", "rollout")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        index = json.loads((self.work / "bundle-rollout/index.json").read_text())
+        self.assertEqual([item["state_key"] for item in index["plans"] if item.get("removed")], keys)
+        self.assertFalse(index["plans"][-1].get("removed"))
+        self.assertEqual(index["plans"][-1]["stack"], "subscription")
+
+    def test_failure_deleting_omitted_agent_stops_database_deletion_and_updates(self):
+        self.seed_state("agent-memory", "old_agent", "old-agent")
+        self.seed_state("database", "old_database", "old-database")
+        self.assertEqual(self.execute("plan", "rollout").returncode, 0)
+        self.env["MOCK_FAIL_APPLY"] = "agent-memory"
+        self.assertNotEqual(self.approved_apply("rollout").returncode, 0)
+        self.assertEqual([event["kind"] for event in self.events() if event["command"] == "apply"], ["agent-memory"])
+
+    def test_external_agent_without_managed_state_is_preserved(self):
+        config = json.loads(self.config.read_text())
+        config["agent_memory_stores"]["support_agent"]["mode"] = "external"
+        self.config.write_text(json.dumps(config))
+        self.render_config()
+        self.seed_state("agent-memory", "old_agent", "old-agent")
+        result = self.execute("plan", "rollout")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        index = json.loads((self.work / "bundle-rollout/index.json").read_text())
+        self.assertFalse(any(item["state_key"].endswith("/support_agent.tfstate") for item in index["plans"]))
+
+    def test_partial_validation_only_state_can_be_cleaned_without_parent_lookups(self):
+        _, path = self.seed_state("agent-memory", "old_agent", "old-agent")
+        path.write_text(json.dumps({"version": 4, "resources": [{"mode": "managed", "type": "terraform_data",
+                        "name": "validation", "instances": [{"attributes": {"id": "validation-id"}}]}]}))
+        result = self.execute("plan", "rollout")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        variables = json.loads((self.render / "removed-agent-memory-old_agent.json").read_text())
+        self.assertIn("database_id", variables)
+        self.assertNotIn("database_name", variables)
+
+    def test_unreadable_omitted_state_stops_before_any_plan(self):
+        _, path = self.seed_state("agent-memory", "old_agent", "old-agent")
+        path.write_text("invalid state JSON")
+        self.assertNotEqual(self.execute("plan", "rollout").returncode, 0)
+        self.assertEqual(self.events(), [])
 
     def test_fresh_plan_skips_missing_dependencies(self):
         self.env["MOCK_CHANGES"]=json.dumps({"subscription":{"actions":["create"]}})

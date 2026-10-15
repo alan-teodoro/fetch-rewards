@@ -1228,3 +1228,26 @@ versions.
   `dev` environment reviewer checkpoint were present in GitHub. Local Redis
   Cloud public and QA credentials returned HTTP 200 on read-only subscription
   queries; neither target returned subscriptions at preparation time.
+
+## JSON removal reconciliation — October 15
+
+Alan selected omission-based deletion for both Agent Memory and databases.
+The controller now lists current S3 states within the selected subscription key,
+reviews deletion-only plans for omitted managed entries, and applies approved
+agent deletions before database deletions and then creates/updates. Full destroy
+also discovers omitted states; selective destroy remains restricted to its key.
+
+New regression coverage includes review-only preview, mixed delete/update order,
+other-namespace preservation, external ownership, stable-key renaming, empty
+states, malformed/unrecognized states, failed inventory reads, direct database
+references, current retained-agent bindings even when desired bindings change,
+partial validation-only states, saved-plan tampering and stop-on-delete-failure.
+
+Local Terraform/provider checks additionally created and destroyed a store/key
+against a loopback API using the actual agent-memory stack and the minimal
+reconciliation inputs. The actual database stack produced a deletion-only plan
+for a seeded database state without generated ACL credentials, with refresh
+disabled and no service call. These checks used fake credentials only. The
+provider binary has the same production implementation as candidate `39d6752`.
+These checks do not constitute a live-cloud removal test of the new controller.
+The four stacks validated; Terraform formatting and actionlint passed.

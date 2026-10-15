@@ -105,24 +105,24 @@ they identify Terraform state paths, not display labels.
 Run apply with the same configuration. All stacks should report no changes and
 no deployment approval should be requested.
 
-## 5. Delete the second agent: current implementation
+## 5. Delete the second agent through the same JSON
 
-The current runner does not discover resources omitted from the JSON. Removing
-an entry alone leaves its separate state and live resources intact. Desired-state
-reconciliation for omitted entries is not implemented yet.
+Remove `support_agent` from `agent_memory_stores`, commit and push, then run the
+same Config Apply workflow. The review should show deletion of only that agent,
+its key and validation resources. Approve once and show that the shopping agent,
+shared database and subscription remain. The saved deletion plan runs before
+creates/updates; the runner does not silently forget the removed entry's state.
 
-For the currently supported deletion flow, keep `support_agent` in the file,
-run **Redis Cloud Config Destroy** with the same configuration/provider and:
+The same behavior applies to databases removed from `databases`, including their
+ACLs. Remove their dependent agents too. A remaining reference to a missing
+database key or to the removed database's ID blocks reconciliation. Agents are
+deleted before databases. Keep stable map keys and `subscription_key` unchanged.
+Changing a managed resource to `external` is an explicit ownership transfer.
 
-```text
-agent_memory_key = support_agent
-confirm_destroy = true
-```
-
-Review and approve the deletion plan. The shopping agent, shared database and
-subscription must be preserved. After successful deletion, remove the
-`support_agent` entry from the JSON and commit it. Applying before removing
-that entry would recreate the agent.
+Config Destroy remains available for full subscription cleanup and for selective
+agent deletion while its entry is still present. If using selective destroy,
+remove the entry after successful deletion so a later apply does not recreate it.
+Deleting the entire configuration file does not run any action.
 
 ## 6. Full cleanup
 

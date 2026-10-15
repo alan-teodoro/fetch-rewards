@@ -93,8 +93,9 @@ Create a GitHub environment named `dev` and configure required reviewers for
 it. The **Redis Cloud Config Apply** workflow uses this environment when
 `operation = apply`; `operation = plan` runs without approval. The **Redis Cloud
 Config Destroy** workflow always uses this environment before destroying
-resources. The apply workflow also blocks Agent Memory delete/replace plans; use
-the destroy workflow for intentional destructive cleanup.
+resources. Apply blocks replacement/deletion of Agent Memory entries still
+present in the JSON. Removing managed Agent Memory or database entries produces
+deletion plans for review before the same approval.
 
 The subscription stack defaults to Redis Cloud credit-card billing and looks up the saved payment method by card type and last four digits, matching the current PS test account baseline. For a customer account, update the defaults in `stacks/subscription/variables.tf` or override them with repository variables.
 
@@ -225,6 +226,42 @@ The official Redis Cloud provider currently does not include the Agent Memory
 resources used by this PoC. Until it does, keep
 `rediscloud_provider_source = branch` when running the config workflow.
 
+## Removing entries through Config Apply
+
+Remove an Agent Memory entry from `agent_memory_stores`, commit and run Config
+Apply. The review lists its store, keys and validation resources as deletions.
+After approval, its saved deletion plan runs before any creates/updates. Other
+agents and the backing database remain managed.
+
+Removing a database entry from `databases` similarly proposes deletion of the
+database and its ACLs. Remove its dependent agents too; references to a missing
+database key fail configuration validation. References to the removed database
+by ID also block reconciliation. Omitted agents are removed before databases.
+Other dependencies outside this configuration may still cause the API to reject
+a database deletion; a failure stops subsequent work without automatic rollback.
+
+Discovery reads only current `.tfstate` objects directly under
+`subscriptions/<subscription_key>/agent-memory/` and `databases/` in the configured
+backend. Empty states from previous deletions are ignored. Historical versions,
+lock files, review bundles and other subscription namespaces are excluded. Only
+states with recognized stack resources are eligible; unknown or partially
+created states without a primary resource require manual reconciliation.
+Failure to list or read states stops the review rather than assuming no deletions.
+
+Keep `subscription_key` and resource map keys stable and unique. Changing a key
+is a state migration; a same-named resource appearing under another key is
+rejected. Changing a state-managed entry to `external` requires an explicit
+ownership transfer, not automatic deletion or a silent orphan. Existing external
+entries without managed state are preserved. Deleting the entire JSON file does
+not run a workflow or delete anything. Removing the subscription itself still
+requires Config Destroy.
+
+`operation = plan` displays omitted-resource deletion plans without applying or
+requesting approval. `operation = apply` requires the existing single approval,
+uses the saved plans and exact reviewed provider, and stops on failure. State
+changes after planning cause Terraform to reject stale saved plans; generate a
+new review instead of retrying an old apply.
+
 ## 7. Destroy Managed Resources
 
 Run **Actions > Redis Cloud Config Destroy > Run workflow**.
@@ -240,7 +277,8 @@ Common inputs:
 - `rediscloud_provider_ref`: provider branch, tag, or commit used only when `rediscloud_provider_source` is `branch`.
 
 The destroy workflow renders the config file and destroys only managed resources
-described by that file. It runs in reverse dependency order:
+described by that file, plus omitted Agent Memory/database states in the same
+subscription namespace when performing full cleanup. It runs in reverse dependency order:
 
 1. Agent Memory services and their data-plane API keys.
 2. Managed databases and their ACL resources.
@@ -249,9 +287,10 @@ described by that file. It runs in reverse dependency order:
 
 External resources in the config are not destroyed. Before each destroy, the
 workflow writes a Terraform destroy plan summary to the GitHub Actions summary
-and then applies the saved destroy plan file. Use this workflow for explicit
-cleanup instead of relying on implicit deletes from removing resources from the
-JSON file.
+and then applies the saved destroy plan file. Use this workflow to remove the
+whole subscription or selectively destroy a still-configured agent. Normal
+Config Apply also reviews deletion of Agent Memory/database entries removed
+from the JSON.
 
 For selective Agent Memory deletion, keep the service in the JSON until the
 destroy run succeeds, then remove its entry and commit the updated config. An

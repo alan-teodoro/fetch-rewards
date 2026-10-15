@@ -97,8 +97,12 @@ Use the focused manual workflows:
 The apply workflow uses the `dev` GitHub environment as the human approval
 checkpoint when `operation = apply`; `operation = plan` runs without approval.
 The destroy workflow also uses the `dev` approval checkpoint. The apply
-workflow blocks Agent Memory delete/replace plans so intentional Agent Memory
-cleanup happens through the destroy workflow. Terraform plan summaries are
+workflow blocks replacement/deletion of Agent Memory entries still present in
+the JSON. Removing a managed Agent Memory or database entry instead generates
+a reviewed deletion plan from its existing state in the same subscription
+namespace. After approval, removed agents/keys are deleted before removed
+databases/ACLs, then creates/updates run. Subscription deletion remains an
+explicit Config Destroy operation. Terraform plan summaries are
 written **before one manual approval for the entire execution**. Existing
 resources have actual saved plans for review. On fresh creation or dependency
 renaming, the summary lists dependent resources whose plans cannot yet be

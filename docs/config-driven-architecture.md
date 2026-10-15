@@ -49,10 +49,14 @@ to adopt an existing subscription, database, or Agent Memory service as
 `managed`, import the resource into the matching state first. The config runner
 does not automatically import existing infrastructure.
 
-Removing a resource from the config file does not automatically destroy it. This
-is intentional for the PoC, especially for Agent Memory data. Destructive flows
-should use an explicit destroy workflow or a future `desired_state = "absent"`
-contract with approval.
+Removing a managed Agent Memory or database entry generates a deletion plan
+from its current state in the same `subscription_key` namespace. Config Apply
+reviews those saved plans before approval, removes agents/keys before databases/ACLs,
+then applies creates/updates. External entries are preserved; ownership changes
+require explicit state migration. Subscription removal remains an explicit Config
+Destroy operation. Deleting the whole JSON file does not trigger reconciliation.
+See [the customer guide](customer-setup.md#removing-entries-through-config-apply)
+for dependency checks, state discovery and recovery behavior.
 
 ## Stable Keys
 

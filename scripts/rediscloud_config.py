@@ -512,6 +512,7 @@ def render_agent_memory(
         "mode": mode,
         "name": store_name,
         "database_key": store.get("database"),
+        "database_id": store.get("database_id", config.get("databases", {}).get(store.get("database"), {}).get("database_id")),
         "state_key": agent_memory_state_key(config, store_key),
         "api_key_secret_refs": {},
         "model_credential_env_vars": {},

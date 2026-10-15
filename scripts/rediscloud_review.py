@@ -16,6 +16,7 @@ import tarfile
 import time
 
 from rediscloud_plan import dependency_status
+from rediscloud_inventory import removed_entries
 
 
 STACKS = {"subscription", "database", "agent-memory"}
@@ -154,6 +155,16 @@ def plan_phase(args):
               "run_id": os.environ["GITHUB_RUN_ID"], "attempt": os.environ["GITHUB_RUN_ATTEMPT"],
               "created": int(time.time()), "provider_ref": os.environ["RESOLVED_PROVIDER_REF"],
               "terraform_version": os.environ["TF_VERSION"], "plans": []}
+    omitted = []
+    if args.phase in {"preview", "rollout"} or (args.phase == "destroy" and manifest.get("destroy_scope") == "all_managed_resources"):
+        omitted = removed_entries(manifest, args.manifest.parent, run)
+    planned_entries = omitted + entries(manifest, args.phase)
+    if args.phase == "destroy":
+        planned_entries.sort(key=lambda entry: {"agent-memory": 0, "database": 1, "subscription": 2}[entry[0]])
+    if omitted:
+        summary("## Resources removed from configuration\n\nThe following previously managed states are omitted from this subscription configuration. Their deletion plans are reviewed below and require the same manual approval. Agent Memory is removed before databases; these saved deletion plans execute before creates/updates.\n\n| Stack | Removed resource |\n| --- | --- |")
+        for stack, item in omitted:
+            summary(f"| {stack} | {cell(item['name'])} |")
     if args.phase == "rollout":
         summary("## One approval for the full configuration\n\nApprove once to execute subscription, database and Agent Memory in dependency order. Existing resources are planned below. When a dependency must first be created or renamed, its dependent plan is deferred until after approval. These deferred changes are authorized by the configuration inventory below, not by a Terraform plan available now. Failure stops subsequent work; completed changes are not automatically rolled back.")
         config_path = Path(manifest["config_path"])
@@ -165,8 +176,9 @@ def plan_phase(args):
     pending_subscription = False
     pending_databases = set()
     needs_apply = False
-    for index, (stack, item) in enumerate(entries(manifest, args.phase)):
-        deferred = args.phase in {"preview", "rollout"} and (
+    for index, (stack, item) in enumerate(planned_entries):
+        deleting = args.phase == "destroy" or item.get("removed", False)
+        deferred = not deleting and args.phase in {"preview", "rollout"} and (
             (stack == "database" and pending_subscription) or
             (stack == "agent-memory" and item.get("database_key") in pending_databases))
         if deferred:
@@ -188,7 +200,7 @@ def plan_phase(args):
             needs_apply = True
             continue
         directory = backend(stack, item["state_key"])
-        if args.phase == "destroy":
+        if deleting:
             # An empty state must not trigger name lookups against deleted parents.
             if not run("terraform", f"-chdir={directory}", "state", "list", capture=True).strip():
                 summary(f"## Terraform plan: {cell(stack + ' ' + item['name'])}\n\nNo resources in this state; nothing to destroy.")
@@ -196,14 +208,16 @@ def plan_phase(args):
         name = f"review-{index}.tfplan"
         command = ["terraform", f"-chdir={directory}", "plan", "-input=false",
                    f"-var-file={Path(item['tfvars_path']).resolve()}", f"-out={name}"]
-        if args.phase == "destroy":
+        if deleting:
             command.append("-destroy")
         run(*command)
         plan = json.loads(run("terraform", f"-chdir={directory}", "show", "-json", name, capture=True))
         describe(stack + " " + item["name"], plan)
-        if args.phase != "destroy" and any(item.get("type") == "rediscloud_agent_memory" and "delete" in item["change"]["actions"] for item in plan.get("resource_changes", [])):
+        if item.get("removed") and any(change["change"]["actions"] not in (["delete"], ["no-op"], ["read"]) for change in plan.get("resource_changes", [])):
+            raise ValueError("An omitted resource must have a deletion-only plan; generate a new review.")
+        if not deleting and any(item.get("type") == "rediscloud_agent_memory" and "delete" in item["change"]["actions"] for item in plan.get("resource_changes", [])):
             raise ValueError("Plan would delete or replace an Agent Memory service. Use the Redis Cloud Config Destroy workflow for explicit destructive operations.")
-        if args.phase in {"preview", "rollout"}:
+        if not deleting and args.phase in {"preview", "rollout"}:
             if stack == "subscription":
                 pending_subscription = dependency_status(plan, "rediscloud_subscription") == "pending"
             elif stack == "database" and dependency_status(plan, "rediscloud_subscription_database") == "pending":
@@ -215,7 +229,7 @@ def plan_phase(args):
         lock = directory / ".terraform.lock.hcl"
         lock_name = f"lock-{index}.hcl"
         shutil.copyfile(lock, bundle / lock_name)
-        review["plans"].append({"stack": stack, "title": stack + " " + item["name"], "state_key": item["state_key"], "file": name, "sha256": digest(target), "lock": lock_name, "lock_sha256": digest(bundle / lock_name)})
+        review["plans"].append({"stack": stack, "title": stack + " " + item["name"], "state_key": item["state_key"], "file": name, "sha256": digest(target), "lock": lock_name, "lock_sha256": digest(bundle / lock_name), "removed": item.get("removed", False)})
     output("needs_apply", str(needs_apply and args.phase != "preview").lower())
     if args.phase == "preview" or not needs_apply:
         summary("\nNo deployment approval is requested." if not needs_apply else "\nPlan-only preview; no changes will be applied.")
@@ -272,6 +286,8 @@ def validate_bundle(bundle, phase):
         payload = ("variables", "variables_sha256") if item.get("deferred") else ("file", "sha256")
         if item.get("deferred") and phase != "rollout":
             raise ValueError("Deferred plans require whole-configuration approval.")
+        if item.get("removed") and (item["stack"] not in {"agent-memory", "database"} or item.get("deferred")):
+            raise ValueError("Omitted resources require reviewed Agent Memory/database deletion plans.")
         for path_key, hash_key in (payload, ("lock", "lock_sha256")):
             if Path(item[path_key]).name != item[path_key] or digest(bundle / item[path_key]) != item[hash_key]:
                 raise ValueError("Reviewed plan file checksum mismatch.")
@@ -300,10 +316,19 @@ def apply_phase(args):
 def apply_rollout(bundle, review):
     # All reviewed files/provider were checked before the first mutation.
     # Generate every deferred plan in a phase before applying any sibling.
+    for stack in ("agent-memory", "database"):
+        for item in review["plans"]:
+            if item["stack"] != stack or not item.get("removed"):
+                continue
+            directory = prepare_apply_backend(bundle, item, "provider_sha256" in review)
+            shutil.copyfile(bundle / item["file"], directory / "approved.tfplan")
+            print("Removing omitted " + item["title"], flush=True)
+            run("terraform", f"-chdir={directory}", "apply", "-input=false", "-auto-approve", "approved.tfplan")
+            summary(f"## Approved deletion applied: {cell(item['title'])}\n\nPlan SHA-256: `{item['sha256']}`")
     for stack in ("subscription", "database", "agent-memory"):
         phase = []
         for index, item in enumerate(review["plans"]):
-            if item["stack"] != stack:
+            if item["stack"] != stack or item.get("removed"):
                 continue
             directory = prepare_apply_backend(bundle, item, "provider_sha256" in review)
             if item.get("deferred"):
