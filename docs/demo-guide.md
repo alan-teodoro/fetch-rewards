@@ -2,13 +2,15 @@
 
 ## One configuration throughout the presentation
 
-The presentation baseline is ready: `fetch-demo-ai` and `agent-memory-db` are
-active, and the single `shopping-agent-memory` service is READY with its runtime
-key. [Creation run 38774530013](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38774530013)
-passed with one approval.
-[Follow-up plan 38776688611](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38776688611)
-reported no changes for all three stacks, with no apply. Keep this environment
-available for the presentation unless Alan explicitly requests its removal.
+The presentation completed on October 15. At Alan's request, the demo was
+subsequently removed by [teardown run 38806180501](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38806180501):
+12 managed resources deleted, with subscription and Agent Memory absence verified
+through the administrative API. The JSON configuration and state backend remain
+available; use step 1 below to recreate the baseline when needed.
+
+Historical evidence: [creation run 38774530013](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38774530013)
+passed with one approval, and [follow-up plan 38776688611](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38776688611)
+reported no changes across all three stacks before the presentation.
 
 Use `configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json` for every step.
 It starts with one managed subscription, one shared database and one Agent
@@ -148,5 +150,6 @@ and release remain pending. Detailed evidence and historical run links are in
 The QA cleanup requested before this demo completed successfully in
 [run 38770072079](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38770072079);
 API verification confirmed the QA subscription, databases and stores absent.
-The presentation baseline was subsequently provisioned and verified as described
-above. Detailed runtime IDs and verification evidence are in the internal history.
+The presentation baseline was subsequently provisioned and verified, then removed
+after the presentation as recorded above. Detailed runtime IDs and verification
+evidence are in the internal history.

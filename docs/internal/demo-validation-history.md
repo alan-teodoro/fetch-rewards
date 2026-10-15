@@ -95,6 +95,16 @@ the pre-test baseline. Git audits confirmed automation main remained `6ceeaac`,
 the original provider branch remained `1c0b452`, and the original SDK branch
 remained `7ae7bef`; only the three working fix/feature branches were pushed.
 
+After validation, Alan separately authorized removing the presentation environment
+without another manual approval. [Demo teardown 38806180501](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38806180501)
+passed using final candidate `62f3d0c` against the demo state originally created
+with `39d6752`: 12 deletions, zero creates/updates/replacements. Direct reads verified
+subscription `3450778` and store `8ff74335dcde4a258ec94bc5ce339c79` absent; the final
+demo listing contained no subscription, database or agent. This authorized teardown
+occurred after the unchanged-demo snapshots above. Configuration files and the
+state backend remain preserved. No merges or primary-branch writes were made;
+findings and integration gates remain ready for the next review.
+
 Integration remains a maintainer decision: draft [SDK PR #294](https://github.com/RedisLabs/rediscloud-go-api/pull/294)
 into `alan/agent-memory-sdk`, parent [SDK PR #291](https://github.com/RedisLabs/rediscloud-go-api/pull/291),
 draft [provider PR #1031](https://github.com/RedisLabs/terraform-provider-rediscloud/pull/1031)
