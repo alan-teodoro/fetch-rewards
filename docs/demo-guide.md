@@ -17,6 +17,37 @@ flowchart LR
     Database --> Support["Agent Memory: support_agent"]
 ```
 
+## Presentation quick run sheet — October 15, 15:30
+
+Use branch `feature/agent-memory-config-driven` and configuration
+`configs/fetch-rewards/subscriptions/demo-lifecycle-us-east-1.json`.
+Pin provider `c87f53502bb92ec5b55e48abdfdf6b8f779cc038` for every plan,
+apply and destroy. Keep `.env`, Terraform state and generated credentials closed.
+
+[Latest baseline plan](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38741249031)
+passed: all 3 presentation states unchanged, no apply, no approval.
+
+The prepared baseline is subscription `fetch-demo-lifecycle` (`3450367`),
+database `agent-memory-demo-db` (`14693865`) and one READY shopping Agent Memory
+(`caa3bf46c99a4edbab48f4e1e92666c9`). These are presentation resources; QA uses
+a different config and subscription.
+
+| Step | Show / action | Expected result and fallback |
+| --- | --- | --- |
+| 1 | Open the JSON: managed subscription, shared database, stable `shopping_agent` map key, settings and runtime-key declaration. | The customer maintains desired infrastructure through versioned configuration. `secret_ref` is a delivery reference; publishing the generated secret is still a follow-up integration. |
+| 2 | Show the Actions inputs and the recorded fresh creation. | [Fresh creation](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38732769481) created all 12 resources with one approval. Existing plans appear before approval; unavailable dependencies are explicitly deferred and planned afterward. |
+| 3 | Add `support_agent` using the example below, validate JSON, commit/push and run **Redis Cloud Config Apply**, `operation=apply`, same demo config/provider. Review, then approve `dev` once. | Only the second agent stack is added. Existing resource IDs stay unchanged. [Candidate maintenance fallback](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38738829507). |
+| 4 | Change the shopping TTL/cadence (for example 86400 → 21600 and 300 → 120), commit/push and use the same workflow. | In-place change, same store/key IDs. Adding a custom type requires descriptions on the type and every field; redefining/removing existing types is unsupported. |
+| 5 | Run apply again without editing JSON. | No changes, no apply and no approval. [No-op fallback](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38739790515). |
+| 6 | Run **Redis Cloud Config Destroy** with the demo config, `agent_memory_key=support_agent`, `confirm_destroy=true` and the pinned provider. Review and approve once. | Only support agent/key/validation resources are removed. First agent, database and subscription remain. [Selective-deletion fallback](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38739922425) ran in separate QA. |
+| 7 | Remove the deleted `support_agent` entry from JSON, validate and commit/push. | Desired configuration matches the remaining infrastructure. Keeping the entry would recreate it on the next apply. |
+
+Full cleanup uses empty `agent_memory_key` and deletes all managed resources
+from the selected config. Explain it during the demo; keep presentation resources
+until the meeting ends. The demonstrated lifecycle is validated separately from
+production readiness: diagnostic redaction and the other explicitly unexecuted
+provider checks in the backlog remain limitations.
+
 ## October 15 Working Plan
 
 All times refer to America/Sao_Paulo. Alan confirmed the presentation starts
@@ -264,8 +295,11 @@ uses the same retained JSON entry and state key. Its review is complete and
 awaits approval: only 4 support-agent stack creates; subscription, database and
 original Agent Memory unchanged; no deletions/replacements. Bundle SHA-256:
 `e615151267464a7f9f133087d96c81284d519dd9a38854323c683691f9bc594c`.
-After apply, compare new store/key IDs with the deleted instance. The presentation
-baseline is untouched.
+The apply subsequently **passed**: only 4 support-agent stack resources were
+created. All 8 API comparisons passed: new support store/key IDs, READY status,
+restored settings, and unchanged original agent/key, database and subscription.
+Recreated store: `b914406d6e3842efa2f2f183dd16d399`. The presentation baseline
+is untouched.
 
 ### Additional accepted-update recovery checks
 
@@ -336,7 +370,7 @@ Current status for provider `c87f535` (October 15):
 | Q04 | Missing-parent key deletion passes; 403/500 remain errors. Key-create failure and out-of-band deletion scenarios remain unexecuted live. |
 | Q05 | Mock update-then-GET 500 and malformed response recovery passed with race detection: original ID and updated TTL recovered with exactly 1 create and 1 PATCH. Custom-type/cadence/key failure-injection variants and live fault injection remain unexecuted. Normal live updates passed. |
 | Q06 | Failed: fake credential echoed by API appears in Terraform diagnostics (B04). Production blocker pending correction. |
-| Q07 | Fresh creation, second agent, in-place updates and unchanged reapply passed live. Selective deletion also passed; recreation and QA cleanup are in progress. |
+| Q07 | Fresh creation, second agent, in-place updates and unchanged reapply passed live. Selective deletion and recreation also passed; QA cleanup is in progress. |
 | Q08–Q09 | Real import/drift and old-provider-state upgrade/rollback remain unexecuted on this candidate. |
 | Q10 | Existing negative-case provider tests and automation guards passed; October 14 live replacement rejection uses the prior revision. |
 | Q11–Q12 | Disposable runtime-key rotation and data-plane/isolation smoke remain unexecuted. |
