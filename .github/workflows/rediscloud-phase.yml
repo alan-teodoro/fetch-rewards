@@ -1,0 +1,126 @@
+name: Redis Cloud reviewed phase
+on:
+  workflow_call:
+    inputs:
+      phase:
+        type: string
+        required: true
+      config_path:
+        type: string
+        required: true
+      provider_source:
+        type: string
+        required: true
+      provider_ref:
+        type: string
+        required: true
+      apply:
+        type: boolean
+        default: false
+      agent_memory_key:
+        type: string
+        default: ""
+    outputs:
+      provider_ref:
+        description: Resolved provider revision.
+        value: ${{ jobs.plan.outputs.provider_ref }}
+permissions:
+  contents: read
+  id-token: write
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_VERSION: "1.15.3"
+  TF_STATE_BUCKET_NAME: ${{ vars.TF_STATE_BUCKET }}
+  TF_STATE_REGION_NAME: ${{ vars.TF_STATE_REGION }}
+  PROVIDER_DEV_OVERRIDE_DIR: ${{ vars.REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR }}
+  PROVIDER_CHECKOUT_TOKEN: ${{ secrets.REDISCLOUD_PROVIDER_CHECKOUT_TOKEN || github.token }}
+  REDISCLOUD_ACCESS_KEY: ${{ secrets.REDISCLOUD_ACCESS_KEY }}
+  REDISCLOUD_SECRET_KEY: ${{ secrets.REDISCLOUD_SECRET_KEY }}
+  REDISCLOUD_URL: ${{ secrets.REDISCLOUD_URL || vars.REDISCLOUD_URL }}
+  AGENT_MEMORY_LLM_API_KEY: ${{ secrets.AGENT_MEMORY_LLM_API_KEY }}
+  AGENT_MEMORY_EMBEDDING_API_KEY: ${{ secrets.AGENT_MEMORY_EMBEDDING_API_KEY }}
+jobs:
+  plan:
+    name: Plan ${{ inputs.phase }} — review before approval
+    runs-on: ${{ vars.REDISCLOUD_RUNNER || 'ubuntu-latest' }}
+    outputs:
+      needs_apply: ${{ steps.plan.outputs.needs_apply }}
+      bundle_key: ${{ steps.plan.outputs.bundle_key }}
+      bundle_sha256: ${{ steps.plan.outputs.bundle_sha256 }}
+      provider_ref: ${{ steps.setup.outputs.provider-ref }}
+    env:
+      RENDER_DIR: .generated/rediscloud/${{ github.run_id }}-${{ inputs.phase }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare provider and configuration
+        id: setup
+        uses: ./.github/actions/rediscloud-setup
+        with:
+          config-path: ${{ inputs.config_path }}
+          provider-source: ${{ inputs.provider_source }}
+          provider-ref: ${{ inputs.provider_ref }}
+          render-mode: ${{ inputs.phase == 'destroy' && 'destroy' || 'apply' }}
+          agent-memory-key: ${{ inputs.agent_memory_key }}
+      - name: Configure encrypted plan storage
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.TF_STATE_REGION_NAME }}
+      - name: Generate review summary and saved plans
+        id: plan
+        env:
+          PHASE: ${{ inputs.phase }}
+          RESOLVED_PROVIDER_REF: ${{ steps.setup.outputs.provider-ref }}
+        run: |
+          python3 scripts/rediscloud_review.py plan --phase "${PHASE}" \
+            --manifest "${RENDER_DIR}/manifest.json" --bundle "${RUNNER_TEMP}/review-${PHASE}"
+          cp "${GITHUB_STEP_SUMMARY}" "${RUNNER_TEMP}/review-summary-${PHASE}.md"
+          echo "summary_path=${RUNNER_TEMP}/review-summary-${PHASE}.md" >> "$GITHUB_OUTPUT"
+      - name: Publish non-sensitive plan review
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan-summary-${{ inputs.phase }}-${{ github.run_attempt }}
+          path: ${{ steps.plan.outputs.summary_path }}
+          retention-days: 1
+  apply:
+    name: Approve and apply ${{ inputs.phase }}
+    needs: plan
+    if: inputs.apply && needs.plan.outputs.needs_apply == 'true'
+    environment:
+      name: dev
+      url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    runs-on: ${{ vars.REDISCLOUD_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure approved plan access
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.TF_STATE_REGION_NAME }}
+      - name: Download and verify reviewed bundle
+        id: bundle
+        env:
+          PHASE: ${{ inputs.phase }}
+          BUNDLE_KEY: ${{ needs.plan.outputs.bundle_key }}
+          BUNDLE_SHA256: ${{ needs.plan.outputs.bundle_sha256 }}
+        run: |
+          python3 scripts/rediscloud_review.py load --phase "${PHASE}" \
+            --bundle "${RUNNER_TEMP}/review-${PHASE}" --key "${BUNDLE_KEY}" --sha256 "${BUNDLE_SHA256}"
+      - name: Configure exact reviewed provider
+        uses: ./.github/actions/rediscloud-setup
+        with:
+          config-path: ${{ inputs.config_path }}
+          provider-source: ${{ inputs.provider_source }}
+          provider-ref: ${{ needs.plan.outputs.provider_ref }}
+          provider-binary: ${{ steps.bundle.outputs.provider_binary }}
+      - name: Apply approved saved plans without replanning
+        env:
+          PHASE: ${{ inputs.phase }}
+        run: |
+          python3 scripts/rediscloud_review.py apply --phase "${PHASE}" --bundle "${RUNNER_TEMP}/review-${PHASE}"
+      - name: Remove current plan bundle after execution
+        if: always()
+        env:
+          BUNDLE_KEY: ${{ needs.plan.outputs.bundle_key }}
+        run: |
+          aws s3api delete-object --bucket "${TF_STATE_BUCKET_NAME}" --key "${BUNDLE_KEY}" > /dev/null

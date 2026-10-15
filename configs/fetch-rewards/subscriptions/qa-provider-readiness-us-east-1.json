@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "customer": "fetch-rewards",
+  "environment": "qa",
+  "subscription_key": "provider-readiness-20261015",
+  "subscription": {
+    "mode": "managed",
+    "name": "fetch-provider-readiness",
+    "cloud_provider": "AWS",
+    "region": "us-east-1",
+    "networking_deployment_cidr": "10.83.0.0/24",
+    "multiple_availability_zones": true,
+    "public_endpoint_access": true,
+    "memory_storage": "ram",
+    "payment_method": "credit-card",
+    "payment_card_type": "Mastercard",
+    "payment_card_last_four": "1006",
+    "maintenance_windows": {
+      "mode": "automatic"
+    },
+    "creation_plan": {
+      "dataset_size_in_gb": 1,
+      "throughput_ops_per_second": 1000,
+      "replication": true,
+      "support_oss_cluster_api": false,
+      "modules": []
+    }
+  },
+  "databases": {
+    "shared_agent_memory": {
+      "mode": "managed",
+      "name": "agent-memory-readiness-db",
+      "agent_memory_compatible": true,
+      "dataset_size_in_gb": 1,
+      "redis_version": "8.6",
+      "throughput_ops_per_second": 1000,
+      "replication": true,
+      "enable_tls": true,
+      "enable_default_user": true,
+      "auto_minor_version_upgrade": true,
+      "persistence_mode": "aof-every-1-second",
+      "data_eviction": "allkeys-lru",
+      "source_ips": [
+        "34.86.169.63/32",
+        "34.86.239.45/32",
+        "35.221.18.150/32",
+        "35.230.184.20/32",
+        "98.84.76.64/32"
+      ],
+      "alerts": [
+        {
+          "name": "dataset-size",
+          "value": 80
+        },
+        {
+          "name": "throughput-higher-than",
+          "value": 80
+        }
+      ],
+      "acl_rule_string": "+@all -@dangerous +info ~*"
+    }
+  },
+  "agent_memory_stores": {
+    "shopping_agent": {
+      "mode": "managed",
+      "name": "readiness-agent",
+      "database": "shared_agent_memory",
+      "short_term_ttl_seconds": 86400,
+      "long_term_ttl_seconds": 7776000,
+      "extraction_cadence_seconds": 300,
+      "summarization": {
+        "enabled": true,
+        "trigger_strategy": "event_count",
+        "event_count": {
+          "threshold": 20,
+          "retain_count": 10
+        }
+      },
+      "custom_memory_types": [
+        {
+          "name": "preference",
+          "description": "Durable shopping preferences",
+          "fields": [
+            {
+              "name": "topic",
+              "description": "Preference topic",
+              "type": "str"
+            },
+            {
+              "name": "confidence",
+              "description": "Preference confidence score",
+              "type": "float"
+            },
+            {
+              "name": "is_active",
+              "description": "Whether the preference is currently active",
+              "type": "bool"
+            }
+          ],
+          "extraction_strategy": {
+            "enabled": true,
+            "prompt": "Extract stable shopping, product, notification, and account preferences that should help future agent responses."
+          }
+        }
+      ],
+      "api_keys": {
+        "runtime": {
+          "mode": "managed",
+          "name": "readiness-runtime",
+          "secret_ref": "aws-secrets-manager:/fetch-rewards/qa/provider-readiness/runtime"
+        }
+      }
+    }
+  }
+}

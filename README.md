@@ -100,7 +100,12 @@ checkpoint when `operation = apply`; `operation = plan` runs without approval.
 The destroy workflow also uses the `dev` approval checkpoint. The apply
 workflow blocks Agent Memory delete/replace plans so intentional Agent Memory
 cleanup happens through the destroy workflow. Terraform plan summaries are
-written before apply or destroy, then Terraform applies the saved plan.
+written **before manual approval**. Each changed apply phase requests its
+own approval; destroy plans all selected states before one approval. The
+approved job applies the same checksum-verified plan and provider binary,
+without replanning. Plans are encrypted in the private state bucket, expire
+after one hour, and summaries omit sensitive values. Unchanged phases do not
+request approval.
 
 The apply workflow exposes `config_path`, `operation`, and temporary
 provider-source inputs while Agent Memory provider support is unreleased. The

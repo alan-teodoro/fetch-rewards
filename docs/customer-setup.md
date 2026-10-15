@@ -179,14 +179,24 @@ phase are applied. This catches plan failures across all databases before any
 database is applied, and catches Agent Memory plan or destroy-guard failures
 before any Agent Memory service is applied.
 
-The workflow requires `dev` environment approval before `operation = apply`
-runs. Use `operation = plan` first when you want to inspect changes without an
-approval checkpoint.
+Each phase writes its plan summary before the `dev` deployment approval.
+Open the run summary or the non-sensitive `plan-summary-<phase>-<attempt>`
+artifact before approving. Phases without changes request no approval. Fresh
+creation can require three approvals: subscription, databases, then Agent
+Memory, because later plans need the earlier resources to exist. The destroy
+workflow plans every selected state first, then requests one approval and
+applies the saved plans in reverse dependency order.
 
 Plan-only output includes downstream managed resources when their dependencies
 already exist. The runner skips them when a dependency is being created,
-replaced, or renamed. The approval checkpoint occurs before planning in apply mode;
-the workflow does not pause again between producing and applying saved plans.
+replaced, or renamed. Apply jobs do not replan: they download the reviewed
+plans and the exact provider binary from encrypted private S3 storage, verify
+SHA-256 and run/commit metadata, and apply those files. Plans expire after one
+hour; start a new run or rerun all jobs to generate fresh plans if expired or
+if a state became stale. Do not rerun only a failed apply from a different
+run attempt. Raw plans and provider binaries are never published as GitHub
+artifacts. The current S3 bundle is deleted after apply; bucket versioning
+retains historical versions under the backend retention policy.
 Rehearse configuration updates and an unchanged reapply before relying on the
 flow for a customer demonstration. See the maintenance example in the demo
 guide.

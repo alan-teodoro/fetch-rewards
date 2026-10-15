@@ -22,8 +22,8 @@ flowchart LR
 All times refer to America/Sao_Paulo. Alan confirmed the presentation starts
 on **October 15 at 15:30** (**T = 15:30**); its duration is still unconfirmed.
 The October 14 rehearsal ended with all demo Redis Cloud resources removed.
-Begin tomorrow morning when Alan requests the work. This document prepares
-the work; it does not start provisioning or schedule a job.
+Begin tomorrow morning when Alan requests the work. This document records the plan; work started at Alan's request on October 15.
+Workflow executions still require Alan's manual approval for each changed phase.
 
 | Window | Work | Exit condition |
 | --- | --- | --- |
@@ -53,6 +53,22 @@ Do not approve on his behalf or bypass that gate for disposable resources.
 Provision the presentation resources on October 15 and keep them available
 through the meeting; the October 14 cleanup instruction is not a request to
 destroy tomorrow's presentation environment before the presentation.
+
+### October 15 progress
+
+- Candidate selected for isolated testing: `1c0b452695ea5dbfa3c8eaccb3d2ad3dfd60e0d9`.
+  Package tests and the race detector each passed 39 tests plus 2 subtests,
+  with zero failures/skips; `go vet ./provider/agentmemory` passed. These
+  results use a mock API and do not establish live recovery/security readiness.
+- Approval flow changed at Alan's request: plans and non-sensitive summaries
+  precede approval; apply consumes the exact reviewed saved plans/provider
+  binary from encrypted S3 with checksum and run/commit verification. Plans
+  expire after one hour. Local automation tests passed; live verification is
+  still pending and must be recorded separately.
+- Isolated live test config:
+  `configs/fetch-rewards/subscriptions/qa-provider-readiness-us-east-1.json`,
+  namespace `provider-readiness-20261015`, subscription `fetch-provider-readiness`.
+  Presentation configuration and namespace remain separate.
 
 ### Candidate and evidence
 
@@ -210,10 +226,14 @@ evidence and a clear limitation, not an unvalidated live workaround.
 5. Run `apply`.
    - Set `operation = apply` only after the plan summary looks correct.
    - Approve the `dev` environment checkpoint.
-   - This checkpoint approves execution before the workflow creates its plans.
+   - Review the phase summary **before** approving. The plan job completes
+     before the `dev` deployment is requested; the same non-sensitive summary
+     is available as a `plan-summary-<phase>-<attempt>` artifact.
    - The workflow applies by dependency phase: subscription, databases, then
      Agent Memory.
-   - Each phase is planned before any saved plan in that phase is applied.
+   - Each changed phase needs its own approval. Unchanged phases are skipped.
+   - Approved jobs apply the saved plan and exact reviewed provider binary,
+     verified by checksum; they do not replan. Approval expires after one hour.
 
 6. Show the result.
    - In Redis Cloud, show the subscription, database, and Agent Memory service.
@@ -397,8 +417,10 @@ and push, then run the workflow against that revision.
 
 Keep resource ownership as `managed` during maintenance. Plan can preview
 updates once the existing dependency names are available. In apply mode, the
-workflow produces and applies saved plans per phase. It does not pause for
-another approval after those plans are created.
+workflow produces saved plans per phase, shows the review summary, waits for
+approval, then applies exactly those saved plans. With existing resources,
+unchanged subscription/database phases need no approval for an agent-only
+update. Full destroy shows all deletion plans before one approval.
 
 ## Pre-Demo Checklist
 

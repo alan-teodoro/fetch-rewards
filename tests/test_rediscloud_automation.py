@@ -7,6 +7,9 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
+import hashlib
+import time
 import tempfile
 import textwrap
 import unittest
@@ -24,6 +27,8 @@ def load_module(name):
 
 config_module = load_module("rediscloud_config")
 plan_module = load_module("rediscloud_plan")
+sys.path.insert(0, str(ROOT / "scripts"))
+review_module = load_module("rediscloud_review")
 CONFIG_PATH = ROOT / "configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json"
 
 
@@ -50,14 +55,19 @@ if command=='init':
     sys.exit(0)
 key=backend.read_text()
 kind=stack.name
+if command=='state':
+    if key not in json.loads(os.environ.get('MOCK_EMPTY_STATES','[]')): print('managed.example')
+    sys.exit(0)
 if command=='plan':
     fixtures=json.loads(os.environ['MOCK_CHANGES'])
     resource_type={'subscription':'rediscloud_subscription','database':'rediscloud_subscription_database','agent-memory':'rediscloud_agent_memory'}[kind]
     override=fixtures.get(key,fixtures.get(kind,{}))
     actions=['delete'] if '-destroy' in args else override.get('actions',['no-op'])
-    before={'name':override.get('before','existing')}
-    after={'name':override.get('after','existing')}
-    plan={'state_key':key,'resource_changes':[{'mode':'managed','type':resource_type,'address':resource_type+'.this','change':{'actions':actions,'before':before,'after':after,'after_unknown':{}}}]}
+    before=override.get('before','existing')
+    after=override.get('after','existing')
+    before=before if isinstance(before,dict) else {'name':before}
+    after=after if isinstance(after,dict) else {'name':after}
+    plan={'state_key':key,'resource_changes':[{'mode':'managed','type':resource_type,'address':resource_type+'.this','change':{'actions':actions,'before':before,'after':after,'after_unknown':override.get('after_unknown',{}),'before_sensitive':override.get('before_sensitive',{}),'after_sensitive':override.get('after_sensitive',{})}}], 'output_changes':override.get('output_changes',{})}
     name=next(a.split('=',1)[1] for a in args if a.startswith('-out='))
     (stack/name).write_text(json.dumps(plan))
 elif command=='show':
@@ -146,84 +156,217 @@ class DependencyTests(unittest.TestCase):
             plan_module.dependency_status({"resource_changes": []}, item["type"])
 
 
+MOCK_AWS = r'''#!/usr/bin/env python3
+import os,pathlib,shutil,sys
+args=sys.argv[1:]
+command=args[1]
+key=args[args.index('--key')+1]
+path=pathlib.Path(os.environ['MOCK_S3'])/key
+if command=='put-object':
+    assert args[args.index('--server-side-encryption')+1]=='AES256'
+    path.parent.mkdir(parents=True,exist_ok=True)
+    shutil.copyfile(args[args.index('--body')+1],path)
+elif command=='get-object':
+    shutil.copyfile(path,args[-1])
+elif command=='delete-object':
+    path.unlink(missing_ok=True)
+else:raise SystemExit('Unsupported AWS mock')
+'''
+
+
 class WorkflowTests(unittest.TestCase):
-    def run_workflow(self, operation="plan", changes=None, destroy_key=None, full_destroy=False):
-        with tempfile.TemporaryDirectory() as tmp:
-            work = Path(tmp)
-            for kind in ("subscription", "database", "agent-memory"):
-                (work / "stacks" / kind).mkdir(parents=True)
-            (work / "scripts").mkdir()
-            shutil.copy(ROOT / "scripts/rediscloud_plan.py", work / "scripts")
-            binary = work / "bin"
-            binary.mkdir()
-            (binary / "terraform").write_text(MOCK_TERRAFORM)
-            (binary / "terraform").chmod(0o755)
-            # Render relative tfvars paths just as the workflow does.
-            config = work / "config.json"
-            config.write_text(CONFIG_PATH.read_text())
-            render = work / ".generated/rediscloud/test"
-            manifest = config_module.render(config, render, destroy=full_destroy or destroy_key is not None, agent_memory_key=destroy_key)
-            for item in [manifest["subscription"], *manifest["databases"], *manifest["agent_memory_stores"]]:
-                if "tfvars_path" in item:
-                    item["tfvars_path"] = str(Path(item["tfvars_path"]).relative_to(work))
-            (render / "manifest.json").write_text(json.dumps(manifest))
-            event_file = work / "events.jsonl"
-            env = {**os.environ, "PATH": str(binary) + os.pathsep + os.environ["PATH"], "TF_STATE_BUCKET_NAME": "test-bucket", "TF_STATE_REGION_NAME": "us-east-1", "OPERATION": operation, "RENDER_DIR": ".generated/rediscloud/test", "RUNNER_TEMP": str(work), "GITHUB_WORKSPACE": str(work), "GITHUB_STEP_SUMMARY": str(work / "summary.md"), "MOCK_EVENTS": str(event_file), "MOCK_CHANGES": json.dumps(changes or {})}
-            destroy = full_destroy or destroy_key is not None
-            script = workflow_script("rediscloud-destroy.yml" if destroy else "rediscloud-config.yml", "Destroy rendered config" if destroy else "Plan and apply rendered config")
-            result = subprocess.run(["bash", "-c", script], cwd=work, env=env, capture_output=True, text=True)
-            events = [json.loads(line) for line in event_file.read_text().splitlines()] if event_file.exists() else []
-            summary = (work / "summary.md").read_text() if (work / "summary.md").exists() else ""
-            return result, events, summary
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.work=Path(self.tmp.name)
+        for kind in ("subscription","database","agent-memory"):
+            directory=self.work/"stacks"/kind
+            directory.mkdir(parents=True)
+            (directory/".terraform.lock.hcl").write_text("# test provider lock")
+        (self.work/"scripts").mkdir()
+        for source in (ROOT/"scripts").glob("rediscloud*.py"):
+            shutil.copy(source,self.work/"scripts")
+        binary=self.work/"bin";binary.mkdir()
+        for name,source in (("terraform",MOCK_TERRAFORM),("aws",MOCK_AWS)):
+            target=binary/name;target.write_text(source);target.chmod(0o755)
+        provider=self.work/"provider";provider.write_text("test-provider-binary")
+        self.env={**os.environ,"PATH":str(binary)+os.pathsep+os.environ["PATH"],
+            "TF_STATE_BUCKET_NAME":"test-bucket","TF_STATE_REGION_NAME":"us-east-1",
+            "RUNNER_TEMP":str(self.work),"GITHUB_WORKSPACE":str(self.work),
+            "GITHUB_STEP_SUMMARY":str(self.work/"summary.md"),"GITHUB_OUTPUT":str(self.work/"output"),
+            "GITHUB_SHA":"a"*40,"GITHUB_RUN_ID":"123","GITHUB_RUN_ATTEMPT":"1",
+            "GITHUB_SERVER_URL":"https://github.com","GITHUB_REPOSITORY":"example/test",
+            "TF_VERSION":"1.15.3","RESOLVED_PROVIDER_REF":"b"*40,
+            "PROVIDER_BINARY":str(provider),"MOCK_EVENTS":str(self.work/"events.jsonl"),
+            "MOCK_CHANGES":"{}","MOCK_S3":str(self.work/"s3")}
+        self.render=self.work/".generated/rediscloud/test"
+        self.config=self.work/"config.json";self.config.write_text(CONFIG_PATH.read_text())
+        self.render_config()
+
+    def render_config(self,destroy=False,key=None):
+        self.manifest=config_module.render(self.config,self.render,destroy=destroy,agent_memory_key=key)
+        for item in [self.manifest["subscription"],*self.manifest["databases"],*self.manifest["agent_memory_stores"]]:
+            if "tfvars_path" in item:item["tfvars_path"]=str(Path(item["tfvars_path"]).relative_to(self.work))
+        (self.render/"manifest.json").write_text(json.dumps(self.manifest))
+
+    def execute(self,command,phase,**options):
+        Path(self.env["GITHUB_OUTPUT"]).write_text("")
+        args=[sys.executable,"scripts/rediscloud_review.py",command,"--phase",phase,
+              "--bundle",str(self.work/("bundle-"+phase))]
+        if command=="plan":args += ["--manifest",str(self.render/"manifest.json")]
+        for key,value in options.items():args += ["--"+key,str(value)]
+        result=subprocess.run(args,cwd=self.work,env=self.env,capture_output=True,text=True)
+        self.outputs=dict(line.split("=",1) for line in Path(self.env["GITHUB_OUTPUT"]).read_text().splitlines())
+        return result
+
+    def events(self):
+        path=Path(self.env["MOCK_EVENTS"])
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def summary(self):
+        path=Path(self.env["GITHUB_STEP_SUMMARY"])
+        return path.read_text() if path.exists() else ""
+
+    def approved_apply(self,phase):
+        # Model the job boundary: plan -> reviewer approval -> download -> apply.
+        key,sha=self.outputs["bundle_key"],self.outputs["bundle_sha256"]
+        shutil.rmtree(self.work/("bundle-"+phase))
+        result=self.execute("load",phase,key=key,sha256=sha)
+        self.assertEqual(result.returncode,0,result.stderr)
+        if self.outputs["provider_binary"]:self.env["PROVIDER_BINARY"]=self.outputs["provider_binary"]
+        return self.execute("apply",phase)
 
     def test_fresh_plan_skips_missing_dependencies(self):
-        result, events, summary = self.run_workflow(changes={"subscription": {"actions": ["create"]}})
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([event["kind"] for event in events], ["subscription"])
-        self.assertIn("Skipped in plan-only mode", summary)
+        self.env["MOCK_CHANGES"]=json.dumps({"subscription":{"actions":["create"]}})
+        result=self.execute("plan","preview")
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual([e["kind"] for e in self.events()],["subscription"])
+        self.assertIn("Skipped in plan-only mode",self.summary())
 
     def test_existing_managed_resources_are_all_planned(self):
-        result, events, summary = self.run_workflow()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([event["kind"] for event in events], ["subscription", "database", "agent-memory", "agent-memory"])
-        self.assertNotIn("Skipped in plan-only mode", summary)
-        self.assertTrue(all(event["command"] == "plan" for event in events))
+        result=self.execute("plan","preview")
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual([e["kind"] for e in self.events()],["subscription","database","agent-memory","agent-memory"])
+        self.assertNotIn("Skipped",self.summary())
+        self.assertFalse(any(e["command"]=="apply" for e in self.events()))
 
     def test_new_database_skips_agents_but_keeps_subscription_plan(self):
-        result, events, _ = self.run_workflow(changes={"database": {"actions": ["create"]}})
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([event["kind"] for event in events], ["subscription", "database"])
+        self.env["MOCK_CHANGES"]=json.dumps({"database":{"actions":["create"]}})
+        self.assertEqual(self.execute("plan","preview").returncode,0)
+        self.assertEqual([e["kind"] for e in self.events()],["subscription","database"])
 
     def test_subscription_rename_skips_downstream_name_lookups(self):
-        result, events, _ = self.run_workflow(changes={"subscription": {"actions": ["update"], "after": "new-name"}})
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([event["kind"] for event in events], ["subscription"])
+        self.env["MOCK_CHANGES"]=json.dumps({"subscription":{"actions":["update"],"after":"renamed"}})
+        self.assertEqual(self.execute("plan","preview").returncode,0)
+        self.assertEqual([e["kind"] for e in self.events()],["subscription"])
 
-    def test_apply_plans_the_entire_agent_phase_before_applying(self):
-        result, events, _ = self.run_workflow(operation="apply")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([(event["command"], event["kind"]) for event in events], [
-            ("plan", "subscription"), ("apply", "subscription"), ("plan", "database"), ("apply", "database"),
-            ("plan", "agent-memory"), ("plan", "agent-memory"), ("apply", "agent-memory"), ("apply", "agent-memory"),
-        ])
-        memory_states = [event["state_key"] for event in events if event["kind"] == "agent-memory" and event["command"] == "apply"]
-        self.assertEqual(len(set(memory_states)), 2)
+    def test_apply_plans_entire_phase_then_applies_saved_plans_without_replanning(self):
+        self.env["MOCK_CHANGES"]=json.dumps({kind:{"actions":["create"]} for kind in ("subscription","database","agent-memory")})
+        for phase in ("subscription","database","agent-memory"):
+            result=self.execute("plan",phase)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual(self.outputs["needs_apply"],"true")
+            result=self.approved_apply(phase)
+            self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual([(e["command"],e["kind"]) for e in self.events()],[
+            ("plan","subscription"),("apply","subscription"),("plan","database"),("apply","database"),
+            ("plan","agent-memory"),("plan","agent-memory"),("apply","agent-memory"),("apply","agent-memory")])
 
-    def test_destructive_agent_plan_blocks_all_agent_applies(self):
-        result, events, _ = self.run_workflow(operation="apply", changes={"subscriptions/demo-ai-us-east-1/agent-memory/support_agent.tfstate": {"actions": ["delete", "create"]}})
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(any(event["kind"] == "agent-memory" and event["command"] == "apply" for event in events))
-        self.assertIn("Use the Redis Cloud Config Destroy workflow", result.stderr)
+    def test_no_changes_requests_no_approval_or_bundle(self):
+        self.assertEqual(self.execute("plan","agent-memory").returncode,0)
+        self.assertEqual(self.outputs,{"needs_apply":"false"})
+        self.assertFalse((self.work/"s3").exists())
 
-    def test_selective_destroy_only_applies_selected_agent_state(self):
-        result, events, _ = self.run_workflow(destroy_key="support_agent")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([event["state_key"] for event in events], ["subscriptions/demo-ai-us-east-1/agent-memory/support_agent.tfstate"] * 2)
+    def test_destructive_agent_plan_blocks_entire_phase_before_upload(self):
+        self.env["MOCK_CHANGES"]=json.dumps({"subscriptions/demo-ai-us-east-1/agent-memory/support_agent.tfstate":{"actions":["delete","create"]}})
+        result=self.execute("plan","agent-memory")
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn("Use the Redis Cloud Config Destroy workflow",result.stderr)
+        self.assertFalse((self.work/"s3").exists())
+        self.assertFalse(any(e["command"]=="apply" for e in self.events()))
 
-    def test_full_destroy_reverses_dependencies(self):
-        result, events, _ = self.run_workflow(full_destroy=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([event["kind"] for event in events if event["command"] == "apply"], ["agent-memory", "agent-memory", "database", "subscription"])
+    def test_selective_destroy_only_applies_selected_state(self):
+        self.render_config(destroy=True,key="support_agent")
+        self.assertEqual(self.execute("plan","destroy").returncode,0)
+        result=self.approved_apply("destroy")
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual([e["state_key"] for e in self.events()],["subscriptions/demo-ai-us-east-1/agent-memory/support_agent.tfstate"]*2)
+
+    def test_full_destroy_plans_all_before_approval_and_reverses_dependencies(self):
+        self.render_config(destroy=True)
+        result=self.execute("plan","destroy")
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertTrue(all(e["command"]=="plan" for e in self.events()))
+        result=self.approved_apply("destroy")
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual([e["kind"] for e in self.events() if e["command"]=="apply"],["agent-memory","agent-memory","database","subscription"])
+
+    def test_empty_destroy_state_skips_remote_lookups_and_approval(self):
+        self.render_config(destroy=True,key="support_agent")
+        self.env["MOCK_EMPTY_STATES"]=json.dumps(["subscriptions/demo-ai-us-east-1/agent-memory/support_agent.tfstate"])
+        self.assertEqual(self.execute("plan","destroy").returncode,0)
+        self.assertEqual(self.outputs["needs_apply"],"false")
+        self.assertEqual(self.events(),[])
+
+    def prepare_changed_phase(self):
+        self.env["MOCK_CHANGES"]=json.dumps({"agent-memory":{"actions":["update"]}})
+        result=self.execute("plan","agent-memory")
+        self.assertEqual(result.returncode,0,result.stderr)
+
+    def test_tampered_archive_is_rejected_before_apply(self):
+        self.prepare_changed_phase()
+        key=self.outputs["bundle_key"];sha=self.outputs["bundle_sha256"]
+        (Path(self.env["MOCK_S3"])/key).write_bytes(b"tampered")
+        result=self.execute("load","agent-memory",key=key,sha256=sha)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn("checksum mismatch",result.stderr)
+        self.assertFalse(any(e["command"]=="apply" for e in self.events()))
+
+    def test_expired_or_wrong_run_bundle_is_rejected_before_any_apply(self):
+        self.prepare_changed_phase()
+        index=self.work/"bundle-agent-memory/index.json";original=json.loads(index.read_text())
+        for field,value in (("created",0),("run_id","different"),("commit","different"),("phase","database")):
+            with self.subTest(field=field):
+                changed=deepcopy(original);changed[field]=value;index.write_text(json.dumps(changed))
+                self.assertNotEqual(self.execute("apply","agent-memory").returncode,0)
+        self.assertFalse(any(e["command"]=="apply" for e in self.events()))
+
+    def test_tampering_with_later_plan_stops_all_applies(self):
+        self.prepare_changed_phase()
+        bundle=self.work/"bundle-agent-memory"
+        index=json.loads((bundle/"index.json").read_text())
+        (bundle/index["plans"][-1]["file"]).write_text("tampered")
+        self.assertNotEqual(self.execute("apply","agent-memory").returncode,0)
+        self.assertFalse(any(e["command"]=="apply" for e in self.events()))
+
+    def test_wrong_active_provider_is_rejected(self):
+        self.prepare_changed_phase()
+        wrong=self.work/"wrong-provider";wrong.write_text("another binary")
+        self.env["PROVIDER_BINARY"]=str(wrong)
+        self.assertNotEqual(self.execute("apply","agent-memory").returncode,0)
+        self.assertFalse(any(e["command"]=="apply" for e in self.events()))
+
+    def test_summary_omits_secret_and_sensitive_values(self):
+        marker="DO-NOT-PRINT-THIS-SECRET"
+        self.env["MOCK_CHANGES"]=json.dumps({"agent-memory":{"actions":["update"],
+            "before":{"name":"old","short_term_ttl_seconds":1,"api_key":marker},
+            "after":{"name":marker,"short_term_ttl_seconds":2,"api_key":marker,"llm":{"credentials":marker}},
+            "after_sensitive":{"name":True},"output_changes":{"api_key":{"actions":["update"],"after":marker}}}})
+        result=self.execute("plan","agent-memory")
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertNotIn(marker,self.summary())
+        self.assertIn("short_term_ttl_seconds",self.summary())
+        self.assertIn("Approval required",self.summary())
+
+    def test_gate_depends_on_plan_and_apply_step_never_plans(self):
+        source=(ROOT/".github/workflows/rediscloud-phase.yml").read_text()
+        self.assertIn("needs: plan",source)
+        self.assertIn("if: inputs.apply && needs.plan.outputs.needs_apply == 'true'",source)
+        apply=source.split("\n  apply:\n",1)[1]
+        self.assertIn("environment:",apply)
+        self.assertIn("rediscloud_review.py apply",apply)
+        self.assertNotIn("rediscloud_review.py plan",apply)
+        self.assertNotIn("always()",(ROOT/".github/workflows/rediscloud-config.yml").read_text())
 
 
 if __name__ == "__main__":
