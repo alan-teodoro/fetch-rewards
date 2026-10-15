@@ -160,7 +160,23 @@ stack creations (store, runtime key and 2 Terraform validation resources),
 with no updates, deletes or replacements. Provider `c87f535` and configuration
 commit `7f6a9ae` are confirmed in the pre-approval artifact. Bundle SHA-256:
 `12af9bd6e7bec11a36ebb67ac6190349802fc7eb5edbe171db0cebc9f9eef2ad`.
-The apply has not run; do not count this as a completed cloud integration yet.
+The apply subsequently **passed**, with one approval for the entire run.
+API reads confirmed subscription `3450307` and database `14693774` unchanged,
+store `045be7f9beec4f108f8d4e9bec1ce16f` READY, TTLs 86400/7776000,
+cadence 300, the `preference` custom type and the runtime key present.
+
+[Full presentation creation](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38732769481)
+now tests fresh subscription → database → Agent Memory using provider `c87f535`
+and a single approval. API verification before dispatch found no presentation
+subscription, database or stores. Keep this infrastructure through the meeting;
+this is the presentation namespace, not the QA cleanup target.
+
+The separate QA config is prepared for the next maintenance run: database
+alert 80 → 85, shopping TTL 86400 → 21600, cadence 300 → 120, updated extraction
+prompt, addition of `shopping_goal`, and a new `support_agent`. Existing store
+and key IDs must remain stable, while only support-agent IDs are new. Subsequent
+checks: unchanged reapply, selective support-agent deletion/recreation, then
+scratch cleanup. Each mutation still needs Alan’s one approval per run.
 
 ### Candidate and evidence
 
@@ -308,8 +324,9 @@ evidence and a clear limitation, not an unvalidated live workaround.
    - Set `config_path` to the demo config or to the customer-specific config.
    - Set `operation = plan`.
    - Set `rediscloud_provider_source = branch` and use the rehearsed provider
-     commit `a0c7d29254b6f2f115bbe1e454d2926fbe5a678e` as
+     commit `c87f53502bb92ec5b55e48abdfdf6b8f779cc038` as
      `rediscloud_provider_ref`, including for apply and destroy.
+     October 14 evidence used the earlier provider commit recorded below.
    - Review the GitHub Actions summary before apply.
    - A fresh creation plan skips stacks whose dependencies are being created,
      replaced, or renamed. Once the dependencies exist, plan includes the

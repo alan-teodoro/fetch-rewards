@@ -50,7 +50,7 @@
       "alerts": [
         {
           "name": "dataset-size",
-          "value": 80
+          "value": 85
         },
         {
           "name": "throughput-higher-than",
@@ -65,7 +65,72 @@
       "mode": "managed",
       "name": "readiness-agent",
       "database": "shared_agent_memory",
-      "short_term_ttl_seconds": 86400,
+      "short_term_ttl_seconds": 21600,
+      "long_term_ttl_seconds": 7776000,
+      "extraction_cadence_seconds": 120,
+      "summarization": {
+        "enabled": true,
+        "trigger_strategy": "event_count",
+        "event_count": {
+          "threshold": 20,
+          "retain_count": 10
+        }
+      },
+      "custom_memory_types": [
+        {
+          "name": "preference",
+          "description": "Durable shopping preferences",
+          "fields": [
+            {
+              "name": "topic",
+              "description": "Preference topic",
+              "type": "str"
+            },
+            {
+              "name": "confidence",
+              "description": "Preference confidence score",
+              "type": "float"
+            },
+            {
+              "name": "is_active",
+              "description": "Whether the preference is currently active",
+              "type": "bool"
+            }
+          ],
+          "extraction_strategy": {
+            "enabled": true,
+            "prompt": "Extract lasting shopping preferences. Ignore temporary offers and promotional codes."
+          }
+        },
+        {
+          "name": "shopping_goal",
+          "description": "Durable shopping goals",
+          "fields": [
+            {
+              "name": "category",
+              "description": "Shopping goal category",
+              "type": "str"
+            }
+          ],
+          "extraction_strategy": {
+            "enabled": true,
+            "prompt": "Extract lasting shopping goals explicitly stated by the user."
+          }
+        }
+      ],
+      "api_keys": {
+        "runtime": {
+          "mode": "managed",
+          "name": "readiness-runtime",
+          "secret_ref": "aws-secrets-manager:/fetch-rewards/qa/provider-readiness/runtime"
+        }
+      }
+    },
+    "support_agent": {
+      "mode": "managed",
+      "name": "readiness-support-agent",
+      "database": "shared_agent_memory",
+      "short_term_ttl_seconds": 43200,
       "long_term_ttl_seconds": 7776000,
       "extraction_cadence_seconds": 300,
       "summarization": {
@@ -99,15 +164,30 @@
           ],
           "extraction_strategy": {
             "enabled": true,
-            "prompt": "Extract stable shopping, product, notification, and account preferences that should help future agent responses."
+            "prompt": "Extract lasting shopping preferences. Ignore temporary offers and promotional codes."
+          }
+        },
+        {
+          "name": "shopping_goal",
+          "description": "Durable shopping goals",
+          "fields": [
+            {
+              "name": "category",
+              "description": "Shopping goal category",
+              "type": "str"
+            }
+          ],
+          "extraction_strategy": {
+            "enabled": true,
+            "prompt": "Extract lasting shopping goals explicitly stated by the user."
           }
         }
       ],
       "api_keys": {
         "runtime": {
           "mode": "managed",
-          "name": "readiness-runtime",
-          "secret_ref": "aws-secrets-manager:/fetch-rewards/qa/provider-readiness/runtime"
+          "name": "readiness-support-runtime",
+          "secret_ref": "aws-secrets-manager:/fetch-rewards/qa/provider-readiness/support/runtime"
         }
       }
     }
