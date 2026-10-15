@@ -110,10 +110,25 @@ destroy tomorrow's presentation environment before the presentation.
   replacements and no secret values. That run was cancelled before any apply when Alan selected the provider
   fix. A new plan must use the corrected immutable provider commit and receive
   a new approval; this is not yet a completed apply test.
+- Additional mock SDK checks: task failure, malformed/lost create response,
+  and HTTP 503 returned errors without retrying POST; context cancellation
+  bounded a processing task. HTTP 429 is different: the pinned SDK retries
+  requests (including POST), confirmed with 2 requests in a 1.5-second window.
+  It has up to 10 HTTP attempts; this is not proof of create idempotency.
+  An accepted create with a lost response/task result still has no returned ID;
+  explicit API reconciliation remains required before retrying an ambiguous
+  create. No live failure injection was used for these checks.
 - [Corrected-provider live QA run](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38728473797)
   started with provider `c87f53502bb92ec5b55e48abdfdf6b8f779cc038`.
   Before dispatch, a read-only API snapshot confirmed no QA subscription,
-  databases, or stores existed. Each changed phase still requires Alan’s approval.
+  databases, or stores existed. Subscription plan succeeded and its published
+  summary was reviewed: 2 creates (subscription + validation), zero changes,
+  deletes or replacements; corrected provider SHA confirmed. The run is awaiting
+  Alan’s first approval. Bundle SHA-256:
+  `6d62b86d65710a2709097ad5aa5399607637c7a91b6b9a5901f5b38804183ec3`.
+  Each changed phase still requires Alan’s approval.
+- [Latest project validation](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38728577527)
+  passed, including the 23 automation tests and all stack validation jobs.
 - Isolated live test config:
   `configs/fetch-rewards/subscriptions/qa-provider-readiness-us-east-1.json`,
   namespace `provider-readiness-20261015`, subscription `fetch-provider-readiness`.
@@ -195,7 +210,7 @@ severity, proposed fix, regression test, fixing commit, and retest evidence.
 | ID | Owner / priority | Status and next action |
 | --- | --- | --- |
 | B01 | Provider / P0 | **Confirmed on October 15:** invalid follow-up read after accepted create caused 2 creates / 0 deletes on retry. Patch plus regression passed the full suite/race/vet in an isolated checkout. Alan authorized application and live retesting; the published candidate `c87f535` passed 148 unit checks, 49 race checks and vet; live integration is pending. See progress above (Q02). |
-| B02 | Provider + SDK / P0 | **Risk to reproduce:** create/key-create response loss and asynchronous errors may leave an object whose ID was not returned. Trace SDK task polling and idempotency before adding retries (Q03/Q04); document reconciliation for an ambiguous result. |
+| B02 | Provider + SDK / P0 | **Partly exercised:** failed task, lost/malformed response and 503 return errors with no ID and no extra POST in mock tests; task wait honors cancellation. HTTP 429 retries POST (2 observed in 1.5 seconds, SDK maximum 10 attempts). Live ambiguity/idempotency and API-key-create loss remain unproven; reconcile via API before retrying a create whose outcome is unknown (Q03/Q04). |
 | B03 | Provider + SDK / P0 | **Regression passed:** DELETE with missing-parent HTTP 404 succeeds; 403 and 500 remain actionable errors. The pinned SDK maps HTTP 404 to `APIKeyNotFound`, already handled by the provider. No code change needed for this case (Q04). |
 | B04 | Provider + SDK / P0 | **Confirmed with a fake credential:** an API error body echoing that credential reaches the Terraform Delete diagnostic unchanged through SDK `HTTPError.Error()` and provider `err.Error()`. No real credential exposure was observed. Redact/omit unsafe response bodies, test every CRUD diagnostic/warning path and SDK debug logging before production. Sensitive schema fields do not redact diagnostic strings (Q06). |
 | B05 | Workflow / P1 | **Observed, cause unresolved:** run 38631611397 was cancelled overall despite successful jobs and three completed applies. Inspect cancellation events and the apply job's `always()` condition in `.github/workflows/rediscloud-config.yml`. Reproduce safely before changing semantics; this is not a confirmed provider failure. |
