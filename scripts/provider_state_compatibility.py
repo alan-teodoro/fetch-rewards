@@ -21,6 +21,11 @@ def run_check(database_id, baseline_binary, candidate_binary, control=None):
     print("State compatibility fixture: " + prefix, flush=True)
     result = {"fixture": prefix, "stages": []}
     stage = "prepare"
+    intent = None
+    if os.environ.get("LIVE_RESULTS_DIRECTORY"):
+        intent = Path(os.environ["LIVE_RESULTS_DIRECTORY"]) / ("intent-" + prefix + ".json")
+        intent.parent.mkdir(parents=True, exist_ok=True)
+        intent.write_text(json.dumps({"fixture": prefix, "database_id": str(database_id), "names": [prefix], "cleanup_verified": False}))
     with tempfile.TemporaryDirectory(prefix="rediscloud-state-compatibility-") as temporary:
         root = Path(temporary)
         work = root / "terraform"
@@ -146,6 +151,10 @@ def run_check(database_id, baseline_binary, candidate_binary, control=None):
             if not cleanup_ok:
                 raise RuntimeError("Fixture cleanup unverified; reconcile logged fixture prefix before retrying") from None
             result["cleanup_verified"] = True
+            if intent:
+                payload = json.loads(intent.read_text())
+                payload["cleanup_verified"] = True
+                intent.write_text(json.dumps(payload))
             print("State compatibility fixture cleanup verified", flush=True)
     return result
 

@@ -7,6 +7,10 @@ on:
         description: Run protected Agent Memory acceptance tests against the existing isolated QA database.
         type: boolean
         default: false
+      consolidated_live:
+        description: Run the consolidated provider live validation suite on the dedicated temporary QA.
+        type: boolean
+        default: false
       provider_candidate:
         description: Exact 40-character provider commit for the optional acceptance test.
         type: string
@@ -45,7 +49,7 @@ env:
 jobs:
   readiness-review:
     name: Review isolated provider acceptance test
-    if: github.event_name == 'workflow_dispatch' && inputs.provider_readiness
+    if: github.event_name == 'workflow_dispatch' && inputs.provider_readiness && !inputs.consolidated_live
     runs-on: ubuntu-latest
     steps:
       - name: Describe the mutations before approval
@@ -350,3 +354,144 @@ jobs:
       - name: Terraform validate
         working-directory: stacks/agent-memory
         run: terraform validate
+
+  consolidated-live:
+    name: Consolidated provider live validation
+    if: github.event_name == 'workflow_dispatch' && inputs.provider_readiness && inputs.consolidated_live
+    environment: dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      REDISCLOUD_ACCESS_KEY: ${{ secrets.REDISCLOUD_ACCESS_KEY }}
+      REDISCLOUD_SECRET_KEY: ${{ secrets.REDISCLOUD_SECRET_KEY }}
+      REDISCLOUD_URL: ${{ secrets.REDISCLOUD_URL || vars.REDISCLOUD_URL }}
+      PROVIDER_CANDIDATE: ${{ inputs.provider_candidate }}
+      LIVE_VALIDATION_CONFIRM: isolated-qa-only
+      TF_LOG: ''
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate the exact candidate and isolated configuration
+        run: |
+          set -euo pipefail
+          [[ "$PROVIDER_CANDIDATE" =~ ^[0-9a-f]{40}$ ]]
+          python3 scripts/rediscloud_config.py validate --config configs/fetch-rewards/subscriptions/qa-provider-consolidated-20261017.json
+      - uses: actions/checkout@v4
+        with:
+          repository: RedisLabs/terraform-provider-rediscloud
+          ref: ${{ inputs.provider_candidate }}
+          path: .provider/live
+          token: ${{ secrets.REDISCLOUD_PROVIDER_CHECKOUT_TOKEN || github.token }}
+      - uses: actions/checkout@v4
+        with:
+          repository: RedisLabs/terraform-provider-rediscloud
+          ref: ${{ inputs.baseline_provider }}
+          path: .provider/live-baseline
+          token: ${{ secrets.REDISCLOUD_PROVIDER_CHECKOUT_TOKEN || github.token }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .provider/live/go.mod
+          cache-dependency-path: .provider/live/go.sum
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.3
+          terraform_wrapper: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the official data-plane SDK
+        run: python -m pip install 'redis-agent-memory==0.4.1'
+      - name: Resolve only this session's isolated QA database
+        id: qa
+        run: |
+          python3 scripts/rediscloud_lookup.py --subscription-name fetch-provider-consolidated-20261017 --database-name agent-memory-readiness-db
+      - name: Build the exact candidate and baseline
+        run: |
+          set -euo pipefail
+          test "$(git -C .provider/live rev-parse HEAD)" = "$PROVIDER_CANDIDATE"
+          (cd .provider/live && go build -trimpath -o "$RUNNER_TEMP/live-candidate" .)
+          (cd .provider/live-baseline && go build -trimpath -o "$RUNNER_TEMP/live-baseline" .)
+      - name: Validate live harness against the actual candidate and a local mock API
+        env:
+          MOCK_PROVIDER_BINARY: ${{ runner.temp }}/live-candidate
+        run: python -m unittest discover -s tests -p test_provider_live_validation.py -v
+      - name: Lifecycle, invalid input, atomicity and context preservation
+        id: lifecycle
+        continue-on-error: true
+        env:
+          AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
+          CANDIDATE_PROVIDER_BINARY: ${{ runner.temp }}/live-candidate
+          LIVE_VALIDATION_REPORT: ${{ runner.temp }}/live-results/lifecycle.json
+        run: python scripts/provider_live_validation.py
+      - name: Service-owned prompt limits, cumulative quota and async error details
+        id: contract
+        continue-on-error: true
+        env:
+          AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
+          CANDIDATE_PROVIDER_BINARY: ${{ runner.temp }}/live-candidate
+          LIVE_VALIDATION_REPORT: ${{ runner.temp }}/live-results/contract.json
+        run: python scripts/provider_live_contract.py
+      - name: Controlled accepted-response and read failures
+        id: faults
+        continue-on-error: true
+        env:
+          AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
+          CANDIDATE_PROVIDER_BINARY: ${{ runner.temp }}/live-candidate
+          LIVE_VALIDATION_REPORT: ${{ runner.temp }}/live-results/faults.json
+        run: python scripts/provider_live_faults.py
+      - name: Authentication, isolation and revocation
+        id: authentication
+        continue-on-error: true
+        env:
+          AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
+        run: python scripts/agent_memory_auth_probe.py
+      - name: Upgrade and rollback without replacing identities or secrets
+        id: state
+        continue-on-error: true
+        env:
+          LIVE_RESULTS_DIRECTORY: ${{ runner.temp }}/live-results
+          AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
+          BASELINE_PROVIDER_BINARY: ${{ runner.temp }}/live-baseline
+          CANDIDATE_PROVIDER_BINARY: ${{ runner.temp }}/live-candidate
+        run: python scripts/provider_state_compatibility.py
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.5
+          terraform_wrapper: false
+      - name: Minimum supported Terraform lifecycle
+        id: minimum
+        continue-on-error: true
+        env:
+          AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
+          CANDIDATE_PROVIDER_BINARY: ${{ runner.temp }}/live-candidate
+          LIVE_VALIDATION_REPORT: ${{ runner.temp }}/live-results/minimum.json
+          VALIDATION_SUITE: minimum
+          VALIDATE_DATA_PLANE: '0'
+        run: python scripts/provider_live_validation.py
+      - name: Reconcile any explicitly recorded temporary fixture
+        if: always() && steps.qa.outputs.database_id != ''
+        env:
+          LIVE_RESULTS_DIRECTORY: ${{ runner.temp }}/live-results
+          AGENT_MEMORY_TEST_DATABASE_ID: ${{ steps.qa.outputs.database_id }}
+        run: python scripts/provider_live_cleanup.py
+      - name: Publish only non-sensitive assertion reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-live-results-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/live-results/*.json
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Require every suite to pass
+        if: always()
+        env:
+          LIFECYCLE: ${{ steps.lifecycle.outcome }}
+          CONTRACT: ${{ steps.contract.outcome }}
+          FAULTS: ${{ steps.faults.outcome }}
+          AUTHENTICATION: ${{ steps.authentication.outcome }}
+          STATE: ${{ steps.state.outcome }}
+          MINIMUM: ${{ steps.minimum.outcome }}
+        run: |
+          set -euo pipefail
+          for outcome in "$LIFECYCLE" "$CONTRACT" "$FAULTS" "$AUTHENTICATION" "$STATE" "$MINIMUM"; do
+            test "$outcome" = success
+          done
