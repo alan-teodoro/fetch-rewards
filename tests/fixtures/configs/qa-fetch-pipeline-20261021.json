@@ -82,54 +82,6 @@
         "workload": "agent-memory",
         "component": "redis-database"
       }
-    },
-    "secondary_memory": {
-      "mode": "managed",
-      "name": "pipeline-secondary-db",
-      "agent_memory_compatible": true,
-      "dataset_size_in_gb": 1,
-      "redis_version": "8.6",
-      "throughput_ops_per_second": 1000,
-      "replication": true,
-      "enable_tls": true,
-      "enable_default_user": true,
-      "auto_minor_version_upgrade": true,
-      "support_oss_cluster_api": false,
-      "external_endpoint_for_oss_cluster_api": false,
-      "persistence_mode": "aof-every-1-second",
-      "data_eviction": "allkeys-lru",
-      "source_ips": [
-        "34.86.169.63/32",
-        "34.86.239.45/32",
-        "35.221.18.150/32",
-        "35.230.184.20/32",
-        "98.84.76.64/32",
-        "179.117.55.96/32"
-      ],
-      "alerts": [
-        {
-          "name": "dataset-size",
-          "value": 80
-        },
-        {
-          "name": "throughput-higher-than",
-          "value": 80
-        },
-        {
-          "name": "latency",
-          "value": 100
-        }
-      ],
-      "remote_backup": null,
-      "acl_rule_string": "+@all -@dangerous +info ~*",
-      "acl_user_password_override": null,
-      "enable_resource_tags": false,
-      "tags": {
-        "customer": "fetch-rewards",
-        "environment": "demo",
-        "workload": "agent-memory",
-        "component": "redis-database"
-      }
     }
   },
   "agent_memory_stores": {
@@ -298,47 +250,6 @@
         "environment": "demo",
         "agent": "shopping"
       }
-    },
-    "support_agent": {
-      "mode": "managed",
-      "name": "pipeline-support-20261021",
-      "short_term_ttl_seconds": 86400,
-      "long_term_ttl_seconds": 31536000,
-      "llm": {
-        "provider": "openai",
-        "model": "gpt-4o-mini",
-        "credentials": {
-          "type": "apiKey",
-          "api_key_env_var": "AGENT_MEMORY_LLM_API_KEY",
-          "api_key_version": 2
-        }
-      },
-      "embedding": {
-        "provider": "openai",
-        "model": "text-embedding-3-small",
-        "credentials": {
-          "type": "apiKey",
-          "api_key_env_var": "AGENT_MEMORY_EMBEDDING_API_KEY",
-          "api_key_version": 2
-        }
-      },
-      "extraction_cadence_seconds": 300,
-      "summarization": {
-        "enabled": true,
-        "trigger_strategy": "event_count",
-        "event_count": {
-          "threshold": 20,
-          "retain_count": 10
-        }
-      },
-      "api_keys": {
-        "runtime": {
-          "mode": "managed",
-          "name": "shopping-agent-runtime",
-          "secret_ref": "aws-secrets-manager:/fetch-rewards/qa/shopping-agent-memory-byo-models/runtime"
-        }
-      },
-      "database": "secondary_memory"
     }
   }
 }
