@@ -122,9 +122,19 @@ def normalize_name(value: str) -> str:
     return normalized
 
 
+def unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Reject duplicate properties before they overwrite desired resources."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ConfigError(f"Duplicate JSON property {key!r}; configuration keys must be unique.")
+        result[key] = value
+    return result
+
+
 def read_json(path: Path) -> dict[str, Any]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_json_object)
     except json.JSONDecodeError as exc:
         raise ConfigError(f"{path}: invalid JSON: {exc}") from exc
     except OSError as exc:

@@ -139,6 +139,14 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual([item["state_key"] for item in targeted], ["subscriptions/demo-ai-us-east-1/agent-memory/support_agent.tfstate"])
             self.assertEqual(len(list(Path(tmp).glob("*.auto.tfvars.json"))), 1)
 
+    def test_duplicate_json_keys_are_rejected_before_rendering(self):
+        for text in ('{"subscription_key":"first","subscription_key":"second"}',
+                     '{"agent_memory_stores":{"agent":{},"agent":{}}}'):
+            with self.subTest(text=text), tempfile.TemporaryDirectory() as tmp:
+                path=Path(tmp)/"config.json";path.write_text(text)
+                with self.assertRaisesRegex(config_module.ConfigError,"Duplicate JSON property"):
+                    config_module.read_json(path)
+
     def test_workflow_paths_support_other_customers_and_reject_escape(self):
         for path in ("configs/example/subscriptions/prod.json", "tests/fixtures/configs/two-agents.json"):
             config_module.validate_workflow_path(Path(path))
