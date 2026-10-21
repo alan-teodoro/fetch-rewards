@@ -33,6 +33,8 @@ Configure repository variables from the outputs:
 
 Create a GitHub environment named `dev` with the reviewers required by your operating policy. Apply/destroy jobs use this environment; plan jobs do not. Review the OIDC role's allowed branch/environment conditions when copying the project to a new repository.
 
+Use a separately configured repository for each customer. The JSON `customer` and `environment` labels do not change the Redis Cloud account, backend or GitHub approval environment.
+
 State includes generated database passwords and data-plane API keys. Keep the bucket private, encrypted and versioned, restrict IAM access and configure retention for old versions of temporary plan bundles. Never publish state, plans or generated tfvars as public artifacts.
 
 ## Credentials and provider
@@ -68,7 +70,7 @@ Open Actions → **Redis Cloud Config Apply** and select the branch containing t
 
 Read the plan job summary. It lists creates, updates, deletions, replacements and changed field names. Credential and generated-key values are omitted. A store replacement generates a new store ID and new keys. Context is not automatically migrated; update application references and plan any migration before applying.
 
-Store deletion and replacement must not be treated as proof of physical data erasure. Our isolated test found old long-term records and indexes still in the backing database after replacement. Confirm the service retention and cleanup contract before relying on deletion for data removal.
+Store deletion and replacement must not be treated as proof of physical data erasure. Confirm the service retention and cleanup contract before relying on deletion for data removal.
 
 For `apply`, one environment approval covers the complete configuration. Subscription and database creation or renaming can defer downstream plans; those steps are identified before approval and planned after their dependencies exist. The provider binary and inputs remain frozen. Approval must begin within one hour of planning. An unchanged run requests no approval.
 
@@ -83,6 +85,8 @@ Remove a database from `databases` to propose deleting the database and its ACLs
 For a full teardown, use **Redis Cloud Config Destroy**, select the same JSON and set `confirm_destroy = true`. Use `agent_memory_key` to target just one store. The workflow includes previously managed resources omitted from the file when doing a full teardown. External resources and the backend remain intact.
 
 Deleting a file does not run Terraform. Never delete the last configuration before tearing down its infrastructure. If a selective destroy leaves its entry in the JSON, the next apply will recreate it.
+
+Git keeps the configuration change history. Actions keeps run records according to its retention policy. Terraform state lists managed resources as of the last refresh; resources created outside this project are not automatically inventoried or adopted.
 
 ## Keys and model credentials
 

@@ -297,33 +297,17 @@ def render_model_config(
     }
 
 
-def load_and_validate(path: Path) -> dict[str, Any]:
-    config = read_json(path)
-    allowed_root = {
-        "schema_version",
-        "customer",
-        "environment",
-        "subscription_key",
-        "subscription",
-        "databases",
-        "agent_memory_stores",
-    }
-    fail_unknown_fields("$", config, allowed_root)
-
-    if config.get("schema_version") != SCHEMA_VERSION:
-        raise ConfigError(f"schema_version must be {SCHEMA_VERSION}.")
-
-    require_string("$.customer", config.get("customer"))
-    require_string("$.environment", config.get("environment"))
-
-    subscription_key = require_string("$.subscription_key", config.get("subscription_key"))
-    validate_key("$.subscription_key", subscription_key)
-
-    subscription = require_object("$.subscription", config.get("subscription"))
-    subscription_allowed = {"mode", "name", "subscription_id", "creation_plan"} | SUBSCRIPTION_FIELDS | SUBSCRIPTION_CREATION_PLAN_FIELDS
+def validate_subscription(subscription: dict[str, Any]) -> tuple[str, str, int | None]:
+    subscription_allowed = (
+        {"mode", "name", "subscription_id", "creation_plan"}
+        | SUBSCRIPTION_FIELDS
+        | SUBSCRIPTION_CREATION_PLAN_FIELDS
+    )
     fail_unknown_fields("$.subscription", subscription, subscription_allowed)
     subscription_mode = get_mode("$.subscription", subscription)
-    subscription_name = validate_normalized_name("$.subscription.name", require_string("$.subscription.name", subscription.get("name")))
+    subscription_name = validate_normalized_name(
+        "$.subscription.name", require_string("$.subscription.name", subscription.get("name"))
+    )
     subscription_id = subscription.get("subscription_id")
     if subscription_id is not None:
         if isinstance(subscription_id, bool) or not isinstance(subscription_id, int) or subscription_id <= 0:
@@ -331,7 +315,10 @@ def load_and_validate(path: Path) -> dict[str, Any]:
         if subscription_mode != "external":
             raise ConfigError("$.subscription.subscription_id is only valid when $.subscription.mode is external.")
 
-    databases = optional_object("$.databases", config.get("databases"))
+    return subscription_mode, subscription_name, subscription_id
+
+
+def validate_databases(databases: dict[str, Any]) -> None:
     for key, database in databases.items():
         validate_key(f"$.databases.{key}", key)
         database = require_object(f"$.databases.{key}", database)
@@ -359,9 +346,48 @@ def load_and_validate(path: Path) -> dict[str, Any]:
                     f"{', '.join(sorted(DATABASE_ALERT_NAMES))}."
                 )
 
-    agent_memory_stores = optional_object("$.agent_memory_stores", config.get("agent_memory_stores"))
+
+def validate_custom_memory_types(path: str, memory_types: Any) -> None:
+    if not isinstance(memory_types, list):
+        raise ConfigError(f"{path} must be a list.")
+    for index, memory_type in enumerate(memory_types):
+        memory_path = f"{path}[{index}]"
+        memory_type = require_object(memory_path, memory_type)
+        require_string(f"{memory_path}.name", memory_type.get("name"))
+        description = require_string(f"{memory_path}.description", memory_type.get("description"))
+        if len(description) > 200:
+            raise ConfigError(f"{memory_path}.description must be at most 200 characters.")
+        fields = memory_type.get("fields", [])
+        if not isinstance(fields, list):
+            raise ConfigError(f"{memory_path}.fields must be a list.")
+        for field_index, field in enumerate(fields):
+            field_path = f"{memory_path}.fields[{field_index}]"
+            field = require_object(field_path, field)
+            require_string(f"{field_path}.name", field.get("name"))
+            field_description = require_string(f"{field_path}.description", field.get("description"))
+            if len(field_description) > 200:
+                raise ConfigError(f"{field_path}.description must be at most 200 characters.")
+            require_string(f"{field_path}.type", field.get("type"))
+
+
+def validate_api_keys(path: str, value: Any) -> None:
+    api_keys = optional_object(path, value)
+    for api_key_key, api_key in api_keys.items():
+        validate_key(f"{path}.{api_key_key}", api_key_key)
+        api_key = require_object(f"{path}.{api_key_key}", api_key)
+        fail_unknown_fields(
+            f"{path}.{api_key_key}",
+            api_key,
+            {"mode", "name", "enabled", "secret_ref"},
+        )
+        get_mode(f"{path}.{api_key_key}", api_key)
+        if "name" in api_key:
+            require_string(f"{path}.{api_key_key}.name", api_key["name"])
+
+
+def validate_agent_memory_stores(stores: dict[str, Any], databases: dict[str, Any]) -> set[str]:
     referenced_databases: set[str] = set()
-    for key, store in agent_memory_stores.items():
+    for key, store in stores.items():
         validate_key(f"$.agent_memory_stores.{key}", key)
         store = require_object(f"$.agent_memory_stores.{key}", store)
         fail_unknown_fields(
@@ -393,40 +419,19 @@ def load_and_validate(path: Path) -> dict[str, Any]:
             if database_key not in databases:
                 raise ConfigError(f"$.agent_memory_stores.{key}.database references unknown database {database_key!r}.")
             referenced_databases.add(database_key)
-        memory_types = store.get("custom_memory_types", [])
-        if not isinstance(memory_types, list):
-            raise ConfigError(f"$.agent_memory_stores.{key}.custom_memory_types must be a list.")
-        for index, memory_type in enumerate(memory_types):
-            memory_path = f"$.agent_memory_stores.{key}.custom_memory_types[{index}]"
-            memory_type = require_object(memory_path, memory_type)
-            require_string(f"{memory_path}.name", memory_type.get("name"))
-            description = require_string(f"{memory_path}.description", memory_type.get("description"))
-            if len(description) > 200:
-                raise ConfigError(f"{memory_path}.description must be at most 200 characters.")
-            fields = memory_type.get("fields", [])
-            if not isinstance(fields, list):
-                raise ConfigError(f"{memory_path}.fields must be a list.")
-            for field_index, field in enumerate(fields):
-                field_path = f"{memory_path}.fields[{field_index}]"
-                field = require_object(field_path, field)
-                require_string(f"{field_path}.name", field.get("name"))
-                field_description = require_string(f"{field_path}.description", field.get("description"))
-                if len(field_description) > 200:
-                    raise ConfigError(f"{field_path}.description must be at most 200 characters.")
-                require_string(f"{field_path}.type", field.get("type"))
-        api_keys = optional_object(f"$.agent_memory_stores.{key}.api_keys", store.get("api_keys"))
-        for api_key_key, api_key in api_keys.items():
-            validate_key(f"$.agent_memory_stores.{key}.api_keys.{api_key_key}", api_key_key)
-            api_key = require_object(f"$.agent_memory_stores.{key}.api_keys.{api_key_key}", api_key)
-            fail_unknown_fields(
-                f"$.agent_memory_stores.{key}.api_keys.{api_key_key}",
-                api_key,
-                {"mode", "name", "enabled", "secret_ref"},
-            )
-            get_mode(f"$.agent_memory_stores.{key}.api_keys.{api_key_key}", api_key)
-            if "name" in api_key:
-                require_string(f"$.agent_memory_stores.{key}.api_keys.{api_key_key}.name", api_key["name"])
+        validate_custom_memory_types(
+            f"$.agent_memory_stores.{key}.custom_memory_types", store.get("custom_memory_types", [])
+        )
+        validate_api_keys(f"$.agent_memory_stores.{key}.api_keys", store.get("api_keys"))
+    return referenced_databases
 
+
+def validate_agent_memory_databases(
+    subscription: dict[str, Any],
+    subscription_mode: str,
+    databases: dict[str, Any],
+    referenced_databases: set[str],
+) -> None:
     for database_key in referenced_databases:
         database = databases[database_key]
         if subscription_mode == "managed" and subscription.get("public_endpoint_access") is not True:
@@ -447,6 +452,37 @@ def load_and_validate(path: Path) -> dict[str, Any]:
                 f"$.databases.{database_key} is used by Agent Memory. Set agent_memory_compatible=true "
                 "or enable_default_user=true."
             )
+
+
+def load_and_validate(path: Path) -> dict[str, Any]:
+    config = read_json(path)
+    allowed_root = {
+        "schema_version",
+        "customer",
+        "environment",
+        "subscription_key",
+        "subscription",
+        "databases",
+        "agent_memory_stores",
+    }
+    fail_unknown_fields("$", config, allowed_root)
+
+    if config.get("schema_version") != SCHEMA_VERSION:
+        raise ConfigError(f"schema_version must be {SCHEMA_VERSION}.")
+
+    require_string("$.customer", config.get("customer"))
+    require_string("$.environment", config.get("environment"))
+
+    subscription_key = require_string("$.subscription_key", config.get("subscription_key"))
+    validate_key("$.subscription_key", subscription_key)
+
+    subscription = require_object("$.subscription", config.get("subscription"))
+    subscription_mode, subscription_name, subscription_id = validate_subscription(subscription)
+    databases = optional_object("$.databases", config.get("databases"))
+    validate_databases(databases)
+    stores = optional_object("$.agent_memory_stores", config.get("agent_memory_stores"))
+    referenced_databases = validate_agent_memory_stores(stores, databases)
+    validate_agent_memory_databases(subscription, subscription_mode, databases, referenced_databases)
 
     walk_sensitive_literals("$", config)
 

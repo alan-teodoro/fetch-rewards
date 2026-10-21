@@ -1399,3 +1399,33 @@ for the presentation; earlier QA cleanup instructions do not authorize removing
 these presentation resources. Add the second agent only when Alan requests it
 or changes the JSON for the presentation. The single demo guide contains the
 validated fragment. This no-op check does not add live omission-deletion coverage.
+
+
+## Fetch pipeline lifecycle and retention — October 21, 2026
+
+Provider `8e47ea2801885952f5626ad5daad2b2be7890480` was exercised through the
+customer config workflows on an isolated subscription. Creation, unchanged
+reapply, in-place updates, another database/store, BYOK embedding and LLM summary,
+credential-version updates, deletion by omission and native store replacement
+passed. Credential versions were increased with the same valid upstream key;
+a distinct replacement key was not tested in this round.
+
+[Final validation](https://github.com/alan-teodoro/fetch-rewards/actions/runs/39606466562)
+and [full teardown](https://github.com/alan-teodoro/fetch-rewards/actions/runs/39605999604)
+passed. CAPI inventory comparison confirmed the QA subscription/stores absent and
+the original subscription/store inventory unchanged.
+
+During [replacement](https://github.com/alan-teodoro/fetch-rewards/actions/runs/39604851148),
+the old key received HTTP 403. A new-store credential authenticated, but reads
+of old memory/session IDs returned HTTP 404. Direct Redis reads with TLS
+verification still found two old long-term hashes, their synthetic memory text
+and four old-store indexes at 13:08:43 and 13:12:19 UTC. The original session key
+was absent; an old-store summary barrier hash had no TTL. These observations do
+not establish a future cleanup deadline or the cause of the session's absence.
+
+The CAPI `origin/develop` snapshot accepts nullable `flush` on store DELETE and
+forwards it to Iris when supplied. The SDK currently sends no such parameter.
+Confirm the deployed default, cleanup of records/indexes/barriers, flush scope
+and effects on other stores sharing the database with Product before changing
+deletion behavior. The Iris implementation is unavailable. No flush behavior
+was added or tested, and the workflow does not delete Redis keys directly.

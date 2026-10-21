@@ -1,242 +1,98 @@
-# Config-Driven Redis Cloud Architecture
+# Execution and maintenance
 
-This repository uses subscription-scoped configuration files. A
-config file describes the desired Redis Cloud resources for one subscription:
-the subscription itself, its databases, and the Agent Memory services that use
-those databases.
+For account setup and daily operations, use [the customer guide](customer-setup.md).
+For a worked example, use [the walkthrough](demo-guide.md).
 
-## File Layout
+## Component responsibilities
 
-```text
-configs/fetch-rewards/subscriptions/
-  demo-ai-us-east-1.json
-```
+| Component | Responsibility |
+| --- | --- |
+| `configs/<customer>/subscriptions/*.json` | Desired resources for one subscription |
+| `stacks/subscription`, `stacks/database`, `stacks/agent-memory` | Terraform resource configuration and outputs |
+| `scripts/rediscloud_config.py` | Validate JSON and render stack inputs plus a manifest |
+| `scripts/rediscloud_inventory.py` | Find previously managed entries omitted from the configuration |
+| `scripts/rediscloud_plan.py` | Determine whether a dependency is available for planning |
+| `scripts/rediscloud_review.py` | Plan, freeze approved inputs and execute reviewed changes |
+| `rediscloud-config.yml`, `rediscloud-destroy.yml` | Manual customer entry points |
+| `rediscloud-phase.yml` | Shared review and approval jobs |
+| `terraform-validate.yml` | Formatting, configuration tests and stack validation |
+| `scripts/internal/`, `provider-validation.yml` | Opt-in provider engineering tests |
 
-Use one file per subscription. The `environment` field can be `dev`, `prod`, or
-any customer-specific environment label. This allows multiple dev or prod
-subscriptions without changing the runner. Production files should follow the
-same pattern once the customer confirms names, regions, billing, and networking.
+Resource behavior belongs in the Terraform stacks. Keep workflow YAML focused
+on credentials and job execution. Keep configuration validation grouped by
+resource in the renderer; preserve clear errors pointing to the JSON field.
 
-The checked-in `demo-ai-us-east-1.json` file is intentionally verbose, but it
-starts with one Agent Memory and uses platform-managed models so it can run without model-provider
-secrets. Customers can use it as the demo input and then remove unused fields as
-their production config stabilizes. Customer-managed LLM and embedding configs
-use the same shape, but reference model-provider credentials by environment
-variable name rather than storing secrets in JSON.
+## State identity and ownership
 
-## Resource Modes
-
-Each resource supports a `mode`:
-
-- `managed`: Terraform should create and update the resource.
-- `external`: the resource already exists; Terraform can reference it, but this
-  config does not manage its lifecycle.
-
-This supports the common Agent Memory paths:
-
-- create subscription, database, and Agent Memory together;
-- use an existing subscription and create database plus Agent Memory;
-- use existing subscription and database and create only Agent Memory.
-
-For existing subscriptions, keep the human-readable `name` in the file and set
-`subscription_id` when the Redis Cloud API key cannot resolve subscriptions by
-name or when the customer prefers ID-based references. Managed subscriptions do
-not use `subscription_id`; Terraform discovers the ID after creating them.
-
-Existing resources should start as `external`. If the customer wants Terraform
-to adopt an existing subscription, database, or Agent Memory service as
-`managed`, import the resource into the matching state first. The config runner
-does not automatically import existing infrastructure.
-
-Removing a managed Agent Memory or database entry generates a deletion plan
-from its current state in the same `subscription_key` namespace. Config Apply
-reviews those saved plans before approval, removes agents/keys before databases/ACLs,
-then applies creates/updates. External entries are preserved; ownership changes
-require explicit state migration. Subscription removal remains an explicit Config
-Destroy operation. Deleting the whole JSON file does not trigger reconciliation.
-See [the customer guide](customer-setup.md#removing-entries-through-config-apply)
-for dependency checks, state discovery and recovery behavior.
-
-## Stable Keys
-
-Map keys such as `shared_agent_memory` and `shopping_agent` are stable internal
-identities. They are used for state paths and references. Resource names can
-change over time, but changing a stable key should be treated as a migration.
-
-Example state layout:
+A configuration's `subscription_key` and database/store map keys determine its
+state paths:
 
 ```text
-subscriptions/dev-ai-us-east-1/subscription.tfstate
-subscriptions/dev-ai-us-east-1/databases/shared_agent_memory.tfstate
-subscriptions/dev-ai-us-east-1/agent-memory/shopping_agent.tfstate
+subscriptions/<subscription_key>/subscription.tfstate
+subscriptions/<subscription_key>/databases/<database_key>.tfstate
+subscriptions/<subscription_key>/agent-memory/<store_key>.tfstate
 ```
 
-## Agent Memory Compatibility
+Names are display attributes; map keys are durable identities. Renaming a key,
+importing an existing resource or transferring ownership requires explicit state
+reconciliation. The runner does not automatically import existing resources.
 
-Redis Agent Memory currently requires an eligible Redis Cloud database. During
-public preview, Agent Memory requires the database `default` user to be enabled.
-For managed databases used by Agent Memory, set:
+Removing a managed store or database from JSON discovers its existing state and
+produces a deletion-only plan. Unknown state layouts, ambiguous identity and
+ownership changes stop reconciliation. Deletions run before creates/updates,
+with stores removed before their databases. Full destroy also includes omitted
+managed entries. Selective destroy targets only the requested store.
 
-```json
-{
-  "agent_memory_compatible": true
-}
-```
+## Review and execution
 
-The config renderer then writes `enable_default_user = true` to the generated
-database tfvars unless the config already sets it. If the config explicitly sets
-`enable_default_user` to `false`, validation fails.
+Apply orders subscription → databases → stores; destroy reverses that order.
+Existing dependency chains are planned before approval. New, replaced or renamed
+parents can defer downstream plans. The review links the exact configuration
+and identifies these deferred steps before one approval authorizes the rollout.
+Deferred inputs are frozen, and their plans are generated after dependencies
+exist. Failure stops later work; completed changes are not rolled back.
 
-## Secrets
+The review bundle binds saved plans, frozen variables, lock files and the exact
+development provider binary to checksums and commit/run/attempt metadata. Apply
+checks those bindings and rejects stale bundles after one hour. Reviewed plans
+are reused; only explicitly deferred plans are generated after approval.
 
-Do not put secret values in config files. Use `secret_ref` for references to the
-customer's secret backend.
+Bundles are encrypted in S3 and excluded from GitHub artifacts. Generated
+variables use owner-only permissions but can contain credentials. Write-only
+provider attributes do not make these root inputs ephemeral. Removing the
+current bundle after execution does not remove older S3 versions; configure
+backend retention separately. Public review summaries omit secret values.
 
-Agent Memory has a data-plane API key that is different from the Redis Cloud
-account API key. When Terraform creates `rediscloud_agent_memory_api_key`, the
-secret value is returned only on creation and is stored in Terraform state as a
-sensitive value. This repository records `secret_ref` as metadata and does not publish the key.
-Use a separate secret publishing step appropriate to the customer backend.
+## Isolation and inventory limits
 
-Example:
+Customer apply/destroy jobs share one concurrency group, serializing operations
+across configuration paths in this repository. State prefixes organize resources;
+IAM policy controls access to the bucket.
 
-```json
-{
-  "api_keys": {
-    "runtime": {
-      "mode": "managed",
-      "name": "shopping-agent-runtime",
-      "secret_ref": "aws-secrets-manager:/fetch-rewards/prod/shopping/runtime"
-    }
-  }
-}
-```
+The current workflows use one Redis Cloud credential pair, one backend setup and
+the GitHub environment `dev`. JSON `customer` and `environment` fields are
+metadata; they do not select another account, credential set or approval policy.
+Use a separately configured repository for each customer under this template.
 
-Customer-managed Agent Memory model credentials are input secrets. Reference
-them with environment variables in the config file; the renderer copies the
-secret value into owner-only generated Terraform tfvars outside git:
+Git records desired configuration history. Actions records execution history
+subject to its retention settings. Terraform state records managed resources as
+of the last refresh; it is not a live inventory of the whole Redis Cloud account.
+Scheduled drift detection and a consolidated inventory view are not implemented.
 
-```json
-{
-  "llm": {
-    "provider": "openai",
-    "model": "gpt-4o-mini",
-    "credentials": {
-      "type": "apiKey",
-      "api_key_env_var": "AGENT_MEMORY_LLM_API_KEY"
-    }
-  },
-  "embedding": {
-    "provider": "openai",
-    "model": "text-embedding-3-small",
-    "credentials": {
-      "type": "apiKey",
-      "api_key_env_var": "AGENT_MEMORY_EMBEDDING_API_KEY"
-    }
-  }
-}
-```
+## Making changes
 
-The Agent Memory API requires `llm` and `embedding` to be configured together.
-When `embedding` is configured, `long_term_ttl_seconds` must also be set.
-Switching between platform-managed and customer-managed models, or changing
-immutable model selectors, produces a Terraform store replacement because the
-API cannot perform those changes in place. Plan application-reference changes
-and any context migration before applying.
+- For a new configuration field, update the renderer, stack inputs, example and
+  relevant tests together. Preserve `schema_version` compatibility or provide a
+  migration path.
+- For lifecycle changes, run the regression suite and rehearse the affected path
+  on isolated infrastructure. Preview alone does not exercise deferred applies.
+- For a provider upgrade, update workflow defaults and stack locks as needed,
+  validate the stacks and test the upgrade. Build mode is temporary until an
+  official release contains Agent Memory; apply reuses the reviewed binary.
+- Keep provider investigation and historical run evidence in
+  [internal validation history](internal/demo-validation-history.md).
 
-## Local Usage
-
-Validate a config file:
-
-```bash
-python3 scripts/rediscloud_config.py validate \
-  --config configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json
-```
-
-Render Terraform variable files and a manifest:
-
-```bash
-python3 scripts/rediscloud_config.py render \
-  --config configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json \
-  --out-dir .generated/rediscloud/dev-ai-us-east-1
-```
-
-The manifest tells any runner which stack tfvars to apply and which remote state
-key to use. GitHub Actions should be a thin wrapper around the same commands.
-The workflow applies by dependency phase: subscription, databases, then Agent
-Memory. In `apply` mode, `rediscloud-phase.yml` uses a single `rollout`
-review bundle and one `dev` environment gate for the entire configuration.
-Existing dependency chains are fully planned before approval. Missing or
-renamed parents defer downstream plans; the review explicitly identifies those
-resources and links to the approved configuration revision. Deferred variable
-files are frozen inside the encrypted bundle. After approval, the controller
-applies reviewed plans and produces only the deferred plans as dependencies
-become available. It checks all Agent Memory plans before applying any service
-in that phase. A failure stops later work without automatic rollback.
-
-The exact provider binary, saved plans, frozen inputs and lockfiles are bound
-to checksums and commit/run/attempt metadata. Approval must start within one
-hour. Destroy reviews all selected states before a single gate and applies in
-reverse order. Raw plans stay out of GitHub artifacts; bucket versioning retains
-previous S3 bundle versions according to backend retention policy. In `plan` mode, the runner inspects each dependency
-plan. A managed subscription or database that already exists can be used for
-downstream plans, including when its settings are updated in place. Downstream
-stacks are skipped when their subscription or database is being created,
-replaced, or renamed, because the target name is not available until apply.
-
-The apply and destroy workflows share one concurrency group so operations from
-different config paths cannot modify shared infrastructure at the same time.
-
-For selective cleanup, the destroy workflow accepts `agent_memory_key`, such
-as `support_agent`. It validates that the key exists and is managed before
-approval, then renders only that Agent Memory stack as a destroy target.
-Subscription and database dependencies are referenced as external for this
-run, preserving their existing state keys and lifecycle in the original config.
-The original JSON is not rewritten. Remove the deleted entry from the desired
-config after destroy succeeds, or a later apply will create it again. An empty
-selector retains the complete managed-resource cleanup behavior.
-
-## Agent Memory Provider During the PoC
-
-Until Agent Memory support is available in the official Redis Cloud Terraform
-provider release, the GitHub Actions workflow can build the provider directly
-from the Agent Memory provider branch. This lets the demo use the production
-Redis Cloud API with a provider that has not been published to the Terraform
-Registry yet.
-
-The config workflows expose these provider inputs while Agent Memory support is
-unreleased:
-
-```text
-rediscloud_provider_source     = branch
-rediscloud_provider_ref        = 8e47ea2801885952f5626ad5daad2b2be7890480
-```
-
-When `rediscloud_provider_source` is `branch`, the workflow checks out the
-fixed Redis Cloud provider repository, builds the provider binary, and writes a
-temporary Terraform CLI `dev_overrides` configuration that points
-`RedisLabs/rediscloud` to that binary. This is intentionally a workflow-local
-override; no generated provider binary or Terraform CLI config is committed.
-
-If provider checkout requires authentication, configure the
-`REDISCLOUD_PROVIDER_CHECKOUT_TOKEN` repository secret with read access. The
-repository is fixed in the workflow; the input selects only its ref.
-
-Once the provider is official, update and commit the stack lock files with the
-released version, test the upgrade and set `rediscloud_provider_source` to
-`registry`. In registry mode the branch/ref input is ignored.
-
-The Redis Cloud Terraform provider also honors `REDISCLOUD_URL`. Use it only
-for internal API environments; leave it unset for the public Redis Cloud API.
-
-## Current maintenance boundaries
-
-Customer workflows are Config Apply, Config Destroy and Terraform Validate. Provider-specific live tests are isolated in `provider-validation.yml` and `scripts/internal/`; historical JSON configurations are fixtures. Customer configuration paths follow `configs/<customer>/subscriptions/<name>.json`.
-
-The Agent Memory stack uses write-only model credentials (`api_key`) and explicit `api_key_version` rotation. Root secret inputs remain sensitive rather than ephemeral because approved saved plans reuse the frozen encrypted inputs. Terraform 1.11.1 or newer is required for this stack.
-
-Config Apply follows native Terraform replacement behavior. Replacements are included in the plan review and generate a new store identity; they do not migrate session or memory data automatically. This also applies to deferred plans authorized by the full configuration review.
-
-API access and backing-database retention are separate concerns. In the isolated 2026-10-21 replacement test, the old credential was denied and old context was not visible through the new store, while old long-term records and indexes were still present in Redis across repeated reads. The CAPI source snapshot also exposes an optional `flush` query parameter on store deletion; the current SDK does not send it. Its deployed default and deletion scope need confirmation with Product before adding such an option. The workflow does not delete Redis keys directly.
-
-Future Active-Active, CMEK, connectivity and Iris services require their own explicit configuration contracts and lifecycle tests. Keep resources grouped by Redis service; place cloud-specific variants inside the relevant service stack when they are implemented. AWS S3 state storage is a separate concern from database hosting.
+Future Active-Active, CMEK, connectivity and Iris services need explicit input
+contracts and lifecycle coverage. Organize resource code by service; add
+cloud-specific variants inside the relevant service when required. The AWS state
+backend is independent of the Redis Cloud hosting provider.
