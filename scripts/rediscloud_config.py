@@ -219,7 +219,10 @@ def compact(value: Any) -> Any:
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(compact(payload), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    with path.open("w", encoding="utf-8") as stream:
+        # Rendered inputs can contain model credentials, including in local runs.
+        os.fchmod(stream.fileno(), 0o600)
+        stream.write(json.dumps(compact(payload), indent=2, sort_keys=True) + "\n")
 
 
 def copy_fields(source: dict[str, Any], field_names: set[str]) -> dict[str, Any]:

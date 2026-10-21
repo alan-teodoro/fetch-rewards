@@ -165,6 +165,7 @@ class ConfigTests(unittest.TestCase):
             path=Path(tmp)/"config.json";path.write_text(json.dumps(config))
             manifest=config_module.render(path,Path(tmp)/"render")
             entry=next(item for item in manifest["agent_memory_stores"] if item["key"]=="shopping_agent")
+            self.assertEqual(Path(entry["tfvars_path"]).stat().st_mode & 0o077, 0)
             variables=json.loads(Path(entry["tfvars_path"]).read_text())
             self.assertEqual(variables["llm"]["credentials"]["api_key_version"],2)
             self.assertNotIn("synthetic-secret",json.dumps(manifest))
