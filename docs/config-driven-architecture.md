@@ -1,6 +1,6 @@
 # Config-Driven Redis Cloud Architecture
 
-This repository is moving toward subscription-scoped configuration files. A
+This repository uses subscription-scoped configuration files. A
 config file describes the desired Redis Cloud resources for one subscription:
 the subscription itself, its databases, and the Agent Memory services that use
 those databases.
@@ -10,7 +10,6 @@ those databases.
 ```text
 configs/fetch-rewards/subscriptions/
   demo-ai-us-east-1.json
-  dev-ai-us-east-1.json
 ```
 
 Use one file per subscription. The `environment` field can be `dev`, `prod`, or
@@ -96,8 +95,8 @@ customer's secret backend.
 Agent Memory has a data-plane API key that is different from the Redis Cloud
 account API key. When Terraform creates `rediscloud_agent_memory_api_key`, the
 secret value is returned only on creation and is stored in Terraform state as a
-sensitive value. The generated key should be copied into the referenced secret
-backend by the runner or by a follow-up secret publishing step.
+sensitive value. This repository records `secret_ref` as metadata and does not publish the key.
+Use a separate secret publishing step appropriate to the customer backend.
 
 Example:
 
@@ -115,7 +114,7 @@ Example:
 
 Customer-managed Agent Memory model credentials are input secrets. Reference
 them with environment variables in the config file; the renderer copies the
-secret value into generated Terraform tfvars outside git:
+secret value into owner-only generated Terraform tfvars outside git:
 
 ```json
 {
@@ -210,7 +209,7 @@ unreleased:
 
 ```text
 rediscloud_provider_source     = branch
-rediscloud_provider_ref        = 39d6752e915a71c7b58f7ee4b0f63304be3528df
+rediscloud_provider_ref        = 8e47ea2801885952f5626ad5daad2b2be7890480
 ```
 
 When `rediscloud_provider_source` is `branch`, the workflow checks out the
@@ -219,13 +218,13 @@ temporary Terraform CLI `dev_overrides` configuration that points
 `RedisLabs/rediscloud` to that binary. This is intentionally a workflow-local
 override; no generated provider binary or Terraform CLI config is committed.
 
-If the provider branch lives in a private repository or fork, configure the
-`REDISCLOUD_PROVIDER_CHECKOUT_TOKEN` repository secret with read access to that
-repository.
+If provider checkout requires authentication, configure the
+`REDISCLOUD_PROVIDER_CHECKOUT_TOKEN` repository secret with read access. The
+repository is fixed in the workflow; the input selects only its ref.
 
-Once the provider is official, set `rediscloud_provider_source` to `registry`
-and rely on the version constraint in `stacks/agent-memory/versions.tf`. In
-registry mode the branch/ref input is ignored.
+Once the provider is official, update and commit the stack lock files with the
+released version, test the upgrade and set `rediscloud_provider_source` to
+`registry`. In registry mode the branch/ref input is ignored.
 
 The Redis Cloud Terraform provider also honors `REDISCLOUD_URL`. Use it only
 for internal API environments; leave it unset for the public Redis Cloud API.
@@ -237,5 +236,7 @@ Customer workflows are Config Apply, Config Destroy and Terraform Validate. Prov
 The Agent Memory stack uses write-only model credentials (`api_key`) and explicit `api_key_version` rotation. Root secret inputs remain sensitive rather than ephemeral because approved saved plans reuse the frozen encrypted inputs. Terraform 1.11.1 or newer is required for this stack.
 
 Config Apply follows native Terraform replacement behavior. Replacements are included in the plan review and generate a new store identity; they do not migrate session or memory data automatically. This also applies to deferred plans authorized by the full configuration review.
+
+API access and backing-database retention are separate concerns. In the isolated 2026-10-21 replacement test, the old credential was denied and old context was not visible through the new store, while old long-term records and indexes were still present in Redis across repeated reads. The CAPI source snapshot also exposes an optional `flush` query parameter on store deletion; the current SDK does not send it. Its deployed default and deletion scope need confirmation with Product before adding such an option. The workflow does not delete Redis keys directly.
 
 Future Active-Active, CMEK, connectivity and Iris services require their own explicit configuration contracts and lifecycle tests. Keep resources grouped by Redis service; place cloud-specific variants inside the relevant service stack when they are implemented. AWS S3 state storage is a separate concern from database hosting.

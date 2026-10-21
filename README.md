@@ -53,7 +53,7 @@ Terraform stacks contain resource behavior. Python renders JSON into Terraform i
 
 ## Validation
 
-Use Terraform **1.11.1 or newer**. The workflow pins its Terraform and provider versions. Agent Memory currently requires the unreleased provider build; keep `rediscloud_provider_source = branch` until an official release includes these resources.
+Use Terraform **1.11.1 or newer** and Python **3.12 or newer** for local helpers. The workflow pins its Terraform and provider versions. Agent Memory currently requires the unreleased provider build; keep `rediscloud_provider_source = branch` until an official release includes these resources.
 
 ```bash
 terraform fmt -check -recursive

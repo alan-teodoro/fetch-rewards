@@ -23,7 +23,7 @@
     "enable_resource_tags": false,
     "tags": {
       "customer": "fetch-rewards",
-      "environment": "demo",
+      "environment": "qa",
       "workload": "agent-memory"
     },
     "creation_plan": {
@@ -55,8 +55,7 @@
         "34.86.239.45/32",
         "35.221.18.150/32",
         "35.230.184.20/32",
-        "98.84.76.64/32",
-        "179.117.55.96/32"
+        "98.84.76.64/32"
       ],
       "alerts": [
         {
@@ -78,7 +77,7 @@
       "enable_resource_tags": false,
       "tags": {
         "customer": "fetch-rewards",
-        "environment": "demo",
+        "environment": "qa",
         "workload": "agent-memory",
         "component": "redis-database"
       }
@@ -87,16 +86,16 @@
   "agent_memory_stores": {
     "shopping_agent": {
       "mode": "managed",
-      "name": "pipeline-memory-updated-20261021",
+      "name": "pipeline-memory-20261021",
       "database": "shared_agent_memory",
-      "short_term_ttl_seconds": 172800,
+      "short_term_ttl_seconds": 86400,
       "long_term_ttl_seconds": 31536000,
       "extraction_cadence_seconds": 300,
       "summarization": {
         "enabled": true,
         "trigger_strategy": "event_count",
         "event_count": {
-          "threshold": 30,
+          "threshold": 20,
           "retain_count": 10
         }
       },
@@ -123,7 +122,7 @@
           ],
           "extraction_strategy": {
             "enabled": true,
-            "prompt": "Extract durable shopping preferences explicitly stated by the user. Ignore temporary promotions."
+            "prompt": "Extract stable shopping, product, notification, and account preferences that should help future agent responses."
           }
         },
         {
@@ -149,6 +148,21 @@
           "extraction_strategy": {
             "enabled": true,
             "prompt": "Extract durable support facts such as unresolved issues, promised follow-ups, case priority, and customer constraints."
+          }
+        },
+        {
+          "name": "shopping_signal",
+          "description": "Long-lived shopping behavior signals",
+          "fields": [
+            {
+              "name": "labels",
+              "description": "Durable shopping affinity labels",
+              "type": "list[str]"
+            }
+          ],
+          "extraction_strategy": {
+            "enabled": false,
+            "prompt": "Extract only high-confidence, durable shopping affinity signals."
           }
         }
       ],
@@ -232,7 +246,7 @@
       },
       "tags": {
         "customer": "fetch-rewards",
-        "environment": "demo",
+        "environment": "qa",
         "agent": "shopping"
       }
     }

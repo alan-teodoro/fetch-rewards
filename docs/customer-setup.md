@@ -3,7 +3,8 @@
 ## Prerequisites
 
 - A GitHub repository with this project and access to GitHub Actions.
-- Terraform 1.11.1 or newer for local use. Actions pins its own version.
+- Terraform 1.11.1 or newer and Python 3.12 or newer for local helpers. Actions pins its Terraform version.
+- AWS CLI with administrator credentials for the one-time backend bootstrap.
 - An AWS account for private S3 state and GitHub OIDC. This backend account is independent of where Redis Cloud databases run.
 - Redis Cloud administrative API credentials with access to subscriptions, databases, ACLs and Agent Memory.
 - Account-specific billing information, networking CIDRs and source IP allowlists.
@@ -44,7 +45,7 @@ Agent Memory is not yet available in the official provider release used by this 
 
 The complete example is `configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json`. Another customer can copy it to `configs/<customer>/subscriptions/<name>.json`.
 
-Set the customer/environment metadata, a unique `subscription_key`, subscription/database/store names, region, deployment CIDR and source IPs. Review every account-specific value. The sample IPs and billing selector belong to the demonstration account.
+Set the customer/environment metadata, a unique `subscription_key`, subscription/database/store names, region, deployment CIDR and source IPs. Review every account-specific value. The sample IPs and billing selector belong to the demonstration account. Include the Agent Memory service egress addresses required for the selected region, plus any application/operator addresses that need direct database access.
 
 For credit-card billing, set `subscription.payment_method_id` or both `payment_card_type` and `payment_card_last_four`. The reusable stack has no default customer card. Marketplace billing uses its separate `payment_method` option.
 
@@ -66,6 +67,8 @@ Open Actions → **Redis Cloud Config Apply** and select the branch containing t
 | `rediscloud_provider_ref` | Exact tested provider commit in branch mode |
 
 Read the plan job summary. It lists creates, updates, deletions, replacements and changed field names. Credential and generated-key values are omitted. A store replacement generates a new store ID and new keys. Context is not automatically migrated; update application references and plan any migration before applying.
+
+Store deletion and replacement must not be treated as proof of physical data erasure. Our isolated test found old long-term records and indexes still in the backing database after replacement. Confirm the service retention and cleanup contract before relying on deletion for data removal.
 
 For `apply`, one environment approval covers the complete configuration. Subscription and database creation or renaming can defer downstream plans; those steps are identified before approval and planned after their dependencies exist. The provider binary and inputs remain frozen. Approval must begin within one hour of planning. An unchanged run requests no approval.
 
