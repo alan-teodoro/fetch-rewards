@@ -289,7 +289,7 @@
         "next_rotation": {
           "mode": "managed",
           "name": "shopping-agent-next-rotation",
-          "enabled": true,
+          "enabled": false,
           "secret_ref": "aws-secrets-manager:/fetch-rewards/qa-pipeline/next_rotation"
         }
       },
@@ -310,7 +310,7 @@
         "credentials": {
           "type": "apiKey",
           "api_key_env_var": "AGENT_MEMORY_LLM_API_KEY",
-          "api_key_version": 1
+          "api_key_version": 2
         }
       },
       "embedding": {
@@ -319,7 +319,7 @@
         "credentials": {
           "type": "apiKey",
           "api_key_env_var": "AGENT_MEMORY_EMBEDDING_API_KEY",
-          "api_key_version": 1
+          "api_key_version": 2
         }
       },
       "extraction_cadence_seconds": 300,
