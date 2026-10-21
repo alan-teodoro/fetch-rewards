@@ -1,4 +1,4 @@
-subscription_name = "fetch-dev-ai"
+subscription_name = "customer-dev-ai"
 # Optional when resolving database_name by subscription ID instead of name.
 # subscription_id = 123456
 database_name     = "agent-memory-db"
@@ -14,7 +14,8 @@ extraction_cadence_seconds = 300
 #   provider = "openai"
 #   model    = "gpt-4o-mini"
 #   credentials = {
-#     type = "apiKey"
+#     type            = "apiKey"
+#     api_key_version = 1 # Increase when rotating the API key.
 #   }
 # }
 # llm_api_key = "set-with-sensitive-tfvars-or-TF_VAR_llm_api_key"
@@ -23,7 +24,8 @@ extraction_cadence_seconds = 300
 #   provider = "openai"
 #   model    = "text-embedding-3-small"
 #   credentials = {
-#     type = "apiKey"
+#     type            = "apiKey"
+#     api_key_version = 1 # Increase when rotating the API key.
 #   }
 # }
 # embedding_api_key = "set-with-sensitive-tfvars-or-TF_VAR_embedding_api_key"

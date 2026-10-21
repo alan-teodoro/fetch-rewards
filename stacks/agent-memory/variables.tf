@@ -76,7 +76,8 @@ variable "llm" {
     provider = string
     model    = string
     credentials = optional(object({
-      type = optional(string, "apiKey")
+      type            = optional(string, "apiKey")
+      api_key_version = optional(number, 1)
     }))
   })
   default = null
@@ -110,7 +111,8 @@ variable "embedding" {
     provider = string
     model    = string
     credentials = optional(object({
-      type = optional(string, "apiKey")
+      type            = optional(string, "apiKey")
+      api_key_version = optional(number, 1)
     }))
   })
   default = null

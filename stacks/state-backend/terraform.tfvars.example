@@ -1,6 +1,6 @@
 # One-time backend bootstrap example for the customer repository.
 aws_region  = "us-east-1"
-bucket_name = "fetch-rewards-rediscloud-terraform-state"
+bucket_name = "customer-rediscloud-terraform-state"
 
 # Mode 1: attach backend access to pre-existing GitHub Actions roles.
 github_actions_role_arns = [

@@ -21,6 +21,11 @@ def run_check(database_id, baseline_binary, candidate_binary, control=None):
     print("State compatibility fixture: " + prefix, flush=True)
     result = {"fixture": prefix, "stages": []}
     stage = "prepare"
+    intent = None
+    if os.environ.get("LIVE_RESULTS_DIRECTORY"):
+        intent = Path(os.environ["LIVE_RESULTS_DIRECTORY"]) / ("intent-" + prefix + ".json")
+        intent.parent.mkdir(parents=True, exist_ok=True)
+        intent.write_text(json.dumps({"fixture": prefix, "database_id": str(database_id), "names": [prefix], "cleanup_verified": False}))
     with tempfile.TemporaryDirectory(prefix="rediscloud-state-compatibility-") as temporary:
         root = Path(temporary)
         work = root / "terraform"
@@ -97,6 +102,7 @@ def run_check(database_id, baseline_binary, candidate_binary, control=None):
             select("baseline")
             command("init", "-input=false", "-no-color", "-backend=false", "-plugin-dir=" + str(root / "mirror"))
             stage = "baseline create"
+            print("State compatibility stage: " + stage, flush=True)
             plan(86400, {"rediscloud_agent_memory.upgrade": ["create"], "rediscloud_agent_memory_api_key.runtime": ["create"]})
             command("apply", "-input=false", "-no-color", "reviewed.tfplan")
             identity = state(86400)
@@ -104,9 +110,11 @@ def run_check(database_id, baseline_binary, candidate_binary, control=None):
             result["stages"].append(stage)
             select("candidate")
             stage = "candidate reads old state without changes"
+            print("State compatibility stage: " + stage, flush=True)
             plan(86400, {})
             result["stages"].append(stage)
             stage = "candidate updates existing state"
+            print("State compatibility stage: " + stage, flush=True)
             plan(43200, {"rediscloud_agent_memory.upgrade": ["update"]})
             command("apply", "-input=false", "-no-color", "reviewed.tfplan")
             state(43200, identity)
@@ -114,15 +122,18 @@ def run_check(database_id, baseline_binary, candidate_binary, control=None):
             result["stages"].append(stage)
             select("baseline")
             stage = "baseline reads candidate-written state without changes"
+            print("State compatibility stage: " + stage, flush=True)
             plan(43200, {})
             result["stages"].append(stage)
             stage = "baseline rollback update"
+            print("State compatibility stage: " + stage, flush=True)
             plan(86400, {"rediscloud_agent_memory.upgrade": ["update"]})
             command("apply", "-input=false", "-no-color", "reviewed.tfplan")
             state(86400, identity)
             plan(86400, {})
             result["stages"].append(stage)
         except Exception:
+            print("State compatibility failed stage: " + stage, file=sys.stderr, flush=True)
             raise RuntimeError("State compatibility failed during " + stage + "; raw output omitted; reconcile the fixture prefix if cleanup fails") from None
         finally:
             select("candidate")
@@ -140,6 +151,11 @@ def run_check(database_id, baseline_binary, candidate_binary, control=None):
             if not cleanup_ok:
                 raise RuntimeError("Fixture cleanup unverified; reconcile logged fixture prefix before retrying") from None
             result["cleanup_verified"] = True
+            if intent:
+                payload = json.loads(intent.read_text())
+                payload["cleanup_verified"] = True
+                intent.write_text(json.dumps(payload))
+            print("State compatibility fixture cleanup verified", flush=True)
     return result
 
 

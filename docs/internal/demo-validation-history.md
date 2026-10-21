@@ -5,7 +5,125 @@ Use [the current demo guide](../demo-guide.md) for the presentation.
 
 # Demo Guide
 
-## Current priority: provider production readiness — October 15
+## Post-presentation hardening — October 15
+
+The earlier sections are historical. Alan authorized automatic approval of
+isolated provider QA deployments after the presentation. Work remains on
+`feature/agent-memory-config-driven`, provider
+`fix/agent-memory-create-read-recovery` and SDK
+`fix/agent-memory-task-response-validation`; no main/release merge is authorized.
+The presentation subscription `fetch-demo-ai` is excluded from these tests.
+
+Additional defects reproduced and corrected:
+
+- A completed SDK task without a response/resource could panic after create.
+  Return an error so an ambiguous accepted create can be reconciled.
+- Provider operations now enforce internal deadlines (30 minutes for service
+  writes, 5 minutes for reads/import and key operations), respecting earlier
+  caller deadlines and cancellation. Interrupted accepted creates retain an
+  acknowledged ID where available.
+- The SDK authenticated transport could forward credentials on a cross-origin
+  redirect. Local regression servers used fictitious credentials only. Redirects
+  are now restricted to the same scheme, hostname and effective port, with a
+  ten-redirect limit and no embedded URL credentials.
+- Malformed store IDs must not replace Terraform's tracked identity. Create,
+  read, update and import regressions cover missing/mismatched IDs. Malformed
+  key metadata produces an error instead of a false not-found; existing state
+  and the key secret are preserved.
+- The SDK's old CI toolchain reported standard-library vulnerabilities. Its
+  development/CI toolchain now uses Go 1.26.9; provider binaries already used
+  this toolchain. This finding was not evidence of nine vulnerabilities in the
+  provider binary.
+- Omitted-resource deletion in the configuration pipeline needed immutable
+  custom memory types/model identities from state to prepare a valid destroy
+  plan. The fix retains only permitted settings and uses dummy write-only
+  credentials; it does not copy model secrets into destroy inputs. The
+  [real omission test](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38799645346)
+  passed: 14 deletions, subscription preserved. The QA JSON was restored.
+
+### Final candidate and evidence
+
+Provider **`62f3d0c4f5e17f2cafe20e2e289335a13074929a`** pins SDK
+**`1850684adbcacb06885a7bd09667cfcc1cc3eb88`**. Local full SDK/provider unit
+suites, SDK full race and provider scoped race suites, vet, lint and tidy passed.
+All four Terraform fault scenarios also passed against a local compressed-response
+mock before the real tests. Final automation checks passed: 59 tests, one optional
+SDK test skipped; Terraform formatting, Actionlint and diff checks passed. Acceptance tests skipped without opt-in are not
+counted as unit-test passes.
+
+| Verification | Final result and evidence |
+| --- | --- |
+| Official SDK CI | [Passed on exact SDK commit](https://github.com/RedisLabs/rediscloud-go-api/actions/runs/38803060370) |
+| Official provider Nix `make ci` | [Passed on exact provider commit](https://github.com/RedisLabs/terraform-provider-rediscloud/actions/runs/38803481613); broad unrelated cloud acceptance explicitly disabled |
+| Isolated QA provisioning | [Passed](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38803485500); existing subscription `3450992`, recreated database `14695323`, two READY agents and runtime keys |
+| CRUD/import/update/drift/key replacement | [Passed, 16.92 seconds](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38803987827); fixture removed |
+| Authentication/isolation/revocation | [Passed in the same run](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38803987827); own-store access, cross-store denial, replacement acceptance, revoked-key denial and unrelated key preservation; temporary keys removed |
+| Upgrade/rollback | [Passed](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38804660264); `39d6752` → `62f3d0c` → `39d6752`, updates and no-op reads, store/key IDs and actual retained secret unchanged, cleanup verified |
+| Four controlled recovery cases | [Passed, 47.062 seconds total](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38804729676): lost accepted store response; lost accepted key response with revocation/retry; completed task missing resource with import/retry; acknowledged create read missing ID with owned tainted replacement and old-ID absence |
+
+The acknowledged-read case verified that Terraform kept the first store ID,
+destroyed the tainted store before creating a replacement, and left no orphan.
+The lost-response cases require explicit reconciliation; the API has no documented
+idempotency key. Passing recovery does not mean ambiguous POSTs can be retried
+blindly or an unrecoverable key secret can be imported.
+
+Earlier final-matrix attempts
+[compatibility](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38803997954)
+and [recovery](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38804006691)
+failed while QA provisioning was still running. They remain failures in the
+history. Their fixtures were verified absent; the identical provider candidate
+passed after QA finished. The workflow now requires both configured QA agents
+to be READY before fixture tests and prints static compatibility stage names
+without raw Terraform/SDK payloads. No provider change was made to obtain the retry pass.
+
+Administrative snapshots after testing matched both QA baseline agents, their
+settings and original key IDs. Listing the QA database found exactly those two
+agents and no temporary fixture. The demo subscription `3450778`, database
+`14694747`, store `8ff74335dcde4a258ec94bc5ce339c79`, settings and key ID matched
+the pre-test public snapshot.
+
+A clean Linux/amd64 build with Go 1.26.9, CGO disabled and `GOAMD64=v1` embeds the
+exact provider VCS revision, `vcs.modified=false`, and the SDK revision above.
+SHA-256: `8c7a455214b622eefb456a6ff13709cdd7c4cc4b7f4e07f40505cc3af254de76`.
+The artifact is local evidence, not a published or signed release.
+
+[Final isolated QA cleanup](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38805184473)
+passed on `62f3d0c`: 16 deletions, zero creates/updates/replacements. Administrative
+API verification found no QA subscription, database or configured agent; its JSON
+and backend were preserved. A second demo snapshot after cleanup still matched
+the pre-test baseline. Git audits confirmed automation main remained `6ceeaac`,
+the original provider branch remained `1c0b452`, and the original SDK branch
+remained `7ae7bef`; only the three working fix/feature branches were pushed.
+
+After validation, Alan separately authorized removing the presentation environment
+without another manual approval. [Demo teardown 38806180501](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38806180501)
+passed using final candidate `62f3d0c` against the demo state originally created
+with `39d6752`: 12 deletions, zero creates/updates/replacements. Direct reads verified
+subscription `3450778` and store `8ff74335dcde4a258ec94bc5ce339c79` absent; the final
+demo listing contained no subscription, database or agent. This authorized teardown
+occurred after the unchanged-demo snapshots above. Configuration files and the
+state backend remain preserved. No merges or primary-branch writes were made;
+findings and integration gates remain ready for the next review.
+
+Integration remains a maintainer decision: draft [SDK PR #294](https://github.com/RedisLabs/rediscloud-go-api/pull/294)
+into `alan/agent-memory-sdk`, parent [SDK PR #291](https://github.com/RedisLabs/rediscloud-go-api/pull/291),
+draft [provider PR #1031](https://github.com/RedisLabs/terraform-provider-rediscloud/pull/1031)
+into `alan/agent-memory-terraform-provider`, and parent
+[provider PR #1024](https://github.com/RedisLabs/terraform-provider-rediscloud/pull/1024).
+No release has been published. Passing this scoped matrix supports readiness
+for review; it is not a security certification, a service load test or a test of
+memory promotion/content quality. Broader maintainer cloud acceptance and
+release integration remain separate gates. The parent SDK PR #291 still reports
+its earlier failing CI and requires review; the parent provider PR #1024 is draft
+with integration acceptance skipped. The successful manual checks on the fix
+branches do not mark those parent PR gates complete. After integration, rerun
+maintainer-required checks on the actual merged/release revisions, update the
+provider dependency to the agreed SDK release/revision, and publish through the
+normal reviewed release process. Do not merge the current automation work branch
+without reviewing the workflow changes and selecting the intended tested provider
+revision; customer/demo defaults still pin the earlier `39d6752` candidate.
+
+## Historical readiness work before presentation — October 15
 
 Alan paused presentation work to focus on the provider. The demo remains
 removed. The historical lifecycle evidence below uses `c87f535`; the current
@@ -1281,3 +1399,33 @@ for the presentation; earlier QA cleanup instructions do not authorize removing
 these presentation resources. Add the second agent only when Alan requests it
 or changes the JSON for the presentation. The single demo guide contains the
 validated fragment. This no-op check does not add live omission-deletion coverage.
+
+
+## Fetch pipeline lifecycle and retention — October 21, 2026
+
+Provider `8e47ea2801885952f5626ad5daad2b2be7890480` was exercised through the
+customer config workflows on an isolated subscription. Creation, unchanged
+reapply, in-place updates, another database/store, BYOK embedding and LLM summary,
+credential-version updates, deletion by omission and native store replacement
+passed. Credential versions were increased with the same valid upstream key;
+a distinct replacement key was not tested in this round.
+
+[Final validation](https://github.com/alan-teodoro/fetch-rewards/actions/runs/39606466562)
+and [full teardown](https://github.com/alan-teodoro/fetch-rewards/actions/runs/39605999604)
+passed. CAPI inventory comparison confirmed the QA subscription/stores absent and
+the original subscription/store inventory unchanged.
+
+During [replacement](https://github.com/alan-teodoro/fetch-rewards/actions/runs/39604851148),
+the old key received HTTP 403. A new-store credential authenticated, but reads
+of old memory/session IDs returned HTTP 404. Direct Redis reads with TLS
+verification still found two old long-term hashes, their synthetic memory text
+and four old-store indexes at 13:08:43 and 13:12:19 UTC. The original session key
+was absent; an old-store summary barrier hash had no TTL. These observations do
+not establish a future cleanup deadline or the cause of the session's absence.
+
+The CAPI `origin/develop` snapshot accepts nullable `flush` on store DELETE and
+forwards it to Iris when supplied. The SDK currently sends no such parameter.
+Confirm the deployed default, cleanup of records/indexes/barriers, flush scope
+and effects on other stores sharing the database with Product before changing
+deletion behavior. The Iris implementation is unavailable. No flush behavior
+was added or tested, and the workflow does not delete Redis keys directly.

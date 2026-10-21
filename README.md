@@ -1,145 +1,72 @@
-# Redis Cloud GitHub Actions Automation
+# Redis Cloud infrastructure from configuration
 
-This repository provides a customer-ready Terraform and GitHub Actions reference for provisioning Redis Cloud Pro subscriptions, databases, and Redis Agent Memory services.
+Create and maintain Redis Cloud subscriptions, databases and Agent Memory stores with Terraform and GitHub Actions. Customers edit a versioned JSON file and run a workflow; the same file defines subsequent updates and deletions.
 
-The workflows are manually triggered by the customer from GitHub Actions. They support:
+## Start here
 
-- creating a Redis Cloud subscription and database together;
-- creating subscription-scoped infrastructure from a versioned JSON config file;
-- creating Agent Memory services that can share an eligible database;
-- destroying managed resources from the same versioned JSON config file;
-- deleting one Agent Memory service and its keys while preserving its backing
-  database, subscription, and other services;
-- bootstrapping the S3 remote state bucket and GitHub Actions OIDC access in AWS.
+1. Follow [customer setup](docs/customer-setup.md) to configure the encrypted state backend, Redis Cloud credentials and GitHub environment.
+2. Use [the complete Fetch example](configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json). For another customer, copy it to `configs/<customer>/subscriptions/<name>.json` and adjust billing, names, region, CIDR and source IPs.
+3. Run **Redis Cloud Config Apply** with `operation = plan` to inspect the changes.
+4. Run it with `operation = apply` and review the plan summary before approving the environment deployment.
 
-## Repository Layout
+The [walkthrough](docs/demo-guide.md) shows how to add another agent to the same configuration.
+
+## Daily operations
+
+| Goal | Action |
+| --- | --- |
+| Create or update infrastructure | Edit the JSON, commit, then run Config Apply. |
+| Add another agent or database | Add another map entry with a new, durable key. |
+| Delete an agent or database | Remove its JSON entry and run Config Apply; deletion appears in the review. Remove dependent agents before deleting their database. |
+| Replace a store after an immutable change | Review Terraform's replacement plan. The replacement receives a new store ID and keys; context is not migrated automatically. |
+| Delete everything managed by a configuration | Run Config Destroy with `confirm_destroy = true`. |
+| Delete only one store | Run Config Destroy with its `agent_memory_key`. Remove its JSON entry too if it must stay deleted. |
+| Use existing infrastructure | Set `mode = external`; externally owned resources are not created or destroyed. |
+
+Removing the entire file does not execute a workflow. Keep `subscription_key` and resource map keys stable: they identify Terraform state. Renaming a key requires an explicit state migration.
+
+## How execution works
+
+One configuration represents one subscription. Creation follows subscription → databases → Agent Memory. Deletion runs in reverse order. States are isolated under `subscriptions/<subscription_key>/` in private, encrypted S3 storage.
+
+The workflow generates saved plans and a readable summary before one environment approval. New dependencies can defer downstream plans until those dependencies exist; the summary identifies these steps. Approval covers the pinned configuration, including those deferred plans. An unchanged run needs no approval. Failures stop further work; completed operations are not automatically rolled back.
+
+Reviewed plans, frozen inputs and the exact development provider binary are kept in an encrypted bundle. They expire after one hour. Plan files and state can contain secrets; summaries omit secret values. See [execution details](docs/config-driven-architecture.md).
+
+## Repository layout
 
 ```text
-.github/workflows/rediscloud-config.yml     # Create/update resources from a subscription config file
-.github/workflows/rediscloud-destroy.yml    # Destroy managed resources from a subscription config file
-.github/workflows/terraform-validate.yml    # Terraform fmt/init/validate checks
-configs/fetch-rewards/subscriptions         # Subscription-scoped desired-state config files
-docs/config-driven-architecture.md          # Config-driven architecture notes
-docs/customer-setup.md                      # Customer onboarding runbook
-docs/demo-guide.md                          # Customer demo checklist and talk track
-modules/terraform_state_backend             # Reusable S3/OIDC backend module
-scripts/check_s3_bucket.py                  # Backend bootstrap helper
-scripts/rediscloud_config.py                # Config validator and Terraform tfvars renderer
-stacks/state-backend                        # One-time AWS state backend bootstrap
-stacks/subscription                         # Redis Cloud Pro subscription stack
-stacks/database                             # Redis Cloud database and ACL stack
-stacks/agent-memory                         # Redis Agent Memory service and data-plane API keys
+configs/<customer>/subscriptions/   Customer desired-state JSON files
+stacks/subscription/               Pro subscription
+stacks/database/                   Database and ACLs
+stacks/agent-memory/               Store and data-plane API keys
+stacks/state-backend/              One-time S3 and GitHub OIDC bootstrap
+modules/terraform_state_backend/   Reusable backend module
+scripts/rediscloud_config.py        Configuration command
+scripts/rediscloud_review.py        Reviewed execution command
+scripts/rediscloud/                 Resource inputs and execution modules
+scripts/internal/                  Provider engineering test tools
+.github/workflows/                 Apply, destroy, validation and internal tests
+docs/                              Customer guides and architecture
+tests/fixtures/configs/             Historical QA and regression configurations
 ```
 
-Each stack keeps state isolated. The config-driven workflows group state by
-subscription config key, for example
-`subscriptions/dev-ai-us-east-1/subscription.tfstate`,
-`subscriptions/dev-ai-us-east-1/databases/shared_agent_memory.tfstate`, and
-`subscriptions/dev-ai-us-east-1/agent-memory/shopping_agent.tfstate`.
+Terraform stacks contain resource behavior. Python renders JSON into Terraform inputs and coordinates isolated states. GitHub Actions supplies credentials and the review/approval steps. Redis Cloud resources stay organized by service; AWS state storage is independent of the Redis Cloud hosting provider.
 
-## Prerequisites
+## Validation
 
-- Terraform `>= 1.10`
-- AWS CLI configured for the backend bootstrap account
-- Redis Cloud API keys with permission to manage Pro subscriptions, databases, ACL rules, roles, and users
-- An AWS account for the Terraform S3 backend
-- GitHub repository secrets and variables described in [docs/customer-setup.md](docs/customer-setup.md)
-
-## Local Validation
-
-Run the same checks used by CI:
+Use Terraform **1.11.1 or newer** and Python **3.12 or newer** for local helpers. The workflow pins its Terraform and provider versions. Agent Memory currently requires the unreleased provider build; keep `rediscloud_provider_source = branch` until an official release includes these resources.
 
 ```bash
 terraform fmt -check -recursive
-
-for stack in stacks/state-backend stacks/subscription stacks/database; do
-  terraform -chdir="$stack" init -backend=false
-  terraform -chdir="$stack" validate
-done
-
-python3 scripts/rediscloud_config.py validate \
-  --config configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json
+python3 -m unittest discover -s tests -v
+python3 scripts/rediscloud_config.py validate --config configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json
 ```
 
-While Agent Memory support depends on the local provider build, validate
-`stacks/agent-memory` with the Agent Memory provider branch. The validation
-workflow builds that provider branch automatically by default.
+**Terraform Validate** checks the configuration, tests and all stacks, including Agent Memory with the pinned provider. **Internal Provider Validation** contains opt-in provider engineering scenarios and is not part of routine customer operations.
 
-## Backend Bootstrap
+## Current scope
 
-Before the GitHub Actions workflow can manage Redis Cloud resources, bootstrap the AWS backend:
+The current subscription stack supports the Pro single-region layout; do not interpret the JSON as support for Active-Active, customer-managed encryption keys or all networking combinations. Those require dedicated stack/schema work and lifecycle tests. Future Iris services should follow the same service-stack and durable state-key conventions.
 
-```bash
-cd stacks/state-backend
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars for the customer AWS account and GitHub repository.
-terraform init
-terraform apply
-```
-
-Use the outputs to configure the customer repository:
-
-- variable `TF_STATE_BUCKET`
-- variable `TF_STATE_REGION`
-- variable `AWS_GITHUB_ACTIONS_ROLE_ARN`
-
-## Manual Workflows
-
-Use the focused manual workflows:
-
-- **Redis Cloud Config Apply** reads a subscription config file, renders
-  Terraform variable files, and runs Terraform in subscription, database, then
-  Agent Memory phases, with one manual approval for the whole configuration.
-- **Redis Cloud Config Destroy** reads the same subscription config file and
-  destroys managed resources in reverse dependency order: Agent Memory,
-  databases, then the subscription when the config manages it.
-
-The apply workflow uses the `dev` GitHub environment as the human approval
-checkpoint when `operation = apply`; `operation = plan` runs without approval.
-The destroy workflow also uses the `dev` approval checkpoint. The apply
-workflow blocks replacement/deletion of Agent Memory entries still present in
-the JSON. Removing a managed Agent Memory or database entry instead generates
-a reviewed deletion plan from its existing state in the same subscription
-namespace. After approval, removed agents/keys are deleted before removed
-databases/ACLs, then creates/updates run. Subscription deletion remains an
-explicit Config Destroy operation. Terraform plan summaries are
-written **before one manual approval for the entire execution**. Existing
-resources have actual saved plans for review. On fresh creation or dependency
-renaming, the summary lists dependent resources whose plans cannot yet be
-produced; those plans are generated after approval when dependencies exist.
-Reviewing and approving the pinned configuration authorizes those deferred
-steps too. Every Agent Memory plan is checked before any Agent Memory apply.
-Reviewed plans are reused, with the exact provider binary and frozen inputs
-from encrypted private S3 storage. Approval must start within one hour of
-planning. An unchanged execution requests no approval. Destroy also uses one
-approval after reviewing all deletion plans. Failure stops execution without
-automatically rolling back completed resources.
-
-The apply workflow exposes `config_path`, `operation`, and temporary
-provider-source inputs while Agent Memory provider support is unreleased. The
-destroy workflow exposes `config_path`, `confirm_destroy`, and the same
-temporary provider-source selector, plus optional `agent_memory_key` for
-selective deletion. The provider repository is fixed in the
-workflow; only the branch/tag/commit needs to be selected while using branch
-mode. The default demo file is
-[configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json](configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json),
-which starts with one complete Agent Memory service and uses platform-managed models so it does not require
-model-provider secrets. See
-[docs/config-driven-architecture.md](docs/config-driven-architecture.md).
-
-Use [docs/demo-guide.md](docs/demo-guide.md) for the single-example demo, including
-the JSON fragment to add a second agent. Alternate demo examples are internal
-fixtures under `tests/fixtures/configs/`; development/QA files are not presentation inputs.
-
-Leave `REDISCLOUD_URL` unset for the public Redis Cloud API. Set
-`REDISCLOUD_URL` only when the repository is intentionally targeting a
-non-public Redis Cloud API endpoint.
-
-Agent Memory customer-managed LLM and embedding model credentials are referenced
-by env var name in config files. The generic GitHub secret names used by the
-examples are `AGENT_MEMORY_LLM_API_KEY` and
-`AGENT_MEMORY_EMBEDDING_API_KEY`.
-
-## Agent Memory Provider Status
-
-The Agent Memory stack expects a Redis Cloud Terraform provider build that includes `rediscloud_agent_memory` and `rediscloud_agent_memory_api_key`. During the PoC, the config workflow can build that provider from the Agent Memory branch before running Terraform. Once Agent Memory support is available in the official provider, use `rediscloud_provider_source = registry` in the workflow and rely on the normal provider installation flow.
+`secret_ref` and Agent Memory `tags` are metadata only: this project does not publish keys to a secret manager or apply store tags. Generated data-plane keys are sensitive Terraform outputs stored in encrypted state. Customer-managed model keys use write-only provider inputs; changing a secret also requires increasing `credentials.api_key_version`.

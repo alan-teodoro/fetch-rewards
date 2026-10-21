@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 
 spec = importlib.util.spec_from_file_location(
-    "auth_probe", Path(__file__).resolve().parents[1] / "scripts/agent_memory_auth_probe.py"
+    "auth_probe", Path(__file__).resolve().parents[1] / "scripts/internal/agent_memory_auth_probe.py"
 )
 probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)

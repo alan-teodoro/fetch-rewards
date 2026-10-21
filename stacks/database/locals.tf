@@ -37,7 +37,6 @@ locals {
     for key, value in merge(
       {
         managed_by = "terraform"
-        customer   = "fetch-rewards"
         component  = "redis-cloud-database"
       },
       var.tags
