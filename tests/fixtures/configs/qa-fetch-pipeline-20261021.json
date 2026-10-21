@@ -150,21 +150,6 @@
             "enabled": true,
             "prompt": "Extract durable support facts such as unresolved issues, promised follow-ups, case priority, and customer constraints."
           }
-        },
-        {
-          "name": "shopping_signal",
-          "description": "Long-lived shopping behavior signals",
-          "fields": [
-            {
-              "name": "labels",
-              "description": "Durable shopping affinity labels",
-              "type": "list[str]"
-            }
-          ],
-          "extraction_strategy": {
-            "enabled": false,
-            "prompt": "Extract only high-confidence, durable shopping affinity signals."
-          }
         }
       ],
       "long_term_memory_exclusions": {
