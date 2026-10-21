@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("provider_live_validation", ROOT / "scripts/provider_live_validation.py")
+SPEC = importlib.util.spec_from_file_location("provider_live_validation", ROOT / "scripts/internal/provider_live_validation.py")
 live = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(live)
 
@@ -165,7 +165,7 @@ class CleanupGuardTest(unittest.TestCase):
     def test_wrong_database_intent_is_rejected_before_any_api_call(self):
         import sys
         with patch.dict(sys.modules, {"provider_live_validation": live}):
-            spec = importlib.util.spec_from_file_location("provider_live_cleanup", ROOT / "scripts/provider_live_cleanup.py")
+            spec = importlib.util.spec_from_file_location("provider_live_cleanup", ROOT / "scripts/internal/provider_live_cleanup.py")
             cleanup = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(cleanup)
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
@@ -191,7 +191,7 @@ class ControlledFaultHarnessTest(BinaryHarnessTest):
     def test_all_controlled_faults_with_real_terraform(self):
         import sys
         with patch.dict(sys.modules, {"provider_live_validation": live}):
-            fault_spec = importlib.util.spec_from_file_location("provider_live_faults", ROOT / "scripts/provider_live_faults.py")
+            fault_spec = importlib.util.spec_from_file_location("provider_live_faults", ROOT / "scripts/internal/provider_live_faults.py")
             faults = importlib.util.module_from_spec(fault_spec)
             fault_spec.loader.exec_module(faults)
         for mode in ("create-response", "task-result", "read-id", "read-error", "key-response", "update-read-error"):
@@ -207,10 +207,10 @@ class ContractHarnessTest(BinaryHarnessTest):
     def test_actual_async_error_reaches_provider_and_update_is_atomic(self):
         import sys
         with patch.dict(sys.modules, {"provider_live_validation": live}):
-            import_path = str(ROOT / "scripts")
+            import_path = str(ROOT / "scripts" / "internal")
             sys.path.insert(0, import_path)
             try:
-                spec = importlib.util.spec_from_file_location("provider_live_contract", ROOT / "scripts/provider_live_contract.py")
+                spec = importlib.util.spec_from_file_location("provider_live_contract", ROOT / "scripts/internal/provider_live_contract.py")
                 contract = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(contract)
                 with MockCloud() as cloud, self.environment(cloud):

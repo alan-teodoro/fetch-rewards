@@ -140,10 +140,10 @@ secret value into generated Terraform tfvars outside git:
 
 The Agent Memory API requires `llm` and `embedding` to be configured together.
 When `embedding` is configured, `long_term_ttl_seconds` must also be set.
-Customer-managed models must be configured when the store is first created; the
-API does not allow moving an existing platform-managed store to
-customer-managed models later. The embedding provider/model is treated as
-immutable after creation, so changing it should be planned as a migration.
+Switching between platform-managed and customer-managed models, or changing
+immutable model selectors, produces a Terraform store replacement because the
+API cannot perform those changes in place. Plan application-reference changes
+and any context migration before applying.
 
 ## Local Usage
 
@@ -151,14 +151,14 @@ Validate a config file:
 
 ```bash
 python3 scripts/rediscloud_config.py validate \
-  --config configs/fetch-rewards/subscriptions/dev-ai-us-east-1.json
+  --config configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json
 ```
 
 Render Terraform variable files and a manifest:
 
 ```bash
 python3 scripts/rediscloud_config.py render \
-  --config configs/fetch-rewards/subscriptions/dev-ai-us-east-1.json \
+  --config configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json \
   --out-dir .generated/rediscloud/dev-ai-us-east-1
 ```
 
@@ -229,3 +229,13 @@ registry mode the branch/ref input is ignored.
 
 The Redis Cloud Terraform provider also honors `REDISCLOUD_URL`. Use it only
 for internal API environments; leave it unset for the public Redis Cloud API.
+
+## Current maintenance boundaries
+
+Customer workflows are Config Apply, Config Destroy and Terraform Validate. Provider-specific live tests are isolated in `provider-validation.yml` and `scripts/internal/`; historical JSON configurations are fixtures. Customer configuration paths follow `configs/<customer>/subscriptions/<name>.json`.
+
+The Agent Memory stack uses write-only model credentials (`api_key`) and explicit `api_key_version` rotation. Root secret inputs remain sensitive rather than ephemeral because approved saved plans reuse the frozen encrypted inputs. Terraform 1.11.1 or newer is required for this stack.
+
+Config Apply follows native Terraform replacement behavior. Replacements are included in the plan review and generate a new store identity; they do not migrate session or memory data automatically. This also applies to deferred plans authorized by the full configuration review.
+
+Future Active-Active, CMEK, connectivity and Iris services require their own explicit configuration contracts and lifecycle tests. Keep resources grouped by Redis service; place cloud-specific variants inside the relevant service stack when they are implemented. AWS S3 state storage is a separate concern from database hosting.

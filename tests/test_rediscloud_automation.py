@@ -139,6 +139,33 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual([item["state_key"] for item in targeted], ["subscriptions/demo-ai-us-east-1/agent-memory/support_agent.tfstate"])
             self.assertEqual(len(list(Path(tmp).glob("*.auto.tfvars.json"))), 1)
 
+    def test_workflow_paths_support_other_customers_and_reject_escape(self):
+        for path in ("configs/example/subscriptions/prod.json", "tests/fixtures/configs/two-agents.json"):
+            config_module.validate_workflow_path(Path(path))
+        for path in ("../outside.json", "/tmp/config.json", "configs/customer/subscriptions/../../escape.json", "other/config.json"):
+            with self.subTest(path=path), self.assertRaises(config_module.ConfigError):
+                config_module.validate_workflow_path(Path(path))
+
+    def test_model_key_rotation_version_is_validated_and_rendered(self):
+        from unittest.mock import patch
+        config = json.loads(CONFIG_PATH.read_text())
+        store = config["agent_memory_stores"]["shopping_agent"]
+        for block in ("llm", "embedding"):
+            store[block] = {"provider":"openai", "model":"example", "credentials":{
+                "api_key_env_var":"TEST_MODEL_KEY", "api_key_version":2}}
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {"TEST_MODEL_KEY":"synthetic-secret"}):
+            path=Path(tmp)/"config.json";path.write_text(json.dumps(config))
+            manifest=config_module.render(path,Path(tmp)/"render")
+            entry=next(item for item in manifest["agent_memory_stores"] if item["key"]=="shopping_agent")
+            variables=json.loads(Path(entry["tfvars_path"]).read_text())
+            self.assertEqual(variables["llm"]["credentials"]["api_key_version"],2)
+            self.assertNotIn("synthetic-secret",json.dumps(manifest))
+            for invalid in (0,-1,True,"2",1.5):
+                store["llm"]["credentials"]["api_key_version"]=invalid
+                path.write_text(json.dumps(config))
+                with self.subTest(version=invalid), self.assertRaisesRegex(config_module.ConfigError,"api_key_version"):
+                    config_module.load_and_validate(path)
+
     def test_unknown_or_external_destroy_target_is_rejected(self):
         config = config_module.load_and_validate(CONFIG_PATH)
         with self.assertRaises(config_module.ConfigError):
@@ -533,13 +560,14 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.outputs,{"needs_apply":"false"})
         self.assertFalse((self.work/"s3").exists())
 
-    def test_destructive_agent_plan_blocks_entire_phase_before_upload(self):
+    def test_agent_replacement_is_reviewed_and_applied_as_a_saved_plan(self):
         self.env["MOCK_CHANGES"]=json.dumps({"subscriptions/demo-ai-us-east-1/agent-memory/support_agent.tfstate":{"actions":["delete","create"]}})
         result=self.execute("plan","agent-memory")
-        self.assertNotEqual(result.returncode,0)
-        self.assertIn("Use the Redis Cloud Config Destroy workflow",result.stderr)
-        self.assertFalse((self.work/"s3").exists())
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn("replacement generates a new store ID",self.summary())
         self.assertFalse(any(e["command"]=="apply" for e in self.events()))
+        self.assertEqual(self.approved_apply("agent-memory").returncode,0)
+        self.assertEqual(len([e for e in self.events() if e["command"]=="apply"]),2)
 
     def test_selective_destroy_only_applies_selected_state(self):
         self.render_config(destroy=True,key="support_agent")
@@ -690,14 +718,14 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotEqual(self.execute("apply","rollout").returncode,0)
         self.assertFalse(any(e["command"]=="apply" for e in self.events()))
 
-    def test_deferred_replacement_stops_every_agent_apply(self):
+    def test_deferred_replacement_uses_native_terraform_plan(self):
         self.env["MOCK_CHANGES"]=json.dumps({"subscription":{"actions":["create"]}})
         self.assertEqual(self.execute("plan","rollout").returncode,0)
         self.env["MOCK_CHANGES"]=json.dumps({"subscriptions/demo-ai-us-east-1/agent-memory/support_agent.tfstate":{"actions":["delete","create"]}})
         result=self.approved_apply("rollout")
-        self.assertNotEqual(result.returncode,0)
-        self.assertIn("Deferred plan would delete or replace",result.stderr)
-        self.assertFalse(any(e["command"]=="apply" and e["kind"]=="agent-memory" for e in self.events()))
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn("replacement generates a new store ID",self.summary())
+        self.assertEqual(len([e for e in self.events() if e["command"]=="apply" and e["kind"]=="agent-memory"]),2)
 
     def test_rollout_stops_on_apply_failure(self):
         self.env["MOCK_CHANGES"]=json.dumps({"subscription":{"actions":["create"]}})

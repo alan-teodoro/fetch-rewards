@@ -1,4 +1,4 @@
-subscription_name          = "fetch-rewards-demo"
+subscription_name          = "customer-demo"
 dataset_size_in_gb         = 1
 throughput_ops_per_second  = 1000
 cloud_provider             = "AWS"
@@ -9,7 +9,7 @@ memory_storage             = "ram"
 replication                = true
 payment_method             = "credit-card"
 payment_card_type          = "Mastercard"
-payment_card_last_four     = "1006"
+payment_card_last_four     = "0000"
 enable_resource_tags       = false
 multiple_availability_zones = true
 

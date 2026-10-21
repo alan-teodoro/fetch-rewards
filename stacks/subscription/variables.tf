@@ -91,13 +91,13 @@ variable "payment_method_id" {
 variable "payment_card_type" {
   description = "Credit card type used to look up the Redis Cloud payment method when payment_method_id is omitted."
   type        = string
-  default     = "Mastercard"
+  default     = null
 }
 
 variable "payment_card_last_four" {
   description = "Last four digits used to look up the Redis Cloud payment method when payment_method_id is omitted."
   type        = string
-  default     = "1006"
+  default     = null
 
   validation {
     condition     = var.payment_card_last_four == null || can(regex("^\\d{4}$", var.payment_card_last_four))

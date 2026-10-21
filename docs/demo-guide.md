@@ -2,21 +2,10 @@
 
 ## One configuration throughout the presentation
 
-The presentation completed on October 15. At Alan's request, the demo was
-subsequently removed by [teardown run 38806180501](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38806180501):
-12 managed resources deleted, with subscription and Agent Memory absence verified
-through the administrative API. The JSON configuration and state backend remain
-available; use step 1 below to recreate the baseline when needed.
-
-Historical evidence: [creation run 38774530013](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38774530013)
-passed with one approval, and [follow-up plan 38776688611](https://github.com/alan-teodoro/fetch-rewards/actions/runs/38776688611)
-reported no changes across all three stacks before the presentation.
-
 Use `configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json` for every step.
 It starts with one managed subscription, one shared database and one Agent
-Memory named `shopping-agent-memory`. Other configurations under `configs/`
-are internal development/QA scenarios. Former alternate demo examples and the
-two-agent regression fixture live under `tests/fixtures/configs/`.
+Memory named `shopping-agent-memory`. Historical development/QA configurations and regression fixtures live under
+`tests/fixtures/configs/`; they are not customer examples.
 
 The main example includes TLS, network allowlists, database alerts, ACLs,
 short/long-term TTL, summarization, extraction cadence, custom memory types,
@@ -31,7 +20,7 @@ publish generated keys to Secrets Manager automatically.
 The tested provider commit is:
 
 ```text
-39d6752e915a71c7b58f7ee4b0f63304be3528df
+8e47ea2801885952f5626ad5daad2b2be7890480
 ```
 
 Until its fixes are integrated and released, explicitly select this commit as
@@ -46,7 +35,7 @@ configuration commit and set:
 config_path = configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json
 operation = apply
 rediscloud_provider_source = branch
-rediscloud_provider_ref = 39d6752e915a71c7b58f7ee4b0f63304be3528df
+rediscloud_provider_ref = 8e47ea2801885952f5626ad5daad2b2be7890480
 ```
 
 Review the run summary before approving `dev`. Fresh creation shows the

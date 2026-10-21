@@ -97,6 +97,7 @@ MODEL_CONFIG_FIELDS = {
 MODEL_CREDENTIALS_FIELDS = {
     "type",
     "api_key_env_var",
+    "api_key_version",
 }
 
 SENSITIVE_LITERAL_KEYS = {
@@ -249,6 +250,9 @@ def validate_model_config(path: str, value: Any) -> dict[str, Any]:
         raise ConfigError(f"{path}.credentials.type must be apiKey.")
     env_var = require_string(f"{path}.credentials.api_key_env_var", credentials.get("api_key_env_var"))
     validate_env_var_name(f"{path}.credentials.api_key_env_var", env_var)
+    version = credentials.get("api_key_version", 1)
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        raise ConfigError(f"{path}.credentials.api_key_version must be a positive integer.")
     return model
 
 
@@ -275,6 +279,7 @@ def render_model_config(
         "model": model["model"],
         "credentials": {
             "type": credentials.get("type", "apiKey"),
+            "api_key_version": credentials.get("api_key_version", 1),
         },
     }
 
@@ -675,12 +680,22 @@ def render_destroy_command(args: argparse.Namespace) -> None:
     print(json.dumps(render(args.config, args.out_dir, destroy=True, agent_memory_key=args.agent_memory_key), indent=2, sort_keys=True))
 
 
+def validate_workflow_path(path: Path) -> None:
+    parts = path.parts
+    customer_config = len(parts) == 4 and parts[0] == "configs" and parts[2] == "subscriptions"
+    test_config = len(parts) == 4 and parts[:3] == ("tests", "fixtures", "configs")
+    if (not (customer_config or test_config) or path.suffix != ".json" or
+            ".." in parts or not path.resolve().is_relative_to(Path.cwd().resolve())):
+        raise ConfigError("Use configs/<customer>/subscriptions/<file>.json or a versioned test fixture.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Validate and render Redis Cloud subscription config files.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     validate_parser = subparsers.add_parser("validate", help="Validate a subscription config file.")
     validate_parser.add_argument("--config", required=True, type=Path)
+    validate_parser.add_argument("--workflow", action="store_true", help="Require a repository configuration path.")
     validate_parser.set_defaults(func=validate_command)
 
     render_parser = subparsers.add_parser("render", help="Render Terraform tfvars and a manifest from a config file.")
@@ -691,6 +706,7 @@ def main() -> None:
     validate_destroy_parser = subparsers.add_parser("validate-destroy", help="Validate the complete config or an Agent Memory key for destroy.")
     validate_destroy_parser.add_argument("--config", required=True, type=Path)
     validate_destroy_parser.add_argument("--agent-memory-key", default=None)
+    validate_destroy_parser.add_argument("--workflow", action="store_true")
     validate_destroy_parser.set_defaults(func=validate_destroy_command)
 
     render_destroy_parser = subparsers.add_parser("render-destroy", help="Render all managed resources or only one Agent Memory stack for destroy.")
@@ -701,6 +717,8 @@ def main() -> None:
 
     args = parser.parse_args()
     try:
+        if getattr(args, "workflow", False):
+            validate_workflow_path(args.config)
         args.func(args)
     except ConfigError as exc:
         print(f"Config error: {exc}", file=sys.stderr)

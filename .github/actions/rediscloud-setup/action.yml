@@ -32,11 +32,7 @@ runs:
         CONFIG_PATH: ${{ inputs.config-path }}
       run: |
         set -euo pipefail
-        case "${CONFIG_PATH}" in
-          configs/fetch-rewards/subscriptions/*.json) ;;
-          *) echo "Invalid subscription config path." >&2; exit 1 ;;
-        esac
-        python3 scripts/rediscloud_config.py validate --config "${CONFIG_PATH}"
+        python3 scripts/rediscloud_config.py validate --workflow --config "${CONFIG_PATH}"
     - name: Checkout pinned provider
       if: inputs.provider-source == 'branch' && inputs.provider-binary == ''
       uses: actions/checkout@v4

@@ -30,7 +30,7 @@ on:
         description: Provider branch, tag, or commit used when rediscloud_provider_source is branch.
         required: true
         type: string
-        default: 39d6752e915a71c7b58f7ee4b0f63304be3528df
+        default: 8e47ea2801885952f5626ad5daad2b2be7890480
 
 permissions:
   contents: read
@@ -60,11 +60,7 @@ jobs:
             exit 1
           fi
 
-          case "${CONFIG_PATH}" in
-            configs/fetch-rewards/subscriptions/*.json) ;;
-            *) echo "Invalid subscription config path." >&2; exit 1 ;;
-          esac
-          python3 scripts/rediscloud_config.py validate-destroy \
+          python3 scripts/rediscloud_config.py validate-destroy --workflow \
             --config "${CONFIG_PATH}" \
             --agent-memory-key "${AGENT_MEMORY_KEY}"
 

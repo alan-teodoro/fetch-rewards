@@ -43,7 +43,6 @@ module "state_backend" {
   tags = merge(
     {
       managed_by = "terraform"
-      customer   = "fetch-rewards"
       component  = "terraform-state-backend"
     },
     var.tags

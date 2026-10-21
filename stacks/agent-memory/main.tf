@@ -85,8 +85,9 @@ resource "rediscloud_agent_memory" "this" {
       model    = llm.value.model
 
       credentials {
-        type    = coalesce(try(llm.value.credentials.type, null), "apiKey")
-        api_key = var.llm_api_key
+        type            = coalesce(try(llm.value.credentials.type, null), "apiKey")
+        api_key         = var.llm_api_key
+        api_key_version = coalesce(try(llm.value.credentials.api_key_version, null), 1)
       }
     }
   }
@@ -99,8 +100,9 @@ resource "rediscloud_agent_memory" "this" {
       model    = embedding.value.model
 
       credentials {
-        type    = coalesce(try(embedding.value.credentials.type, null), "apiKey")
-        api_key = var.embedding_api_key
+        type            = coalesce(try(embedding.value.credentials.type, null), "apiKey")
+        api_key         = var.embedding_api_key
+        api_key_version = coalesce(try(embedding.value.credentials.api_key_version, null), 1)
       }
     }
   }

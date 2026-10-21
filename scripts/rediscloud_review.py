@@ -73,6 +73,8 @@ def describe(title, plan):
     if not changes:
         lines.append("| no-op | No resource changes |")
     lines[2:2] = ["; ".join(f"**{key}: {value}**" for key, value in counts.items()), ""]
+    if any(item.get("type") == "rediscloud_agent_memory" and "delete" in item["change"]["actions"] for item in changes):
+        lines += ["", "**Agent Memory deletion/replacement:** replacement generates a new store ID and keys. Context is not migrated automatically. Review application references and data retention before applying."]
     fields = []
     for item in changes:
         change = item["change"]
@@ -215,8 +217,6 @@ def plan_phase(args):
         describe(stack + " " + item["name"], plan)
         if item.get("removed") and any(change["change"]["actions"] not in (["delete"], ["no-op"], ["read"]) for change in plan.get("resource_changes", [])):
             raise ValueError("An omitted resource must have a deletion-only plan; generate a new review.")
-        if not deleting and any(item.get("type") == "rediscloud_agent_memory" and "delete" in item["change"]["actions"] for item in plan.get("resource_changes", [])):
-            raise ValueError("Plan would delete or replace an Agent Memory service. Use the Redis Cloud Config Destroy workflow for explicit destructive operations.")
         if not deleting and args.phase in {"preview", "rollout"}:
             if stack == "subscription":
                 pending_subscription = dependency_status(plan, "rediscloud_subscription") == "pending"
@@ -337,8 +337,6 @@ def apply_rollout(bundle, review):
                     f"-var-file={(bundle / item['variables']).resolve()}", f"-out={name}")
                 plan = json.loads(run("terraform", f"-chdir={directory}", "show", "-json", name, capture=True))
                 describe("Post-approval deferred plan: " + item["title"], plan)
-                if any(change.get("type") == "rediscloud_agent_memory" and "delete" in change["change"]["actions"] for change in plan.get("resource_changes", [])):
-                    raise ValueError("Deferred plan would delete or replace an Agent Memory service. Use the Redis Cloud Config Destroy workflow.")
                 # A deferred plan also rechecks its dependency/input bindings via Terraform.
                 path = bundle / name
                 shutil.copyfile(directory / name, path)
