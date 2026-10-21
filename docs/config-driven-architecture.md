@@ -9,18 +9,36 @@ For a worked example, use [the walkthrough](demo-guide.md).
 | --- | --- |
 | `configs/<customer>/subscriptions/*.json` | Desired resources for one subscription |
 | `stacks/subscription`, `stacks/database`, `stacks/agent-memory` | Terraform resource configuration and outputs |
-| `scripts/rediscloud_config.py` | Validate JSON and render stack inputs plus a manifest |
-| `scripts/rediscloud_inventory.py` | Find previously managed entries omitted from the configuration |
-| `scripts/rediscloud_plan.py` | Determine whether a dependency is available for planning |
-| `scripts/rediscloud_review.py` | Plan, freeze approved inputs and execute reviewed changes |
+| `scripts/rediscloud_config.py` | Configuration CLI: validate and render |
+| `scripts/rediscloud_review.py` | Execution CLI: plan, load and apply |
+| `scripts/rediscloud/config.py` | Coordinate configuration loading and resource rendering |
+| `scripts/rediscloud/subscription.py`, `database.py`, `agent_memory.py` | Resource-specific fields, validation and Terraform inputs |
+| `scripts/rediscloud/config_common.py` | Shared JSON checks and private input-file writing |
+| `scripts/rediscloud/stacks.py` | State paths, known resources and create/destroy order |
+| `scripts/rediscloud/inventory.py` | Reconcile omitted entries and check remaining dependencies |
+| `scripts/rediscloud/terraform.py` | Terraform CLI calls, backend and lock handling |
+| `scripts/rediscloud/bundles.py` | Freeze, publish and verify approved plans and inputs |
+| `scripts/rediscloud/lifecycle.py` | Coordinate planning, deferred phases and approved execution |
+| `scripts/rediscloud/reporting.py` | Non-secret summaries and GitHub outputs |
 | `rediscloud-config.yml`, `rediscloud-destroy.yml` | Manual customer entry points |
 | `rediscloud-phase.yml` | Shared review and approval jobs |
 | `terraform-validate.yml` | Formatting, configuration tests and stack validation |
 | `scripts/internal/`, `provider-validation.yml` | Opt-in provider engineering tests |
 
-Resource behavior belongs in the Terraform stacks. Keep workflow YAML focused
-on credentials and job execution. Keep configuration validation grouped by
-resource in the renderer; preserve clear errors pointing to the JSON field.
+Normal customer operations use the JSON and the two CLI entry points. The
+`rediscloud/` package is the reusable implementation. The older
+`rediscloud_inventory.py` imports and `rediscloud_plan.py` diagnostic command are
+kept for compatibility; workflows do not need to call them.
+
+For maintenance, start with the resource module when adding a field, with
+`terraform.py` for CLI/backend behavior, or with `lifecycle.py` for execution
+order. Each resource module keeps validation and rendering together. Agent Memory
+also keeps its provider-specific destroy input reconstruction there. Shared
+orchestration stays independent of individual configuration fields.
+
+Resource behavior belongs in the Terraform stacks. Workflow YAML supplies
+credentials and job boundaries. Changes to approval bindings belong in
+`bundles.py`; public presentation belongs in `reporting.py`.
 
 ## State identity and ownership
 

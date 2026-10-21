@@ -16,6 +16,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
 
 
 def load_module(name):
@@ -27,7 +28,6 @@ def load_module(name):
 
 config_module = load_module("rediscloud_config")
 plan_module = load_module("rediscloud_plan")
-sys.path.insert(0, str(ROOT / "scripts"))
 review_module = load_module("rediscloud_review")
 CONFIG_PATH = ROOT / "tests/fixtures/configs/two-agents.json"
 
@@ -256,6 +256,8 @@ class WorkflowTests(unittest.TestCase):
         (self.work/"scripts").mkdir()
         for source in (ROOT/"scripts").glob("rediscloud*.py"):
             shutil.copy(source,self.work/"scripts")
+        shutil.copytree(ROOT / "scripts/rediscloud", self.work / "scripts/rediscloud",
+                        ignore=shutil.ignore_patterns("__pycache__"))
         binary=self.work/"bin";binary.mkdir()
         for name,source in (("terraform",MOCK_TERRAFORM),("aws",MOCK_AWS)):
             target=binary/name;target.write_text(source);target.chmod(0o755)

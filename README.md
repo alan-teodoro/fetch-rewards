@@ -42,7 +42,9 @@ stacks/database/                   Database and ACLs
 stacks/agent-memory/               Store and data-plane API keys
 stacks/state-backend/              One-time S3 and GitHub OIDC bootstrap
 modules/terraform_state_backend/   Reusable backend module
-scripts/rediscloud_*.py             Configuration, plan, state and execution helpers
+scripts/rediscloud_config.py        Configuration command
+scripts/rediscloud_review.py        Reviewed execution command
+scripts/rediscloud/                 Resource inputs and execution modules
 scripts/internal/                  Provider engineering test tools
 .github/workflows/                 Apply, destroy, validation and internal tests
 docs/                              Customer guides and architecture
