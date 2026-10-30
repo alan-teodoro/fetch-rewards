@@ -103,6 +103,7 @@ application context into that new identity automatically. Plan application
 references and any required data migration before accepting the replacement.
 
 Loss of access through the old store ID is not proof of physical data erasure.
+
 In the October 30 QA rehearsal, the original long-term memory value and search
 indexes remained in Redis after replacement, while the new store returned 404
 for the old memory and session IDs. This is an observed result for that service
