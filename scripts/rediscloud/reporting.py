@@ -72,12 +72,15 @@ def describe(title, plan):
             if before.get(field) != after.get(field)
             or protected((change.get("after_unknown") or {}).get(field))
         )
-        if names:
+        actions = change["actions"]
+        if names and ("update" in actions or {"create", "delete"} <= set(actions)):
             lines += [
                 "",
                 f"Changed fields in `{cell(item['address'])}`: "
                 + ", ".join(f"`{cell(name)}`" for name in names),
             ]
+        if actions in (["delete"], ["read"]):
+            continue
         for field in sorted(PUBLIC_FIELDS.get(item.get("type"), set())):
             if before.get(field) == after.get(field):
                 continue

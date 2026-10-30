@@ -703,6 +703,19 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("short_term_ttl_seconds",self.summary())
         self.assertIn("Approval required",self.summary())
 
+    def test_create_and_delete_summaries_keep_actions_without_redundant_field_lists(self):
+        for actions in (["create"], ["delete"]):
+            with self.subTest(actions=actions):
+                self.env["MOCK_CHANGES"]=json.dumps({"agent-memory":{
+                    "actions":actions,"before":{"name":"old"},"after":{"name":"new"}}})
+                (self.work/"summary.md").write_text("")
+                result=self.execute("plan","agent-memory")
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertNotIn("Changed fields in",self.summary())
+                self.assertIn("| "+actions[0]+" |",self.summary())
+                if actions==["delete"]:
+                    self.assertIn("Context is not migrated automatically",self.summary())
+
     def test_single_approval_fresh_rollout_freezes_deferred_inputs(self):
         self.env["MOCK_CHANGES"]=json.dumps({kind:{"actions":["create"]} for kind in ("subscription","database","agent-memory")})
         self.assertEqual(self.execute("plan","rollout").returncode,0)
