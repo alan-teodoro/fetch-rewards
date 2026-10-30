@@ -1,4 +1,4 @@
-"""Agent Memory inputs, model credentials and destroy-state reconstruction."""
+"""Agent Memory configuration inputs and model credential rendering."""
 
 from __future__ import annotations
 
