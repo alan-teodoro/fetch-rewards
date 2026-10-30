@@ -44,6 +44,7 @@ jobs:
   plan:
     name: Review ${{ inputs.phase == 'rollout' && 'configuration' || inputs.phase }} before approval
     runs-on: ${{ vars.REDISCLOUD_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 45
     outputs:
       needs_apply: ${{ steps.plan.outputs.needs_apply }}
       bundle_key: ${{ steps.plan.outputs.bundle_key }}
@@ -91,6 +92,7 @@ jobs:
       name: ${{ vars.REDISCLOUD_ENVIRONMENT || 'dev' }}
       url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     runs-on: ${{ vars.REDISCLOUD_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - name: Configure approved plan access

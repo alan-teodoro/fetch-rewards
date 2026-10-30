@@ -288,10 +288,21 @@ def advanced_check(fixture):
     fixture.write()
     fixture.apply({STORE: ["update"]})
     state = fixture.values()[STORE]
-    assert state["summarization"]["event_count"]["threshold"] == 20, "Inactive summarization lost configured thresholds"
-    assert state["long_term_memory_exclusions"]["semantic"]["prompt"] == "Do not retain temporary promotions.", "Inactive semantic prompt was lost"
+    def block(value):
+        # Early candidate builds stored objects; current builds use singleton lists.
+        if isinstance(value, list):
+            assert len(value) == 1, "Expected one configured state block"
+            value = value[0]
+        assert isinstance(value, dict), "Expected a configured state object"
+        return value
+
+    summarization = block(state["summarization"])
+    event_count = block(summarization["event_count"])
+    assert event_count["threshold"] == 20, "Inactive summarization lost configured thresholds"
+    exclusions = block(state["long_term_memory_exclusions"])
+    assert block(exclusions["semantic"])["prompt"] == "Do not retain temporary promotions.", "Inactive semantic prompt was lost"
     for group in ("built_in_detectors", "custom_detectors"):
-        assert len(state["long_term_memory_exclusions"][group]["detectors"]) == 1, "Inactive detector definitions were lost"
+        assert len(block(exclusions[group])["detectors"]) == 1, "Inactive detector definitions were lost"
     fixture.plan({})
     for group in ("built_in_detectors", "custom_detectors"):
         fixture.config["long_term_memory_exclusions"][group] = {"enabled": True}

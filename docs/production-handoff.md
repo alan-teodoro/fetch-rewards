@@ -54,6 +54,10 @@ provider binary, stack locks, state bucket/region and approval environment. A
 change to any checked binding requires a fresh plan. Approval expires one hour
 after planning; unchanged configurations request no deployment approval.
 
+Plan jobs have a 45-minute limit and apply jobs have a 120-minute limit. Provider
+operations also have their own timeouts. Review these budgets for unusually large
+rollouts rather than repeatedly restarting an operation that is still active.
+
 To rotate a runtime key without immediately revoking the application's current
 key, enable an additional named key, deploy, deliver it to the application and
 confirm authentication. Then remove or disable the old key and deploy again.
@@ -69,6 +73,8 @@ access and retention management.
 Completed operations are not automatically rolled back. Preserve the JSON and
 read the failed step before retrying. Generate a new plan from the same durable
 keys: Terraform refreshes the existing states and proposes the remaining work.
+Start a new workflow run or rerun all jobs; retrying only the apply job cannot
+reuse a bundle bound to another run attempt.
 
 - For API errors, resolve the reported service issue or invalid configuration and
   review a fresh plan. Do not repeatedly dispatch the same failing deployment.
