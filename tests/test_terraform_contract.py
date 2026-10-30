@@ -68,12 +68,12 @@ class TerraformContractTests(unittest.TestCase):
                 "llm": {
                     "provider": "openai",
                     "model": "gpt-4o-mini",
-                    "credentials": {"api_key_version": 1},
+                    "credentials": {"api_key_version": 7},
                 },
                 "embedding": {
                     "provider": "openai",
                     "model": "text-embedding-3-small",
-                    "credentials": {"api_key_version": 1},
+                    "credentials": {"api_key_version": 7},
                 },
                 "llm_api_key": "fake-llm",
                 "embedding_api_key": "fake-embedding",

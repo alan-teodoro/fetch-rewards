@@ -109,6 +109,22 @@ def agent_destroy_variables(values, name, database_id):
                 "model": model["model"],
                 "credentials": {"type": "apiKey"},
             }
+            credentials = (
+                optional_state_block(model.get("credentials"), f"{block}.credentials")
+                or {}
+            )
+            version = credentials.get("api_key_version")
+            if version is not None:
+                if (
+                    isinstance(version, bool)
+                    or not isinstance(version, int)
+                    or version < 1
+                ):
+                    raise ValueError(
+                        "Omitted state has an invalid credential version; reconcile manually."
+                    )
+                # Preserve the non-secret counter, never the write-only credential value.
+                result[block]["credentials"]["api_key_version"] = version
             # The runner rejects non-deletion plans before these placeholders can be applied.
             result[block + "_api_key"] = "unused-during-destroy"
     return result

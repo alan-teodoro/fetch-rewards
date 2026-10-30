@@ -60,7 +60,9 @@ class AgentMemoryStateTests(unittest.TestCase):
                 {
                     "provider": "openai",
                     "model": "gpt-4o-mini",
-                    "credentials": [{"api_key": "FAKE-OLD-SECRET"}],
+                    "credentials": [
+                        {"api_key": "FAKE-OLD-SECRET", "api_key_version": 4}
+                    ],
                 }
             ],
             "embedding": [
@@ -89,6 +91,7 @@ class AgentMemoryStateTests(unittest.TestCase):
             "ACC-[0-9]+",
         )
         self.assertEqual(result["llm"]["model"], "gpt-4o-mini")
+        self.assertEqual(result["llm"]["credentials"]["api_key_version"], 4)
         self.assertEqual(result["timeouts"]["delete"], "40m")
         self.assertNotIn("FAKE-OLD-SECRET", str(result))
 
