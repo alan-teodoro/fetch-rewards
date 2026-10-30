@@ -43,8 +43,8 @@ variable "short_term_ttl_seconds" {
   default     = null
 
   validation {
-    condition     = var.short_term_ttl_seconds == null || (var.short_term_ttl_seconds >= 1 && var.short_term_ttl_seconds <= 31536000)
-    error_message = "short_term_ttl_seconds must be between 1 and 31536000."
+    condition     = var.short_term_ttl_seconds == null || (var.short_term_ttl_seconds >= 1 && floor(var.short_term_ttl_seconds) == var.short_term_ttl_seconds)
+    error_message = "short_term_ttl_seconds must be a positive integer. The API validates supported limits."
   }
 }
 
@@ -54,8 +54,8 @@ variable "long_term_ttl_seconds" {
   default     = null
 
   validation {
-    condition     = var.long_term_ttl_seconds == null || (var.long_term_ttl_seconds >= 1 && var.long_term_ttl_seconds <= 31536000)
-    error_message = "long_term_ttl_seconds must be between 1 and 31536000."
+    condition     = var.long_term_ttl_seconds == null || (var.long_term_ttl_seconds >= 1 && floor(var.long_term_ttl_seconds) == var.long_term_ttl_seconds)
+    error_message = "long_term_ttl_seconds must be a positive integer. The API validates supported limits."
   }
 }
 
@@ -65,9 +65,26 @@ variable "extraction_cadence_seconds" {
   default     = null
 
   validation {
-    condition     = var.extraction_cadence_seconds == null || (var.extraction_cadence_seconds >= 60 && var.extraction_cadence_seconds <= 600)
-    error_message = "extraction_cadence_seconds must be between 60 and 600."
+    condition     = var.extraction_cadence_seconds == null || (var.extraction_cadence_seconds >= 1 && floor(var.extraction_cadence_seconds) == var.extraction_cadence_seconds)
+    error_message = "extraction_cadence_seconds must be a positive integer. The API validates supported limits."
   }
+}
+
+variable "extraction_strategy" {
+  description = "Optional extraction strategy accepted by the API. Changing a configured strategy replaces the store."
+  type        = string
+  default     = null
+}
+
+variable "timeouts" {
+  description = "Optional operation timeouts using provider duration strings, such as 30m."
+  type = object({
+    create = optional(string)
+    read   = optional(string)
+    update = optional(string)
+    delete = optional(string)
+  })
+  default = null
 }
 
 variable "llm" {
@@ -210,6 +227,11 @@ variable "api_keys" {
   type = map(object({
     name    = optional(string)
     enabled = optional(bool, true)
+    timeouts = optional(object({
+      create = optional(string)
+      read   = optional(string)
+      delete = optional(string)
+    }))
   }))
   default = {}
 }

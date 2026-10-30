@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import re
-from typing import Any
 import unicodedata
-
+from pathlib import Path
+from typing import Any
 
 SCHEMA_VERSION = 1
 
@@ -62,8 +61,14 @@ def unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def read_json(path: Path) -> dict[str, Any]:
+    def reject_constant(value):
+        raise ConfigError(f"{path}: non-finite JSON number {value} is not supported.")
+
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_json_object)
+        payload = json.loads(
+            path.read_text(encoding="utf-8"), object_pairs_hook=unique_json_object,
+            parse_constant=reject_constant,
+        )
     except json.JSONDecodeError as exc:
         raise ConfigError(f"{path}: invalid JSON: {exc}") from exc
     except OSError as exc:

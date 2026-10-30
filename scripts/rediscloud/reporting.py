@@ -141,11 +141,12 @@ def describe_inventory(manifest: dict, phase: str, omitted: list) -> None:
 
 
 def describe_approval(review: dict, bundle_hash: str) -> None:
+    environment = cell(os.environ.get("REDISCLOUD_ENVIRONMENT", "dev"))
     execution = (
         "The single approval authorizes the whole configuration. Reviewed plans are reused; only explicitly deferred plans are generated after dependencies become available, with the same provider and frozen inputs."
         if review["phase"] == "rollout"
         else "The apply job downloads the same encrypted bundle and never replans."
     )
     summary(
-        f"\n## Approval required: {review['phase']}\n\nReview the plans above before approving the **dev** deployment. {execution} Approval expires one hour after planning.\n\n- Config commit: `{review['commit']}`\n- Provider: `{review['provider_ref']}`\n- Bundle SHA-256: `{bundle_hash}`\n- [Open this run's plan summaries]({os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{review['run_id']})"
+        f"\n## Approval required: {review['phase']}\n\nReview the plans above before approving the **{environment}** deployment. {execution} Approval expires one hour after planning.\n\n- Config commit: `{review['commit']}`\n- Provider: `{review['provider_ref']}`\n- Bundle SHA-256: `{bundle_hash}`\n- [Open this run's plan summaries]({os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{review['run_id']})"
     )

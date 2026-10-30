@@ -30,7 +30,7 @@ on:
         description: Provider branch, tag, or commit used when rediscloud_provider_source is branch.
         required: true
         type: string
-        default: 8e47ea2801885952f5626ad5daad2b2be7890480
+        default: 220e03adf329209f29c4289ad069a3e521972ea8
 
 permissions:
   contents: read
@@ -47,6 +47,15 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install configuration dependencies
+        run: python3 -m pip install -r requirements.txt
 
       - name: Validate destroy confirmation
         env:

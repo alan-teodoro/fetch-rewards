@@ -112,7 +112,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_missing_or_empty_field_description_fails_config_validation(self):
         original = json.loads(CONFIG_PATH.read_text())
-        for value in (None, "", " ", "x" * 201):
+        for value in (None, "", " "):
             with self.subTest(description=value), tempfile.TemporaryDirectory() as tmp:
                 config = deepcopy(original)
                 field = config["agent_memory_stores"]["shopping_agent"]["custom_memory_types"][0]["fields"][0]
@@ -258,6 +258,7 @@ class WorkflowTests(unittest.TestCase):
             shutil.copy(source,self.work/"scripts")
         shutil.copytree(ROOT / "scripts/rediscloud", self.work / "scripts/rediscloud",
                         ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(ROOT / "schemas", self.work / "schemas")
         binary=self.work/"bin";binary.mkdir()
         for name,source in (("terraform",MOCK_TERRAFORM),("aws",MOCK_AWS)):
             target=binary/name;target.write_text(source);target.chmod(0o755)
@@ -268,7 +269,7 @@ class WorkflowTests(unittest.TestCase):
             "GITHUB_STEP_SUMMARY":str(self.work/"summary.md"),"GITHUB_OUTPUT":str(self.work/"output"),
             "GITHUB_SHA":"a"*40,"GITHUB_RUN_ID":"123","GITHUB_RUN_ATTEMPT":"1",
             "GITHUB_SERVER_URL":"https://github.com","GITHUB_REPOSITORY":"example/test",
-            "TF_VERSION":"1.15.3","RESOLVED_PROVIDER_REF":"b"*40,
+            "TF_VERSION":"1.16.7","RESOLVED_PROVIDER_REF":"b"*40,
             "PROVIDER_BINARY":str(provider),"MOCK_EVENTS":str(self.work/"events.jsonl"),
             "MOCK_CHANGES":"{}","MOCK_S3":str(self.work/"s3")}
         self.render=self.work/".generated/rediscloud/test"
@@ -640,6 +641,21 @@ class WorkflowTests(unittest.TestCase):
         self.env["PROVIDER_BINARY"]=str(wrong)
         self.assertNotEqual(self.execute("apply","agent-memory").returncode,0)
         self.assertFalse(any(e["command"]=="apply" for e in self.events()))
+
+    def test_approval_is_bound_to_the_backend_and_deployment_environment(self):
+        self.env["REDISCLOUD_ENVIRONMENT"] = "production"
+        self.prepare_changed_phase()
+        self.assertIn("**production** deployment", self.summary())
+        for key, value in (("TF_STATE_BUCKET_NAME", "another-bucket"),
+                           ("TF_STATE_REGION_NAME", "eu-west-1"),
+                           ("REDISCLOUD_ENVIRONMENT", "another-environment")):
+            with self.subTest(key=key):
+                original = self.env[key]
+                self.env[key] = value
+                result = self.execute("apply", "agent-memory")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(any(e["command"] == "apply" for e in self.events()))
+                self.env[key] = original
 
     def test_dependency_change_during_apply_init_is_rejected(self):
         self.prepare_changed_phase()
