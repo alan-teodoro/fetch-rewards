@@ -13,7 +13,9 @@
       "dataset_size_in_gb": 1,
       "throughput_ops_per_second": 1000,
       "replication": true
-    }
+    },
+    "payment_card_type": "Mastercard",
+    "payment_card_last_four": "1006"
   },
   "databases": {
     "shared_agent_memory": {

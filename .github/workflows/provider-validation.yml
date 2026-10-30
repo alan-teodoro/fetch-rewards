@@ -38,7 +38,7 @@ permissions:
 env:
   REDISCLOUD_PROVIDER_SOURCE: ${{ vars.REDISCLOUD_PROVIDER_SOURCE || 'branch' }}
   REDISCLOUD_PROVIDER_REPOSITORY: RedisLabs/terraform-provider-rediscloud
-  REDISCLOUD_PROVIDER_REF: ${{ vars.REDISCLOUD_PROVIDER_REF || '8e47ea2801885952f5626ad5daad2b2be7890480' }}
+  REDISCLOUD_PROVIDER_REF: ${{ vars.REDISCLOUD_PROVIDER_REF || '220e03adf329209f29c4289ad069a3e521972ea8' }}
   PROVIDER_DEV_OVERRIDE_DIR: ${{ vars.REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR }}
   PROVIDER_BUILD_PATH: .provider/terraform-provider-rediscloud
 
@@ -125,7 +125,7 @@ jobs:
           cache-dependency-path: .provider/readiness/go.sum
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.15.3
+          terraform_version: 1.16.7
           terraform_wrapper: false
       - name: Resolve the existing QA database
         id: qa
@@ -261,7 +261,7 @@ jobs:
           cache-dependency-path: .provider/live/go.sum
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.15.3
+          terraform_version: 1.16.7
           terraform_wrapper: false
       - uses: actions/setup-python@v5
         with:

@@ -9,7 +9,7 @@ Create and maintain Redis Cloud subscriptions, databases and Agent Memory stores
 3. Run **Redis Cloud Config Apply** with `operation = plan` to inspect the changes.
 4. Run it with `operation = apply` and review the plan summary before approving the environment deployment.
 
-The [walkthrough](docs/demo-guide.md) shows how to add another agent to the same configuration.
+The [walkthrough](docs/demo-guide.md) shows how to add another agent to the same configuration. The [configuration reference](docs/configuration-reference.md) explains the versioned JSON contract; editors can use the included JSON Schema for autocomplete and validation.
 
 ## Daily operations
 
@@ -55,7 +55,16 @@ Terraform stacks contain resource behavior. Python renders JSON into Terraform i
 
 ## Validation
 
-Use Terraform **1.11.1 or newer** and Python **3.12 or newer** for local helpers. The workflow pins its Terraform and provider versions. Agent Memory currently requires the unreleased provider build; keep `rediscloud_provider_source = branch` until an official release includes these resources.
+Install the pinned Python dependency in a virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+```
+
+
+Use Terraform **1.16.7 or newer** and Python **3.12 or newer** for local helpers. The workflow pins its Terraform and provider versions. Agent Memory currently requires the unreleased provider build; keep `rediscloud_provider_source = branch` until an official release includes these resources.
 
 ```bash
 terraform fmt -check -recursive
@@ -64,6 +73,8 @@ python3 scripts/rediscloud_config.py validate --config configs/fetch-rewards/sub
 ```
 
 **Terraform Validate** checks the configuration, tests and all stacks, including Agent Memory with the pinned provider. **Internal Provider Validation** contains opt-in provider engineering scenarios and is not part of routine customer operations.
+
+See the [handoff and recovery guide](docs/production-handoff.md) before enabling production deployments.
 
 ## Current scope
 

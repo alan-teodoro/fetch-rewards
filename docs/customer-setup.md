@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - A GitHub repository with this project and access to GitHub Actions.
-- Terraform 1.11.1 or newer and Python 3.12 or newer for local helpers. Actions pins its Terraform version.
+- Terraform 1.16.7 or newer and Python 3.12 or newer for local helpers. Actions pins its Terraform version.
 - AWS CLI with administrator credentials for the one-time backend bootstrap.
 - An AWS account for private S3 state and GitHub OIDC. This backend account is independent of where Redis Cloud databases run.
 - Redis Cloud administrative API credentials with access to subscriptions, databases, ACLs and Agent Memory.
@@ -30,8 +30,9 @@ Configure repository variables from the outputs:
 | `TF_STATE_REGION` | Region of that S3 bucket |
 | `AWS_GITHUB_ACTIONS_ROLE_ARN` | OIDC role used by Actions to access the backend |
 | `REDISCLOUD_RUNNER` | Optional runner label; defaults to ubuntu-latest |
+| `REDISCLOUD_ENVIRONMENT` | Approval environment; defaults to `dev`. Use your production environment name when handing off. |
 
-Create a GitHub environment named `dev` with the reviewers required by your operating policy. Apply/destroy jobs use this environment; plan jobs do not. Review the OIDC role's allowed branch/environment conditions when copying the project to a new repository.
+Create the GitHub environment selected by `REDISCLOUD_ENVIRONMENT` (default `dev`) with the reviewers and allowed deployment branches required by your operating policy. Apply/destroy jobs use this environment; plan jobs do not. Its name must match the environment allowed by the OIDC role. The plan role also needs the configured branch subject, because plan jobs have no environment. Restrict who can change workflows and repository secrets.
 
 Use a separately configured repository for each customer. The JSON `customer` and `environment` labels do not change the Redis Cloud account, backend or GitHub approval environment.
 
@@ -44,6 +45,11 @@ Configure repository secrets `REDISCLOUD_ACCESS_KEY` and `REDISCLOUD_SECRET_KEY`
 Agent Memory is not yet available in the official provider release used by this project. The manual workflows default to `rediscloud_provider_source = branch` and an exact tested provider commit. Use the same commit for plan, apply and destroy. The apply job reuses the reviewed binary. Once an official version includes Agent Memory, update the lock files, test the upgrade and switch to `registry`.
 
 ## Prepare the JSON
+
+For local use, create a virtual environment and install `requirements.txt`. Use `requirements-dev.txt` when running the complete test suite. Actions installs its dependencies automatically.
+
+See the [configuration reference](configuration-reference.md) for field types, ownership, secret references and schema-version compatibility.
+
 
 The complete example is `configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json`. Another customer can copy it to `configs/<customer>/subscriptions/<name>.json`.
 
