@@ -1,3 +1,9 @@
+variable "create_bucket" {
+  description = "Create and own the state bucket. Set false only for a bucket provisioned elsewhere; its security configuration is still managed here. Keep this choice stable after bootstrap."
+  type        = bool
+  default     = true
+}
+
 variable "bucket_name" {
   description = "Name of the S3 bucket that stores Terraform state."
   type        = string

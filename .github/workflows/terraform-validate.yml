@@ -13,7 +13,7 @@ permissions:
 env:
   REDISCLOUD_PROVIDER_SOURCE: ${{ vars.REDISCLOUD_PROVIDER_SOURCE || 'branch' }}
   REDISCLOUD_PROVIDER_REPOSITORY: RedisLabs/terraform-provider-rediscloud
-  REDISCLOUD_PROVIDER_REF: ${{ vars.REDISCLOUD_PROVIDER_REF || '220e03adf329209f29c4289ad069a3e521972ea8' }}
+  REDISCLOUD_PROVIDER_REF: ${{ vars.REDISCLOUD_PROVIDER_REF || '6ac1f02d497616ccd3b80791f7032661a85a0429' }}
   PROVIDER_DEV_OVERRIDE_DIR: ${{ vars.REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR }}
   PROVIDER_BUILD_PATH: .provider/terraform-provider-rediscloud
 
@@ -48,6 +48,13 @@ jobs:
       - name: Terraform validate
         working-directory: ${{ matrix.stack }}
         run: terraform validate
+
+      - name: Verify state bucket bootstrap is repeatable without cloud access
+        if: matrix.stack == 'stacks/state-backend'
+        run: |
+          cp stacks/state-backend/.terraform.lock.hcl modules/terraform_state_backend/.terraform.lock.hcl
+          terraform -chdir=modules/terraform_state_backend init -backend=false -input=false
+          terraform -chdir=modules/terraform_state_backend test -no-color
 
   config-validate:
     runs-on: ubuntu-latest

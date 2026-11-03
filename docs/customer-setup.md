@@ -22,6 +22,15 @@ terraform plan
 terraform apply
 ```
 
+Bucket ownership is explicit: `create_bucket = true` creates and keeps managing
+the bucket across repeated runs. For a bucket provisioned elsewhere, set
+`create_bucket = false` before the first bootstrap; this stack still manages its
+encryption, versioning and access policy. Do not toggle this flag for a bucket
+already tracked by the stack. To adopt an existing bucket, keep it true and import
+the bucket into `module.state_backend.aws_s3_bucket.this[0]` before applying.
+Existing bootstrap deployments that previously skipped bucket creation must set
+it false or perform that explicit import. Keep bootstrap state backed up.
+
 Configure repository variables from the outputs:
 
 | Variable | Purpose |
@@ -56,6 +65,10 @@ The complete example is `configs/fetch-rewards/subscriptions/demo-ai-us-east-1.j
 Set the customer/environment metadata, a unique `subscription_key`, subscription/database/store names, region, deployment CIDR and source IPs. Review every account-specific value. The sample IPs and billing selector belong to the demonstration account. Include the Agent Memory service egress addresses required for the selected region, plus any application/operator addresses that need direct database access.
 
 For credit-card billing, set `subscription.payment_method_id` or both `payment_card_type` and `payment_card_last_four`. The reusable stack has no default customer card. Marketplace billing uses its separate `payment_method` option.
+
+Database names must be unique across subscriptions managed in the same account:
+ACL rule, role and user names are derived from the database display name and are
+account-scoped. Reusing a database name can cause an ACL naming collision.
 
 Each database and store is a map entry. A store's `database` refers to a database map key, not its display name. Keep `subscription_key`, database keys and store keys stable. Changing a display name is a resource update when supported; changing a state key requires migration.
 

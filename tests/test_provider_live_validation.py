@@ -199,6 +199,11 @@ class ControlledFaultHarnessTest(BinaryHarnessTest):
                 evidence = faults.run_fault(live.Api(), "123", self.binary, mode)
                 self.assertEqual(evidence["counts_before_explicit_cleanup"]["store_create"], 1)
                 self.assertEqual(evidence["counts_before_explicit_cleanup"]["store_delete"], 0)
+                if mode in ("read-id", "read-error"):
+                    self.assertTrue(evidence["failure_reported"])
+                    self.assertTrue(evidence["acknowledged_identity_preserved"])
+                    self.assertTrue(evidence["replacement_requires_review"])
+                    self.assertEqual(evidence["counts_before_explicit_cleanup"]["key_create"], 0)
                 self.assertIsNone(cloud.store)
                 self.assertFalse(cloud.keys)
 

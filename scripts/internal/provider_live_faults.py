@@ -141,8 +141,28 @@ def run_fault(api, database_id, binary, mode):
                 owned_id = find_owned(api, fixture)
                 proxy.owned_ids.add(owned_id)
                 if mode in ("read-id", "read-error"):
-                    assert response.returncode == 0, "Acknowledged creation was treated as a failure and could taint the store"
-                    assert fixture.identities()[0] == owned_id, "Acknowledged store identity was not saved"
+                    assert response.returncode == 1, "Readiness failure must surface as an error"
+                    values = fixture.values()
+                    assert values[STORE]["id"] == owned_id, "Acknowledged store identity was not saved"
+                    assert KEY not in values, "A runtime key was created before readiness was confirmed"
+                    # Terraform taints an unsuccessful create. Verify the recovery
+                    # plan, but never automatically replace an acknowledged store.
+                    changes, _ = fixture.plan()
+                    assert set(changes) == {STORE, KEY}, "Recovery plan included unrelated resources"
+                    assert set(changes[STORE]) == {"delete", "create"}, "Failed creation was not marked for reviewed replacement"
+                    assert changes[KEY] == ["create"], "Recovery plan changed an existing runtime key"
+                    assert proxy.injected, "The controlled fault was not exercised"
+                    assert proxy.counts["store_create"] == 1, "Readiness failure duplicated the store"
+                    assert proxy.counts["store_delete"] == 0, "Readiness failure deleted the store"
+                    assert proxy.counts["key_create"] == 0, "Readiness failure created a runtime key"
+                    return {
+                        "fault_injected": True,
+                        "counts_before_explicit_cleanup": dict(proxy.counts),
+                        "store_id": owned_id,
+                        "failure_reported": True,
+                        "acknowledged_identity_preserved": True,
+                        "replacement_requires_review": True,
+                    }
                 else:
                     assert response.returncode == 1, "Lost response did not surface as an error"
                     if mode in ("create-response", "task-result"):

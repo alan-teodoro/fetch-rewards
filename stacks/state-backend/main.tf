@@ -27,6 +27,7 @@ module "state_backend" {
 
   depends_on = [terraform_data.validation]
 
+  create_bucket                            = var.create_bucket
   bucket_name                              = var.bucket_name
   github_actions_role_arns                 = var.github_actions_role_arns
   create_github_actions_roles              = var.create_github_actions_roles

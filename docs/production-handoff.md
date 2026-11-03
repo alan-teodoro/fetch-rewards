@@ -4,6 +4,9 @@ The customer owns its repository, Redis Cloud account, backend and operating
 procedures. PS can maintain a separate reference template; customer deployments
 do not depend on PS operating this repository on their behalf.
 
+For the latest tested baseline and its boundaries, see the
+[November 3 delivery validation](validation-2026-11-03.md).
+
 ## Scope and release baseline
 
 This reference manages a Pro single-region subscription, databases and ACLs,
@@ -78,6 +81,11 @@ reuse a bundle bound to another run attempt.
 
 - For API errors, resolve the reported service issue or invalid configuration and
   review a fresh plan. Do not repeatedly dispatch the same failing deployment.
+- If creation returned a store ID but its readiness check failed, Terraform keeps
+  the acknowledged ID and can mark the unsuccessful creation as tainted. Inspect
+  the remote store and the next plan: it may propose replacement. Do not approve
+  that replacement blindly or assume a successful retry preserves the store.
+  Reconcile the exact resource with support before changing its recovery state.
 - For a stale S3 lock, verify that no workflow or Terraform operation is active.
   Only an authorized operator may unlock the exact state after checking its lock
   ID; do not remove lock objects blindly.
