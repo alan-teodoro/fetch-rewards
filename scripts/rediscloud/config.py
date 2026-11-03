@@ -6,9 +6,14 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from .agent_memory import (
+    render_agent_memory,
+    validate_agent_memory_databases,
+    validate_agent_memory_stores,
+)
 from .config_common import (
-    ConfigError,
     SCHEMA_VERSION,
+    ConfigError,
     fail_unknown_fields,
     get_mode,
     optional_object,
@@ -19,19 +24,18 @@ from .config_common import (
     walk_sensitive_literals,
     write_json,
 )
-from .subscription import validate_subscription, render_subscription
-from .database import validate_databases, render_database
-from .agent_memory import (
-    validate_agent_memory_stores,
-    validate_agent_memory_databases,
-    render_agent_memory,
-)
+from .database import render_database, validate_databases
+from .schema import validate_schema
 from .stacks import subscription_state_key
+from .subscription import render_subscription, validate_subscription
 
 
 def load_and_validate(path: Path) -> dict[str, Any]:
     config = read_json(path)
+    walk_sensitive_literals("$", config)
+    validate_schema(config)
     allowed_root = {
+        "$schema",
         "schema_version",
         "customer",
         "environment",
@@ -60,8 +64,6 @@ def load_and_validate(path: Path) -> dict[str, Any]:
     validate_agent_memory_databases(
         subscription, subscription_mode, databases, referenced_databases
     )
-
-    walk_sensitive_literals("$", config)
 
     config["_normalized"] = {
         "subscription_name": subscription_name,

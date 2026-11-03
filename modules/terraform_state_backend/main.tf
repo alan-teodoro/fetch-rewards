@@ -3,10 +3,6 @@ terraform {
     aws = {
       source = "hashicorp/aws"
     }
-
-    external = {
-      source = "hashicorp/external"
-    }
   }
 }
 
@@ -41,26 +37,27 @@ data "aws_caller_identity" "current" {}
 
 data "aws_partition" "current" {}
 
-# The backend bucket is commonly created by a one-time bootstrap run. This check
-# keeps the stack idempotent when the bucket already exists in the target account.
-data "external" "bucket_check" {
-  program = ["python3", "${path.module}/../../scripts/check_s3_bucket.py"]
-
-  query = {
-    bucket_name = var.bucket_name
-  }
-}
-
+# Ownership is explicit and stable across runs. Detecting existence here would
+# remove a previously created bucket from configuration on the next apply.
 resource "aws_s3_bucket" "this" {
-  count = data.external.bucket_check.result.exists == "true" ? 0 : 1
+  count = var.create_bucket ? 1 : 0
 
   bucket        = var.bucket_name
   force_destroy = var.force_destroy
   tags          = var.tags
 }
 
-resource "aws_s3_bucket_versioning" "this" {
+data "aws_s3_bucket" "existing" {
+  count  = var.create_bucket ? 0 : 1
   bucket = var.bucket_name
+}
+
+locals {
+  backend_bucket_id = var.create_bucket ? aws_s3_bucket.this[0].id : data.aws_s3_bucket.existing[0].id
+}
+
+resource "aws_s3_bucket_versioning" "this" {
+  bucket = local.backend_bucket_id
 
   depends_on = [aws_s3_bucket.this]
 
@@ -70,7 +67,7 @@ resource "aws_s3_bucket_versioning" "this" {
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
-  bucket = var.bucket_name
+  bucket = local.backend_bucket_id
 
   depends_on = [aws_s3_bucket.this]
 
@@ -83,7 +80,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
 }
 
 resource "aws_s3_bucket_public_access_block" "this" {
-  bucket = var.bucket_name
+  bucket = local.backend_bucket_id
 
   depends_on = [aws_s3_bucket.this]
 
@@ -94,7 +91,7 @@ resource "aws_s3_bucket_public_access_block" "this" {
 }
 
 resource "aws_s3_bucket_ownership_controls" "this" {
-  bucket = var.bucket_name
+  bucket = local.backend_bucket_id
 
   depends_on = [aws_s3_bucket.this]
 
@@ -129,7 +126,7 @@ data "aws_iam_policy_document" "bucket_policy" {
 }
 
 resource "aws_s3_bucket_policy" "this" {
-  bucket = var.bucket_name
+  bucket = local.backend_bucket_id
   policy = data.aws_iam_policy_document.bucket_policy.json
 
   depends_on = [aws_s3_bucket.this]

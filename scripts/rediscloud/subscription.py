@@ -17,7 +17,6 @@ from .config_common import (
 )
 from .stacks import subscription_state_key
 
-
 SUBSCRIPTION_FIELDS = {
     "cloud_provider",
     "region",
@@ -53,6 +52,13 @@ def validate_subscription(subscription: dict[str, Any]) -> tuple[str, str, int |
     )
     fail_unknown_fields("$.subscription", subscription, subscription_allowed)
     subscription_mode = get_mode("$.subscription", subscription)
+    if (
+        subscription_mode == "managed"
+        and subscription.get("payment_method", "credit-card") == "credit-card"
+        and not subscription.get("payment_method_id")
+        and not (subscription.get("payment_card_type") and subscription.get("payment_card_last_four"))
+    ):
+        raise ConfigError("$.subscription: set payment_method_id or both payment_card_type and payment_card_last_four for credit-card billing.")
     subscription_name = validate_normalized_name(
         "$.subscription.name", require_string("$.subscription.name", subscription.get("name"))
     )

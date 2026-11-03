@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - A GitHub repository with this project and access to GitHub Actions.
-- Terraform 1.11.1 or newer and Python 3.12 or newer for local helpers. Actions pins its Terraform version.
+- Terraform 1.16.7 or newer and Python 3.12 or newer for local helpers. Actions pins its Terraform version.
 - AWS CLI with administrator credentials for the one-time backend bootstrap.
 - An AWS account for private S3 state and GitHub OIDC. This backend account is independent of where Redis Cloud databases run.
 - Redis Cloud administrative API credentials with access to subscriptions, databases, ACLs and Agent Memory.
@@ -22,6 +22,15 @@ terraform plan
 terraform apply
 ```
 
+Bucket ownership is explicit: `create_bucket = true` creates and keeps managing
+the bucket across repeated runs. For a bucket provisioned elsewhere, set
+`create_bucket = false` before the first bootstrap; this stack still manages its
+encryption, versioning and access policy. Do not toggle this flag for a bucket
+already tracked by the stack. To adopt an existing bucket, keep it true and import
+the bucket into `module.state_backend.aws_s3_bucket.this[0]` before applying.
+Existing bootstrap deployments that previously skipped bucket creation must set
+it false or perform that explicit import. Keep bootstrap state backed up.
+
 Configure repository variables from the outputs:
 
 | Variable | Purpose |
@@ -30,8 +39,9 @@ Configure repository variables from the outputs:
 | `TF_STATE_REGION` | Region of that S3 bucket |
 | `AWS_GITHUB_ACTIONS_ROLE_ARN` | OIDC role used by Actions to access the backend |
 | `REDISCLOUD_RUNNER` | Optional runner label; defaults to ubuntu-latest |
+| `REDISCLOUD_ENVIRONMENT` | Approval environment; defaults to `dev`. Use your production environment name when handing off. |
 
-Create a GitHub environment named `dev` with the reviewers required by your operating policy. Apply/destroy jobs use this environment; plan jobs do not. Review the OIDC role's allowed branch/environment conditions when copying the project to a new repository.
+Create the GitHub environment selected by `REDISCLOUD_ENVIRONMENT` (default `dev`) with the reviewers and allowed deployment branches required by your operating policy. Apply/destroy jobs use this environment; plan jobs do not. Its name must match the environment allowed by the OIDC role. The plan role also needs the configured branch subject, because plan jobs have no environment. Restrict who can change workflows and repository secrets.
 
 Use a separately configured repository for each customer. The JSON `customer` and `environment` labels do not change the Redis Cloud account, backend or GitHub approval environment.
 
@@ -45,11 +55,20 @@ Agent Memory is not yet available in the official provider release used by this 
 
 ## Prepare the JSON
 
+For local use, create a virtual environment and install `requirements.txt`. Use `requirements-dev.txt` when running the complete test suite. Actions installs its dependencies automatically.
+
+See the [configuration reference](configuration-reference.md) for field types, ownership, secret references and schema-version compatibility.
+
+
 The complete example is `configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json`. Another customer can copy it to `configs/<customer>/subscriptions/<name>.json`.
 
 Set the customer/environment metadata, a unique `subscription_key`, subscription/database/store names, region, deployment CIDR and source IPs. Review every account-specific value. The sample IPs and billing selector belong to the demonstration account. Include the Agent Memory service egress addresses required for the selected region, plus any application/operator addresses that need direct database access.
 
 For credit-card billing, set `subscription.payment_method_id` or both `payment_card_type` and `payment_card_last_four`. The reusable stack has no default customer card. Marketplace billing uses its separate `payment_method` option.
+
+Database names must be unique across subscriptions managed in the same account:
+ACL rule, role and user names are derived from the database display name and are
+account-scoped. Reusing a database name can cause an ACL naming collision.
 
 Each database and store is a map entry. A store's `database` refers to a database map key, not its display name. Keep `subscription_key`, database keys and store keys stable. Changing a display name is a resource update when supported; changing a state key requires migration.
 

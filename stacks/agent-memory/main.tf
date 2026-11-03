@@ -76,6 +76,17 @@ resource "rediscloud_agent_memory" "this" {
   short_term_ttl_seconds     = var.short_term_ttl_seconds
   long_term_ttl_seconds      = var.long_term_ttl_seconds
   extraction_cadence_seconds = var.extraction_cadence_seconds
+  extraction_strategy        = var.extraction_strategy
+
+  dynamic "timeouts" {
+    for_each = var.timeouts == null ? [] : [var.timeouts]
+    content {
+      create = timeouts.value.create
+      read   = timeouts.value.read
+      update = timeouts.value.update
+      delete = timeouts.value.delete
+    }
+  }
 
   dynamic "llm" {
     for_each = var.llm == null ? [] : [var.llm]
@@ -224,4 +235,13 @@ resource "rediscloud_agent_memory_api_key" "this" {
 
   store_id = rediscloud_agent_memory.this.id
   name     = coalesce(each.value.name, each.key)
+
+  dynamic "timeouts" {
+    for_each = each.value.timeouts == null ? [] : [each.value.timeouts]
+    content {
+      create = timeouts.value.create
+      read   = timeouts.value.read
+      delete = timeouts.value.delete
+    }
+  }
 }

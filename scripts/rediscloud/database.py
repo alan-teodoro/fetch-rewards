@@ -19,7 +19,6 @@ from .config_common import (
 )
 from .stacks import database_state_key
 
-
 DATABASE_FIELDS = {
     "dataset_size_in_gb",
     "redis_version",
@@ -62,6 +61,8 @@ def validate_databases(databases: dict[str, Any]) -> None:
             {"mode", "name", "database_id", "agent_memory_compatible"} | DATABASE_FIELDS,
         )
         mode = get_mode(f"$.databases.{key}", database)
+        if mode == "managed" and "database_id" in database:
+            raise ConfigError(f"$.databases.{key}.database_id is only valid when mode is external.")
         if "name" in database:
             validate_normalized_name(
                 f"$.databases.{key}.name",

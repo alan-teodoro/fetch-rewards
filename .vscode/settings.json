@@ -1,0 +1,11 @@
+{
+  "json.schemas": [
+    {
+      "fileMatch": [
+        "/configs/*/subscriptions/*.json",
+        "/tests/fixtures/configs/*.json"
+      ],
+      "url": "./schemas/rediscloud-config.schema.json"
+    }
+  ]
+}

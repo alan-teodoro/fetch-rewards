@@ -5,14 +5,14 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import tarfile
 import time
+from pathlib import Path
 
-from .terraform import run
 from .reporting import output
 from .stacks import STACKS
+from .terraform import run
 
 
 def digest(path: Path) -> str:
@@ -56,6 +56,9 @@ def validate_bundle(bundle, phase):
         ("run_id", os.environ["GITHUB_RUN_ID"]),
         ("attempt", os.environ["GITHUB_RUN_ATTEMPT"]),
         ("terraform_version", os.environ["TF_VERSION"]),
+        ("deployment_environment", os.environ.get("REDISCLOUD_ENVIRONMENT", "dev")),
+        ("state_bucket", os.environ["TF_STATE_BUCKET_NAME"]),
+        ("state_region", os.environ["TF_STATE_REGION_NAME"]),
     ):
         if review.get(key) != expected:
             raise ValueError(f"Reviewed bundle {key} mismatch.")
@@ -100,6 +103,9 @@ def new_review(phase: str) -> dict:
         "created": int(time.time()),
         "provider_ref": os.environ["RESOLVED_PROVIDER_REF"],
         "terraform_version": os.environ["TF_VERSION"],
+        "deployment_environment": os.environ.get("REDISCLOUD_ENVIRONMENT", "dev"),
+        "state_bucket": os.environ["TF_STATE_BUCKET_NAME"],
+        "state_region": os.environ["TF_STATE_REGION_NAME"],
         "plans": [],
     }
 

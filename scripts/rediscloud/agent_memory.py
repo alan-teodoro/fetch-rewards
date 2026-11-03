@@ -1,8 +1,7 @@
-"""Agent Memory inputs, model credentials and destroy-state reconstruction."""
+"""Agent Memory configuration inputs and model credential rendering."""
 
 from __future__ import annotations
 
-from copy import deepcopy
 import os
 from pathlib import Path
 from typing import Any
@@ -23,13 +22,14 @@ from .config_common import (
 )
 from .stacks import agent_memory_state_key
 
-
 AGENT_MEMORY_FIELDS = {
     "short_term_ttl_seconds",
     "long_term_ttl_seconds",
     "llm",
     "embedding",
     "extraction_cadence_seconds",
+    "extraction_strategy",
+    "timeouts",
     "summarization",
     "custom_memory_types",
     "long_term_memory_exclusions",
@@ -110,9 +110,7 @@ def validate_custom_memory_types(path: str, memory_types: Any) -> None:
         memory_path = f"{path}[{index}]"
         memory_type = require_object(memory_path, memory_type)
         require_string(f"{memory_path}.name", memory_type.get("name"))
-        description = require_string(f"{memory_path}.description", memory_type.get("description"))
-        if len(description) > 200:
-            raise ConfigError(f"{memory_path}.description must be at most 200 characters.")
+        require_string(f"{memory_path}.description", memory_type.get("description"))
         fields = memory_type.get("fields", [])
         if not isinstance(fields, list):
             raise ConfigError(f"{memory_path}.fields must be a list.")
@@ -120,11 +118,9 @@ def validate_custom_memory_types(path: str, memory_types: Any) -> None:
             field_path = f"{memory_path}.fields[{field_index}]"
             field = require_object(field_path, field)
             require_string(f"{field_path}.name", field.get("name"))
-            field_description = require_string(
+            require_string(
                 f"{field_path}.description", field.get("description")
             )
-            if len(field_description) > 200:
-                raise ConfigError(f"{field_path}.description must be at most 200 characters.")
             require_string(f"{field_path}.type", field.get("type"))
 
 
@@ -136,7 +132,7 @@ def validate_api_keys(path: str, value: Any) -> None:
         fail_unknown_fields(
             f"{path}.{api_key_key}",
             api_key,
-            {"mode", "name", "enabled", "secret_ref"},
+            {"mode", "name", "enabled", "secret_ref", "timeouts"},
         )
         get_mode(f"{path}.{api_key_key}", api_key)
         if "name" in api_key:
@@ -161,6 +157,8 @@ def validate_agent_memory_stores(stores: dict[str, Any], databases: dict[str, An
             )
             if "database" not in store and "database_id" not in store:
                 raise ConfigError(f"$.agent_memory_stores.{key} must set database or database_id.")
+            if "database" in store and "database_id" in store:
+                raise ConfigError(f"$.agent_memory_stores.{key} must set only one of database or database_id.")
             llm = store.get("llm")
             embedding = store.get("embedding")
             if (llm is None) != (embedding is None):
@@ -170,7 +168,7 @@ def validate_agent_memory_stores(stores: dict[str, Any], databases: dict[str, An
             if llm is not None:
                 validate_model_config(f"$.agent_memory_stores.{key}.llm", llm)
                 validate_model_config(f"$.agent_memory_stores.{key}.embedding", embedding)
-                if "long_term_ttl_seconds" not in store:
+                if store.get("long_term_ttl_seconds") is None:
                     raise ConfigError(
                         f"$.agent_memory_stores.{key}.long_term_ttl_seconds is required when embedding is configured."
                     )
@@ -208,6 +206,10 @@ def validate_agent_memory_databases(
             )
         if get_mode(f"$.databases.{database_key}", database) != "managed":
             continue
+        if database.get("enable_tls") is False:
+            raise ConfigError(
+                f"$.databases.{database_key}.enable_tls must be true because Agent Memory uses this database."
+            )
         compatible = bool(database.get("agent_memory_compatible", False))
         default_user = database.get("enable_default_user")
         if default_user is False:
@@ -261,7 +263,7 @@ def render_agent_memory(
     if config["_normalized"]["subscription_id"] is not None:
         tfvars["subscription_id"] = config["_normalized"]["subscription_id"]
 
-    if "llm" in store:
+    if store.get("llm") is not None:
         tfvars["llm"] = render_model_config(
             f"$.agent_memory_stores.{store_key}",
             "llm",
@@ -281,7 +283,7 @@ def render_agent_memory(
         tfvars["database_id"] = store["database_id"]
     else:
         database = config["databases"][store["database"]]
-        if "database_id" in database and "name" not in database:
+        if "database_id" in database:
             tfvars["database_id"] = database["database_id"]
         else:
             tfvars["database_name"] = normalize_name(database["name"])
@@ -296,6 +298,7 @@ def render_agent_memory(
         managed_api_keys[api_key_key] = {
             "name": api_key.get("name", api_key_key),
             "enabled": api_key.get("enabled", True),
+            **copy_fields(api_key, {"timeouts"}),
         }
     if managed_api_keys:
         tfvars["api_keys"] = managed_api_keys
@@ -304,40 +307,3 @@ def render_agent_memory(
     write_json(path, tfvars)
     entry["tfvars_path"] = str(path)
     manifest["agent_memory_stores"].append(entry)
-
-
-def agent_destroy_variables(values, name, database_id):
-    result = {"agent_memory_name": name, "database_id": database_id}
-    # Terraform can evaluate a non-null preliminary plan during destroy. Retain
-    # immutable definitions so the provider does not see an in-place removal.
-    for field in (
-        "custom_memory_types",
-        "summarization",
-        "long_term_memory_exclusions",
-        "short_term_ttl_seconds",
-        "long_term_ttl_seconds",
-        "extraction_cadence_seconds",
-    ):
-        if values.get(field) is not None:
-            result[field] = deepcopy(values[field])
-    if values.get("llm") is not None or values.get("embedding") is not None:
-        if not all(isinstance(values.get(block), dict) for block in ("llm", "embedding")):
-            raise ValueError(
-                "Omitted state has incomplete customer-managed model configuration; reconcile manually."
-            )
-        for block in ("llm", "embedding"):
-            model = values[block]
-            if not all(
-                isinstance(model.get(field), str) and model[field].strip()
-                for field in ("provider", "model")
-            ):
-                raise ValueError("Omitted state lacks model identity; reconcile manually.")
-            result[block] = {
-                "provider": model["provider"],
-                "model": model["model"],
-                "credentials": {"type": "apiKey"},
-            }
-            # Satisfy stack input checks without copying write-only secrets.
-            # The caller must use -destroy and reject any non-deletion plan.
-            result[block + "_api_key"] = "unused-during-destroy"
-    return result

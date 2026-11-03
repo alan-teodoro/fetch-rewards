@@ -28,7 +28,7 @@ on:
         description: Provider branch, tag, or commit used when rediscloud_provider_source is branch.
         required: true
         type: string
-        default: 8e47ea2801885952f5626ad5daad2b2be7890480
+        default: 6ac1f02d497616ccd3b80791f7032661a85a0429
 
 permissions:
   contents: read

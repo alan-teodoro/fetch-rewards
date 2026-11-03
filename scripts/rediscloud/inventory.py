@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import re
 import tempfile
+from pathlib import Path
 
+from .agent_memory_state import agent_destroy_variables
 from .config_common import KEY_PATTERN, NAME_PATTERN
-from .agent_memory import agent_destroy_variables
 from .database import database_destroy_variables
-from .stacks import RESOURCES, DESTROY_ORDER
+from .stacks import DESTROY_ORDER, RESOURCES
 
 
 def attributes(state, stack):

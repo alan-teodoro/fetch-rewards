@@ -13,7 +13,9 @@ For a worked example, use [the walkthrough](demo-guide.md).
 | `scripts/rediscloud_review.py` | Execution CLI: plan, load and apply |
 | `scripts/rediscloud/config.py` | Coordinate configuration loading and resource rendering |
 | `scripts/rediscloud/subscription.py`, `database.py`, `agent_memory.py` | Resource-specific fields, validation and Terraform inputs |
+| `schemas/rediscloud-config.schema.json`, `scripts/rediscloud/schema.py` | Public JSON structure, editor hints and type validation |
 | `scripts/rediscloud/config_common.py` | Shared JSON checks and private input-file writing |
+| `scripts/rediscloud/agent_memory_state.py` | Convert stored blocks to deletion-only inputs without model secrets |
 | `scripts/rediscloud/stacks.py` | State paths, known resources and create/destroy order |
 | `scripts/rediscloud/inventory.py` | Reconcile omitted entries and check remaining dependencies |
 | `scripts/rediscloud/terraform.py` | Terraform CLI calls, backend and lock handling |
@@ -71,7 +73,7 @@ Deferred inputs are frozen, and their plans are generated after dependencies
 exist. Failure stops later work; completed changes are not rolled back.
 
 The review bundle binds saved plans, frozen variables, lock files and the exact
-development provider binary to checksums and commit/run/attempt metadata. Apply
+development provider binary to checksums and commit/run/attempt metadata, the target approval environment and the state bucket/region. Apply
 checks those bindings and rejects stale bundles after one hour. Reviewed plans
 are reused; only explicitly deferred plans are generated after approval.
 
@@ -88,7 +90,7 @@ across configuration paths in this repository. State prefixes organize resources
 IAM policy controls access to the bucket.
 
 The current workflows use one Redis Cloud credential pair, one backend setup and
-the GitHub environment `dev`. JSON `customer` and `environment` fields are
+one GitHub approval environment selected by `REDISCLOUD_ENVIRONMENT` (default `dev`). JSON `customer` and `environment` fields are
 metadata; they do not select another account, credential set or approval policy.
 Use a separately configured repository for each customer under this template.
 
@@ -99,7 +101,7 @@ Scheduled drift detection and a consolidated inventory view are not implemented.
 
 ## Making changes
 
-- For a new configuration field, update the renderer, stack inputs, example and
+- For a new configuration field, update the schema, renderer, stack inputs, example and
   relevant tests together. Preserve `schema_version` compatibility or provide a
   migration path.
 - For lifecycle changes, run the regression suite and rehearse the affected path

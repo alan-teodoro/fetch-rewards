@@ -1,0 +1,1038 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Redis Cloud subscription configuration v1",
+  "description": "One subscription and its managed or external databases and Agent Memory stores. Defaults are applied by Terraform, not by schema validation.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional editor schema reference; it is not fetched during validation."
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "customer": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "environment": {
+      "type": "string",
+      "description": "Descriptive label. It does not select another account or approval environment.",
+      "pattern": "\\S"
+    },
+    "subscription_key": {
+      "$ref": "#/$defs/resourceKey"
+    },
+    "subscription": {
+      "$ref": "#/$defs/subscription"
+    },
+    "databases": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "propertyNames": {
+        "$ref": "#/$defs/resourceKey"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/database"
+      }
+    },
+    "agent_memory_stores": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "propertyNames": {
+        "$ref": "#/$defs/resourceKey"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/store"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "customer",
+    "environment",
+    "subscription_key",
+    "subscription"
+  ],
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "pattern": "\\S",
+      "description": "A non-blank string."
+    },
+    "resourceKey": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,62}[a-z0-9]$",
+      "description": "Durable state identity. Changing this key requires explicit state migration."
+    },
+    "positiveId": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "subscription": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "managed",
+            "external"
+          ],
+          "default": "managed"
+        },
+        "name": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "subscription_id": {
+          "$ref": "#/$defs/positiveId"
+        },
+        "cloud_provider": {
+          "type": "string",
+          "enum": [
+            "AWS",
+            "GCP"
+          ],
+          "default": "AWS"
+        },
+        "region": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "networking_deployment_cidr": {
+          "type": "string",
+          "description": "Deployment network CIDR."
+        },
+        "multiple_availability_zones": {
+          "type": "boolean"
+        },
+        "preferred_availability_zones": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        },
+        "public_endpoint_access": {
+          "type": "boolean"
+        },
+        "memory_storage": {
+          "type": "string",
+          "enum": [
+            "ram",
+            "ram-and-flash"
+          ]
+        },
+        "payment_method": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "credit-card",
+                "marketplace"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "payment_method_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "payment_card_type": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "payment_card_last_four": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9]{4}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maintenance_windows": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/maintenance"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "enable_resource_tags": {
+          "type": "boolean"
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "creation_plan": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "dataset_size_in_gb": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "throughput_ops_per_second": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "replication": {
+                  "type": "boolean"
+                },
+                "support_oss_cluster_api": {
+                  "type": "boolean"
+                },
+                "modules": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/nonEmptyString"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dataset_size_in_gb": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "throughput_ops_per_second": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "replication": {
+          "type": "boolean"
+        },
+        "support_oss_cluster_api": {
+          "type": "boolean"
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ]
+    },
+    "database": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "managed",
+            "external"
+          ],
+          "default": "managed"
+        },
+        "name": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "database_id": {
+          "$ref": "#/$defs/positiveId"
+        },
+        "agent_memory_compatible": {
+          "type": "boolean"
+        },
+        "dataset_size_in_gb": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "redis_version": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "throughput_ops_per_second": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "replication": {
+          "type": "boolean"
+        },
+        "enable_tls": {
+          "type": "boolean"
+        },
+        "enable_default_user": {
+          "type": "boolean"
+        },
+        "auto_minor_version_upgrade": {
+          "type": "boolean"
+        },
+        "support_oss_cluster_api": {
+          "type": "boolean"
+        },
+        "external_endpoint_for_oss_cluster_api": {
+          "type": "boolean"
+        },
+        "persistence_mode": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "data_eviction": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "source_ips": {
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/nonEmptyString"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "alerts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "value": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "value"
+            ]
+          }
+        },
+        "remote_backup": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "interval": {
+                  "$ref": "#/$defs/nonEmptyString"
+                },
+                "time_utc": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/nonEmptyString"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "storage_type": {
+                  "$ref": "#/$defs/nonEmptyString"
+                },
+                "storage_path": {
+                  "$ref": "#/$defs/nonEmptyString"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "interval",
+                "storage_type",
+                "storage_path"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "acl_rule_string": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "acl_user_password_override": {
+          "type": "null",
+          "description": "Secret literals are forbidden in versioned configuration. Use the generated password."
+        },
+        "enable_resource_tags": {
+          "type": "boolean"
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "store": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "managed",
+            "external"
+          ],
+          "default": "managed"
+        },
+        "name": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "database": {
+          "$ref": "#/$defs/resourceKey"
+        },
+        "database_id": {
+          "$ref": "#/$defs/positiveId"
+        },
+        "short_term_ttl_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Positive whole seconds. The Redis Cloud API validates supported limits."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "long_term_ttl_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Positive whole seconds. The Redis Cloud API validates supported limits."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "extraction_cadence_seconds": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Positive whole seconds. The Redis Cloud API validates supported limits."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "extraction_strategy": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "API extraction strategy. Changing a configured value replaces the store."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timeouts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/timeouts"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "llm": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/model"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "embedding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/model"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "summarization": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/summarization"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "custom_memory_types": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/memoryType"
+          }
+        },
+        "long_term_memory_exclusions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/exclusions"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "api_keys": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "propertyNames": {
+            "$ref": "#/$defs/resourceKey"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/apiKey"
+          }
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Reserved metadata. These tags are not applied to the Agent Memory API."
+        }
+      },
+      "additionalProperties": false
+    },
+    "maintenance": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "automatic",
+            "manual"
+          ]
+        },
+        "window": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "start_hour": {
+                  "type": "integer"
+                },
+                "duration_in_hours": {
+                  "type": "integer"
+                },
+                "days": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/nonEmptyString"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "start_hour",
+                "duration_in_hours",
+                "days"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "mode"
+      ]
+    },
+    "timeouts": {
+      "type": "object",
+      "properties": {
+        "create": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Provider duration string, for example 30m."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "read": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Provider duration string, for example 30m."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "update": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Provider duration string, for example 30m."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "delete": {
+          "anyOf": [
+            {
+              "type": "string",
+              "description": "Provider duration string, for example 30m."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "apiKey": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "managed",
+            "external"
+          ],
+          "default": "managed"
+        },
+        "name": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "secret_ref": {
+          "type": "string",
+          "description": "Metadata only; this template does not publish the generated key to a secret manager."
+        },
+        "timeouts": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "create": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "description": "Provider duration string, for example 30m."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "read": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "description": "Provider duration string, for example 30m."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "delete": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "description": "Provider duration string, for example 30m."
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "model": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "model": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "credentials": {
+          "$ref": "#/$defs/credentials"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "model",
+        "credentials"
+      ]
+    },
+    "credentials": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "apiKey",
+          "default": "apiKey"
+        },
+        "api_key_env_var": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "Name of a GitHub Actions secret exposed to the workflow, never the secret value."
+        },
+        "api_key_version": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Increment whenever the secret changes so Terraform sends the new write-only value."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "api_key_env_var"
+      ]
+    },
+    "summarization": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "trigger_strategy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "event_count": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "threshold": {
+                  "type": "integer"
+                },
+                "retain_count": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "threshold",
+                "retain_count"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ]
+    },
+    "memoryType": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "description": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "description": {
+                "$ref": "#/$defs/nonEmptyString"
+              },
+              "type": {
+                "$ref": "#/$defs/nonEmptyString"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "description",
+              "type"
+            ]
+          }
+        },
+        "extraction_strategy": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "prompt": {
+                  "$ref": "#/$defs/nonEmptyString"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "prompt"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "description"
+      ]
+    },
+    "exclusions": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "semantic": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "prompt": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "built_in_detectors": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "detectors": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/builtInDetector"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "custom_detectors": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "detectors": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/customDetector"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "enabled"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ]
+    },
+    "builtInDetector": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "enabled"
+      ]
+    },
+    "customDetector": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "matcher": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "regex": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "pattern": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "pattern"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "enabled",
+        "matcher"
+      ]
+    }
+  }
+}

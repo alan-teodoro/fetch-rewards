@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 CREATE_ORDER = ("subscription", "database", "agent-memory")
 DESTROY_ORDER = tuple(reversed(CREATE_ORDER))
 STACKS = set(CREATE_ORDER)
@@ -26,6 +25,7 @@ PUBLIC_FIELDS = {
         "short_term_ttl_seconds",
         "long_term_ttl_seconds",
         "extraction_cadence_seconds",
+        "extraction_strategy",
     },
 }
 
