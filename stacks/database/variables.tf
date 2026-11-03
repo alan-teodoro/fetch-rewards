@@ -128,6 +128,8 @@ variable "source_ips" {
   default     = null
 }
 
+# A list produces one alert block per entry. alltrue() rejects any unknown
+# alert name; units and supported thresholds remain specific to the chosen alert.
 variable "alerts" {
   description = "Redis Cloud alert thresholds to configure on the database."
   type = list(object({
@@ -151,6 +153,9 @@ variable "alerts" {
   }
 }
 
+# The whole backup object can be omitted. interval uses API enum spellings;
+# time_utc is optional and only sent when supplied. This schedules remote backups,
+# independently of the local database persistence_mode above.
 variable "remote_backup" {
   description = "Optional Redis Cloud remote backup configuration."
   type = object({
@@ -174,6 +179,9 @@ variable "remote_backup" {
   }
 }
 
+# Baseline application permissions allow normal commands on all keys, exclude
+# the dangerous command category, then explicitly restore INFO. Review the rule
+# for the application; it belongs to this ACL user, not the database default user.
 variable "acl_rule_string" {
   description = "Redis ACL rule string for the application user."
   type        = string

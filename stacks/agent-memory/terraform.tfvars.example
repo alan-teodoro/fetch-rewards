@@ -44,3 +44,22 @@ api_keys = {
     name = "runtime"
   }
 }
+
+# Direct-stack example: uncomment this complete object to redact email matches
+# during long-term extraction. It does not filter session events or direct writes.
+# For the JSON workflow, use the equivalent property inside the store config.
+# null omits the policy block; enabled = false explicitly requests policy off.
+# See docs/configuration-reference.md for semantic and custom regex families.
+# long_term_memory_exclusions = {
+#   enabled = true
+#   built_in_detectors = {
+#     enabled = true
+#     detectors = [
+#       {
+#         id      = "email"
+#         enabled = true
+#         action  = "redact"
+#       }
+#     ]
+#   }
+# }

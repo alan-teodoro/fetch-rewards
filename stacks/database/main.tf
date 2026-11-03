@@ -1,3 +1,7 @@
+# Cross-input checks use a local state resource, not a Redis Cloud resource.
+# Explicit depends_on edges make the parent lookup and database wait for them.
+# Name regex: 3-63 lowercase alphanumeric/hyphen characters, no edge hyphens;
+# can(regex(...)) turns no-match into the readable precondition error below.
 resource "terraform_data" "validation" {
   lifecycle {
     precondition {
@@ -15,6 +19,8 @@ resource "terraform_data" "validation" {
       error_message = "database_name must normalize to a lowercase, hyphen-separated name that is 3 to 63 characters long."
     }
 
+    # The external OSS endpoint is a variant of OSS Cluster API, so enabling
+    # it without Cluster API would send a contradictory API configuration.
     precondition {
       condition     = !var.external_endpoint_for_oss_cluster_api || var.support_oss_cluster_api
       error_message = "external_endpoint_for_oss_cluster_api requires support_oss_cluster_api to be true."
@@ -77,6 +83,8 @@ resource "rediscloud_subscription_database" "this" {
     }
   }
 
+  # [] omits the optional block; [object] emits it once. Individual optional
+  # members remain null so the provider can apply its defaults.
   dynamic "remote_backup" {
     for_each = var.remote_backup == null ? [] : [var.remote_backup]
 
@@ -89,6 +97,9 @@ resource "rediscloud_subscription_database" "this" {
   }
 }
 
+# ACLs are account-scoped resources. The role binds this rule to this database;
+# the user references that role. Those attribute references establish creation
+# order and reverse deletion order, without extra depends_on declarations.
 resource "rediscloud_acl_rule" "this" {
   name = local.acl_rule_name
   rule = var.acl_rule_string

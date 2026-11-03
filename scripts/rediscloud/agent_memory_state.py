@@ -68,6 +68,7 @@ def exclusions_from_state(value):
 
 
 def agent_destroy_variables(values, name, database_id):
+    """Reconstruct deletion-only inputs without copying write-only model secrets."""
     result = {"agent_memory_name": name, "database_id": database_id}
     for field in (
         "short_term_ttl_seconds",

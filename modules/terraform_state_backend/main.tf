@@ -7,6 +7,8 @@ terraform {
 }
 
 locals {
+  # Attachments need role names rather than full ARNs. Splitting at the last
+  # slash also handles roles created under an IAM path. Sets remove duplicates.
   existing_role_names = toset([
     for arn in var.github_actions_role_arns : element(reverse(split("/", arn)), 0)
   ])
@@ -22,12 +24,17 @@ locals {
     for prefix in var.allowed_state_prefixes : "arn:aws:s3:::${var.bucket_name}/${prefix}"
   ]
 
+  # OIDC selection: newly created provider, explicitly supplied ARN, then the
+  # standard provider ARN in the current AWS account/partition. The fallback
+  # refers to an existing provider; it does not create one.
   github_oidc_provider_arn = coalesce(
     try(aws_iam_openid_connect_provider.github[0].arn, null),
     var.github_oidc_provider_arn,
     "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/token.actions.githubusercontent.com"
   )
 
+  # Plan jobs have branch subjects; approved apply jobs have environment
+  # subjects. Both identities must be trusted for the two-job workflow to work.
   branch_subjects = var.create_github_actions_roles ? [
     for branch in var.github_allowed_branches : "repo:${var.github_repository_owner}/${var.github_repository_name}:ref:refs/heads/${branch}"
   ] : []
@@ -47,6 +54,8 @@ resource "aws_s3_bucket" "this" {
   tags          = var.tags
 }
 
+# Reuse verifies the bucket exists without adopting the bucket resource.
+# Encryption, versioning, policy and ownership controls below are still managed.
 data "aws_s3_bucket" "existing" {
   count  = var.create_bucket ? 0 : 1
   bucket = var.bucket_name
@@ -56,6 +65,8 @@ locals {
   backend_bucket_id = var.create_bucket ? aws_s3_bucket.this[0].id : data.aws_s3_bucket.existing[0].id
 }
 
+# Versioning retains previous state versions for recovery. Suspending it does
+# not remove older versions; retention remains an operating-policy decision.
 resource "aws_s3_bucket_versioning" "this" {
   bucket = local.backend_bucket_id
 
@@ -100,6 +111,8 @@ resource "aws_s3_bucket_ownership_controls" "this" {
   }
 }
 
+# This deny requires HTTPS even for otherwise authorized principals. S3 bucket
+# and object permissions use different ARN forms, so both are listed.
 data "aws_iam_policy_document" "bucket_policy" {
   statement {
     sid    = "DenyInsecureTransport"
@@ -160,6 +173,9 @@ data "aws_iam_policy_document" "github_oidc_trust" {
       identifiers = [local.github_oidc_provider_arn]
     }
 
+    # aud restricts token use to AWS STS; sub restricts who may assume the role.
+    # An environment subject must match REDISCLOUD_ENVIRONMENT exactly. The
+    # destroy-<environment> subject also supports a separately gated destroy job.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:aud"
@@ -195,6 +211,9 @@ resource "aws_iam_role" "github_actions" {
   )
 }
 
+# Bucket-level listing and object-level state access are separate permissions.
+# Object prefixes must include .tfstate, S3 .tflock objects and reviewed plan
+# bundles. DeleteObject is also needed to release locks and clean current bundles.
 data "aws_iam_policy_document" "backend_access" {
   statement {
     sid    = "TerraformStateBucket"
@@ -223,6 +242,8 @@ data "aws_iam_policy_document" "backend_access" {
   }
 }
 
+# A stable bucket-derived suffix keeps this account-scoped policy name distinct
+# without including an arbitrarily long bucket name in the IAM policy name.
 resource "aws_iam_policy" "backend_access" {
   name        = "terraform-state-${substr(sha1(var.bucket_name), 0, 12)}"
   description = "Terraform state access for ${var.bucket_name}."

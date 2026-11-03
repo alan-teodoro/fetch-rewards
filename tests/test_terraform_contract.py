@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from rediscloud.agent_memory_state import agent_destroy_variables
+from rediscloud.agent_memory_state import agent_destroy_variables  # noqa: E402 - import from the repository scripts directory
 
 
 @unittest.skipUnless(

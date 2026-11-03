@@ -56,11 +56,17 @@ def validate_subscription(subscription: dict[str, Any]) -> tuple[str, str, int |
         subscription_mode == "managed"
         and subscription.get("payment_method", "credit-card") == "credit-card"
         and not subscription.get("payment_method_id")
-        and not (subscription.get("payment_card_type") and subscription.get("payment_card_last_four"))
+        and not (
+            subscription.get("payment_card_type")
+            and subscription.get("payment_card_last_four")
+        )
     ):
-        raise ConfigError("$.subscription: set payment_method_id or both payment_card_type and payment_card_last_four for credit-card billing.")
+        raise ConfigError(
+            "$.subscription: set payment_method_id or both payment_card_type and payment_card_last_four for credit-card billing."
+        )
     subscription_name = validate_normalized_name(
-        "$.subscription.name", require_string("$.subscription.name", subscription.get("name"))
+        "$.subscription.name",
+        require_string("$.subscription.name", subscription.get("name")),
     )
     subscription_id = subscription.get("subscription_id")
     if subscription_id is not None:
@@ -80,7 +86,9 @@ def validate_subscription(subscription: dict[str, Any]) -> tuple[str, str, int |
     return subscription_mode, subscription_name, subscription_id
 
 
-def render_subscription(config: dict[str, Any], out_dir: Path, manifest: dict[str, Any]) -> None:
+def render_subscription(
+    config: dict[str, Any], out_dir: Path, manifest: dict[str, Any]
+) -> None:
     subscription = config["subscription"]
     normalized = config["_normalized"]
     if normalized["subscription_mode"] != "managed":

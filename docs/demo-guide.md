@@ -7,8 +7,8 @@ platform-managed models. Review the account-specific values before deployment.
 
 For each change below, commit and push the JSON, run **Redis Cloud Config Apply**
 with the same `config_path` and `operation = apply`, then review the summary.
-Keep the workflow's pinned provider defaults while Agent Memory is unreleased.
-The [customer guide](customer-setup.md#run-the-pipeline) explains approvals,
+Keep the workflow's tested provider defaults for the rehearsal.
+The [customer guide](customer-setup.md#5-run-the-pipeline) explains approvals,
 deferred plans and replacement behavior.
 
 ## 1. Create

@@ -34,14 +34,25 @@ def protected(value):
 def describe(title, plan):
     """Never render arbitrary values from JSON plans (which contain secrets)."""
     changes = [
-        item for item in plan.get("resource_changes", []) if item["change"]["actions"] != ["no-op"]
+        item
+        for item in plan.get("resource_changes", [])
+        if item["change"]["actions"] != ["no-op"]
     ]
     counts = {"Create": 0, "Update": 0, "Delete": 0, "Replace": 0}
-    lines = [f"## Terraform plan: {cell(title)}", "", "| Action | Resource |", "| --- | --- |"]
+    lines = [
+        f"## Terraform plan: {cell(title)}",
+        "",
+        "| Action | Resource |",
+        "| --- | --- |",
+    ]
     for item in changes:
         change = item["change"]
         actions = change["actions"]
-        action = "replace" if "delete" in actions and "create" in actions else ",".join(actions)
+        action = (
+            "replace"
+            if "delete" in actions and "create" in actions
+            else ",".join(actions)
+        )
         label = {
             "create": "Create",
             "update": "Update",
@@ -55,7 +66,8 @@ def describe(title, plan):
         lines.append("| no-op | No resource changes |")
     lines[2:2] = ["; ".join(f"**{key}: {value}**" for key, value in counts.items()), ""]
     if any(
-        item.get("type") == "rediscloud_agent_memory" and "delete" in item["change"]["actions"]
+        item.get("type") == "rediscloud_agent_memory"
+        and "delete" in item["change"]["actions"]
         for item in changes
     ):
         lines += [
@@ -68,7 +80,9 @@ def describe(title, plan):
         before, after = change.get("before") or {}, change.get("after") or {}
         names = sorted(
             field
-            for field in set(before) | set(after) | set(change.get("after_unknown") or {})
+            for field in set(before)
+            | set(after)
+            | set(change.get("after_unknown") or {})
             if before.get(field) != after.get(field)
             or protected((change.get("after_unknown") or {}).get(field))
         )
@@ -89,7 +103,8 @@ def describe(title, plan):
                 for key in ("before_sensitive", "after_sensitive", "after_unknown")
             ]
             if any(
-                protected(value.get(field) if isinstance(value, dict) else value) for value in flags
+                protected(value.get(field) if isinstance(value, dict) else value)
+                for value in flags
             ):
                 continue
             fields.append(

@@ -37,7 +37,8 @@ def load_bundle(args):
     args.bundle.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive) as stream:
         if any(
-            not item.isfile() or Path(item.name).name != item.name for item in stream.getmembers()
+            not item.isfile() or Path(item.name).name != item.name
+            for item in stream.getmembers()
         ):
             raise ValueError("Invalid review bundle members.")
         stream.extractall(args.bundle, filter="data")
@@ -48,6 +49,7 @@ def load_bundle(args):
 
 
 def validate_bundle(bundle, phase):
+    """Reject stale, mismatched or modified approval payloads before any apply."""
     review = json.loads((bundle / "index.json").read_text())
     for key, expected in (
         ("schema", 1),
@@ -70,7 +72,11 @@ def validate_bundle(bundle, phase):
             phase not in {"destroy", "rollout"} and item["stack"] != phase
         ):
             raise ValueError("Unexpected stack in reviewed plan.")
-        payload = ("variables", "variables_sha256") if item.get("deferred") else ("file", "sha256")
+        payload = (
+            ("variables", "variables_sha256")
+            if item.get("deferred")
+            else ("file", "sha256")
+        )
         if item.get("deferred") and phase != "rollout":
             raise ValueError("Deferred plans require whole-configuration approval.")
         if item.get("removed") and (
@@ -87,7 +93,8 @@ def validate_bundle(bundle, phase):
                 raise ValueError("Reviewed plan file checksum mismatch.")
     if (
         "provider_sha256" in review
-        and digest(bundle / "terraform-provider-rediscloud") != review["provider_sha256"]
+        and digest(bundle / "terraform-provider-rediscloud")
+        != review["provider_sha256"]
     ):
         raise ValueError("Reviewed provider binary checksum mismatch.")
     return review
@@ -129,7 +136,9 @@ def save_plan(
     }
 
 
-def freeze_inputs(bundle: Path, index: int, stack: str, item: dict, directory: Path) -> dict:
+def freeze_inputs(
+    bundle: Path, index: int, stack: str, item: dict, directory: Path
+) -> dict:
     variables = f"variables-{index}.json"
     lock = f"lock-{index}.hcl"
     shutil.copyfile(item["tfvars_path"], bundle / variables)
@@ -158,9 +167,7 @@ def publish(bundle: Path, manifest: dict, review: dict) -> tuple[str, str]:
         for path in sorted(bundle.iterdir()):
             stream.add(path, arcname=path.name)
     namespace = manifest["subscription"]["state_key"].rsplit("/", 1)[0]
-    key = (
-        f"{namespace}/review-plans/{review['run_id']}/{review['attempt']}/{review['phase']}.tar.gz"
-    )
+    key = f"{namespace}/review-plans/{review['run_id']}/{review['attempt']}/{review['phase']}.tar.gz"
     run(
         "aws",
         "s3api",

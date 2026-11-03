@@ -1,3 +1,5 @@
+# Resolve an existing billing method only for credit-card billing without an
+# explicit ID. This reads account configuration; it never creates a payment card.
 data "rediscloud_payment_method" "card" {
   count = local.can_lookup_payment_card ? 1 : 0
 
@@ -5,6 +7,9 @@ data "rediscloud_payment_method" "card" {
   last_four_numbers = var.payment_card_last_four
 }
 
+# Local cross-input checks gate subscription creation. The name regex matches
+# the complete normalized name (3-63 characters, alphanumeric at both ends).
+# A validation resource is state bookkeeping, not an additional subscription.
 resource "terraform_data" "validation" {
   lifecycle {
     precondition {
@@ -40,6 +45,8 @@ resource "rediscloud_subscription" "this" {
     }
   }
 
+  # This is the subscription's initial capacity envelope. Actual databases
+  # are owned by separate database stacks/states, not by this nested block.
   creation_plan {
     dataset_size_in_gb           = var.dataset_size_in_gb
     quantity                     = 1
@@ -50,6 +57,8 @@ resource "rediscloud_subscription" "this" {
     modules                      = local.modules
   }
 
+  # Optional objects use []/[object] to emit zero/one blocks. An automatic
+  # policy can omit window; a manual policy supplies its scheduled window.
   dynamic "maintenance_windows" {
     for_each = var.maintenance_windows == null ? [] : [var.maintenance_windows]
 
@@ -68,6 +77,8 @@ resource "rediscloud_subscription" "this" {
     }
   }
 
+  # Check the resolved billing result as well as the supplied selector. An ID
+  # obtained by a data source may only become known during apply.
   lifecycle {
     precondition {
       condition     = !local.use_credit_card || local.resolved_payment_method_id != null

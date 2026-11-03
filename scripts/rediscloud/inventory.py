@@ -38,7 +38,9 @@ def destroy_variables(state, stack):
     if not managed:
         return None
     primary = (
-        "rediscloud_agent_memory" if stack == "agent-memory" else "rediscloud_subscription_database"
+        "rediscloud_agent_memory"
+        if stack == "agent-memory"
+        else "rediscloud_subscription_database"
     )
     records = [values for kind, values in managed if kind == primary]
     if len(records) != 1:
@@ -60,7 +62,9 @@ def destroy_variables(state, stack):
         or not NAME_PATTERN.fullmatch(name)
         or not re.fullmatch(r"[1-9][0-9]*", str(parent))
     ):
-        raise ValueError("Omitted state lacks valid name/parent identity; reconcile it manually.")
+        raise ValueError(
+            "Omitted state lacks valid name/parent identity; reconcile it manually."
+        )
     if stack == "agent-memory":
         return agent_destroy_variables(values, name, int(parent))
     return database_destroy_variables(name, int(parent))
@@ -107,7 +111,9 @@ def database_ids_to_remove(state: dict, manifest: dict) -> set[str]:
         raise ValueError("Omitted database has no valid ID; reconcile it manually.")
     result = {str(value) for value in ids}
     configured_ids = [item.get("database_id") for item in manifest["databases"]]
-    configured_ids += [item.get("database_id") for item in manifest["agent_memory_stores"]]
+    configured_ids += [
+        item.get("database_id") for item in manifest["agent_memory_stores"]
+    ]
     if any(value is not None and str(value) in result for value in configured_ids):
         raise ValueError(
             "An omitted database is still referenced by ID; remove its dependents or transfer ownership explicitly."
@@ -115,12 +121,17 @@ def database_ids_to_remove(state: dict, manifest: dict) -> set[str]:
     return result
 
 
-def validate_retained_agent_bindings(keys: list, removed_ids: set, directory: Path, run) -> None:
+def validate_retained_agent_bindings(
+    keys: list, removed_ids: set, directory: Path, run
+) -> None:
     # Current bindings matter even when a retained agent's new database is deferred.
     for key in keys:
         if any(
-            kind == "rediscloud_agent_memory" and str(values.get("database_id")) in removed_ids
-            for kind, values in attributes(read_state(key, directory, run), "agent-memory")
+            kind == "rediscloud_agent_memory"
+            and str(values.get("database_id")) in removed_ids
+            for kind, values in attributes(
+                read_state(key, directory, run), "agent-memory"
+            )
         ):
             raise ValueError(
                 "A retained Agent Memory still uses an omitted database; remove that agent entry before deleting the database."
@@ -128,6 +139,7 @@ def validate_retained_agent_bindings(keys: list, removed_ids: set, directory: Pa
 
 
 def removed_entries(manifest, out_dir, run):
+    """Build deletion inputs for omitted states; reject ambiguous ownership or bindings."""
     namespace = f"subscriptions/{manifest['subscription_key']}"
     if (
         not KEY_PATTERN.fullmatch(manifest["subscription_key"])
@@ -161,7 +173,8 @@ def removed_entries(manifest, out_dir, run):
         for key in sorted({item["Key"] for item in listing.get("Contents", [])}):
             # Ignore lock files, review bundles, historical versions and other namespaces.
             match = re.fullmatch(
-                re.escape(namespace) + r"/(agent-memory|databases)/([^/]+)\.tfstate", key
+                re.escape(namespace) + r"/(agent-memory|databases)/([^/]+)\.tfstate",
+                key,
             )
             if not match:
                 continue
@@ -199,5 +212,7 @@ def removed_entries(manifest, out_dir, run):
                 )
             )
         if removed_database_ids:
-            validate_retained_agent_bindings(retained_agents, removed_database_ids, Path(tmp), run)
+            validate_retained_agent_bindings(
+                retained_agents, removed_database_ids, Path(tmp), run
+            )
     return sorted(removed, key=lambda entry: DESTROY_ORDER.index(entry[0]))

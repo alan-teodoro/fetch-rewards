@@ -31,6 +31,9 @@ variable "region" {
   default     = "us-east-1"
 }
 
+# cidrhost(..., 0) checks CIDR syntax; it does not prove the range is available
+# or does not overlap the customer's network. Those checks belong in deployment
+# planning and the Redis Cloud API.
 variable "networking_deployment_cidr" {
   description = "CIDR block Redis Cloud uses for the subscription deployment."
   type        = string
@@ -94,6 +97,8 @@ variable "payment_card_type" {
   default     = null
 }
 
+# ^ and $ require exactly four digits. The HCL string uses \ to represent
+# the regex backslash; [0-9]{4} is an equivalent spelling without that escape.
 variable "payment_card_last_four" {
   description = "Last four digits used to look up the Redis Cloud payment method when payment_method_id is omitted."
   type        = string

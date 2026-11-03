@@ -20,7 +20,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["plan", "load", "apply"])
     parser.add_argument(
-        "--phase", required=True, choices=[*sorted(STACKS), "preview", "destroy", "rollout"]
+        "--phase",
+        required=True,
+        choices=[*sorted(STACKS), "preview", "destroy", "rollout"],
     )
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--bundle", required=True, type=Path)
@@ -28,7 +30,9 @@ def main():
     parser.add_argument("--sha256")
     args = parser.parse_args()
     try:
-        {"plan": plan_phase, "load": load_bundle, "apply": apply_phase}[args.command](args)
+        {"plan": plan_phase, "load": load_bundle, "apply": apply_phase}[args.command](
+            args
+        )
     except (
         ValueError,
         KeyError,

@@ -1,122 +1,125 @@
-# Customer setup and operations
+# Customer setup
 
-## Prerequisites
+Use a separate repository, Redis Cloud account credentials and private state
+backend for the customer's deployment. Copy versioned project files through Git;
+do not copy `.env`, generated files, plans or local state.
 
-- A GitHub repository with this project and access to GitHub Actions.
-- Terraform 1.16.7 or newer and Python 3.12 or newer for local helpers. Actions pins its Terraform version.
-- AWS CLI with administrator credentials for the one-time backend bootstrap.
-- An AWS account for private S3 state and GitHub OIDC. This backend account is independent of where Redis Cloud databases run.
-- Redis Cloud administrative API credentials with access to subscriptions, databases, ACLs and Agent Memory.
-- Account-specific billing information, networking CIDRs and source IP allowlists.
+## 1. Prepare the accounts
 
-## Bootstrap state storage
+You need GitHub Actions, Redis Cloud administrative API credentials, and an AWS
+account for S3 state and GitHub OIDC. The state account is independent of the
+Redis Cloud hosting provider. Confirm billing, region/service availability,
+network CIDRs and application access before deploying.
 
-Run once with AWS administrator credentials:
+Local tools require Terraform 1.16.7+, Python 3.12+ and AWS CLI. For Python helpers:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+## 2. Bootstrap state storage
+
+Run with AWS credentials authorized to create/configure the backend and IAM:
 
 ```bash
 cd stacks/state-backend
 cp terraform.tfvars.example terraform.tfvars
-# Set your bucket, GitHub owner/repository, allowed branches and role options.
+# Set the bucket, region and existing-role or new-role options.
 terraform init
 terraform plan
 terraform apply
 ```
 
-Bucket ownership is explicit: `create_bucket = true` creates and keeps managing
-the bucket across repeated runs. For a bucket provisioned elsewhere, set
-`create_bucket = false` before the first bootstrap; this stack still manages its
-encryption, versioning and access policy. Do not toggle this flag for a bucket
-already tracked by the stack. To adopt an existing bucket, keep it true and import
-the bucket into `module.state_backend.aws_s3_bucket.this[0]` before applying.
-Existing bootstrap deployments that previously skipped bucket creation must set
-it false or perform that explicit import. Keep bootstrap state backed up.
+`create_bucket = true` creates and owns the bucket. Use `false` before the first
+bootstrap for a bucket provisioned elsewhere; the stack still configures its
+encryption, versioning, access policy and ownership controls. Keep this choice
+stable. To adopt an existing bucket, keep it true and import into
+`module.state_backend.aws_s3_bucket.this[0]` before applying. Earlier installations
+that skipped bucket creation must select false or perform that explicit import.
 
-Configure repository variables from the outputs:
+Keep bootstrap state backed up outside Git. Use a private, encrypted, versioned
+bucket with restricted access. Define retention for state and plan-bundle versions.
+S3-managed encryption is the reference path; custom KMS requires the appropriate
+key policy and role permissions to be configured separately.
+
+## 3. Configure GitHub
+
+Set repository variables from the bootstrap outputs:
 
 | Variable | Purpose |
 | --- | --- |
-| `TF_STATE_BUCKET` | Private state and temporary reviewed-plan storage |
-| `TF_STATE_REGION` | Region of that S3 bucket |
-| `AWS_GITHUB_ACTIONS_ROLE_ARN` | OIDC role used by Actions to access the backend |
-| `REDISCLOUD_RUNNER` | Optional runner label; defaults to ubuntu-latest |
-| `REDISCLOUD_ENVIRONMENT` | Approval environment; defaults to `dev`. Use your production environment name when handing off. |
+| `TF_STATE_BUCKET` | State and private reviewed-plan storage |
+| `TF_STATE_REGION` | Bucket region |
+| `AWS_GITHUB_ACTIONS_ROLE_ARN` | OIDC role with backend access |
+| `REDISCLOUD_ENVIRONMENT` | Approval environment; defaults to `dev` |
+| `REDISCLOUD_RUNNER` | Optional runner label; defaults to `ubuntu-latest` |
 
-Create the GitHub environment selected by `REDISCLOUD_ENVIRONMENT` (default `dev`) with the reviewers and allowed deployment branches required by your operating policy. Apply/destroy jobs use this environment; plan jobs do not. Its name must match the environment allowed by the OIDC role. The plan role also needs the configured branch subject, because plan jobs have no environment. Restrict who can change workflows and repository secrets.
+Create the selected GitHub environment with required reviewers and allowed
+deployment branches. Its name must match the OIDC trust policy. For the bootstrap's
+default `prod` role map, set `REDISCLOUD_ENVIRONMENT = prod`. Plan jobs also need
+their branch subject trusted because they run outside an environment.
 
-Use a separately configured repository for each customer. The JSON `customer` and `environment` labels do not change the Redis Cloud account, backend or GitHub approval environment.
+Set repository secrets `REDISCLOUD_ACCESS_KEY` and `REDISCLOUD_SECRET_KEY`.
+Leave `REDISCLOUD_URL` unset for the public API; set it only for an intentional
+alternative endpoint. A private provider checkout may also need
+`REDISCLOUD_PROVIDER_CHECKOUT_TOKEN`. Restrict workflow and secret changes to trusted
+maintainers: deployment approval does not restrict what workflow authors can do
+with repository credentials.
 
-State includes generated database passwords and data-plane API keys. Keep the bucket private, encrypted and versioned, restrict IAM access and configure retention for old versions of temporary plan bundles. Never publish state, plans or generated tfvars as public artifacts.
+## 4. Prepare the configuration
 
-## Credentials and provider
+Start with `configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json`. For another
+namespace, use `configs/<customer>/subscriptions/<file>.json`.
 
-Configure repository secrets `REDISCLOUD_ACCESS_KEY` and `REDISCLOUD_SECRET_KEY`. Leave `REDISCLOUD_URL` unset for the public Redis Cloud API; only set it when intentionally using another endpoint. A private provider checkout can require `REDISCLOUD_PROVIDER_CHECKOUT_TOKEN`.
+Replace demo billing, names, region, CIDR and source IPs. Include the Agent Memory
+service egress addresses required for the selected region and any application
+addresses needing direct database access. Confirm those addresses with the
+service team; the example is not a production network policy.
 
-Agent Memory is not yet available in the official provider release used by this project. The manual workflows default to `rediscloud_provider_source = branch` and an exact tested provider commit. Use the same commit for plan, apply and destroy. The apply job reuses the reviewed binary. Once an official version includes Agent Memory, update the lock files, test the upgrade and switch to `registry`.
+For credit-card billing, supply `payment_method_id` or both `payment_card_type`
+and `payment_card_last_four`. Use database names unique across the account's
+managed subscriptions: their ACL names are account-scoped and derived from them.
 
-## Prepare the JSON
+Choose durable state/map keys once. `customer` and `environment` labels do not
+select credentials, a backend or an approval environment. See the
+[configuration reference](configuration-reference.md) for ownership and inputs.
 
-For local use, create a virtual environment and install `requirements.txt`. Use `requirements-dev.txt` when running the complete test suite. Actions installs its dependencies automatically.
+## 5. Run the pipeline
 
-See the [configuration reference](configuration-reference.md) for field types, ownership, secret references and schema-version compatibility.
+Open **Redis Cloud Config Apply** from the approved branch.
 
-
-The complete example is `configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json`. Another customer can copy it to `configs/<customer>/subscriptions/<name>.json`.
-
-Set the customer/environment metadata, a unique `subscription_key`, subscription/database/store names, region, deployment CIDR and source IPs. Review every account-specific value. The sample IPs and billing selector belong to the demonstration account. Include the Agent Memory service egress addresses required for the selected region, plus any application/operator addresses that need direct database access.
-
-For credit-card billing, set `subscription.payment_method_id` or both `payment_card_type` and `payment_card_last_four`. The reusable stack has no default customer card. Marketplace billing uses its separate `payment_method` option.
-
-Database names must be unique across subscriptions managed in the same account:
-ACL rule, role and user names are derived from the database display name and are
-account-scoped. Reusing a database name can cause an ACL naming collision.
-
-Each database and store is a map entry. A store's `database` refers to a database map key, not its display name. Keep `subscription_key`, database keys and store keys stable. Changing a display name is a resource update when supported; changing a state key requires migration.
-
-`mode = managed` creates and owns a resource. `mode = external` references a resource owned elsewhere. External subscriptions can provide `subscription_id`; external databases can provide `database_id`. Ownership changes for previously managed entries require explicit reconciliation rather than silently abandoning state.
-
-The example starts with one store and platform-managed models, so no external model-provider key is needed. See [the walkthrough](demo-guide.md) to add another store.
-
-## Run the pipeline
-
-Open Actions → **Redis Cloud Config Apply** and select the branch containing the desired JSON.
-
-| Input | Meaning |
+| Input | Use |
 | --- | --- |
-| `config_path` | `configs/<customer>/subscriptions/<file>.json` |
-| `operation` | `plan` for preview or `apply` for reviewed deployment |
-| `rediscloud_provider_source` | `branch` until the feature is released; then `registry` |
-| `rediscloud_provider_ref` | Exact tested provider commit in branch mode |
+| `config_path` | Versioned subscription JSON |
+| `operation` | `plan` to preview; `apply` to review and deploy |
+| `rediscloud_provider_source` | `branch` for the pinned source build; `registry` for a compatible locked release |
+| `rediscloud_provider_ref` | Source commit/ref used in branch mode |
 
-Read the plan job summary. It lists creates, updates, deletions, replacements and changed field names. Credential and generated-key values are omitted. A store replacement generates a new store ID and new keys. Context is not automatically migrated; update application references and plan any migration before applying.
+Keep the tested provider defaults across plan, apply and destroy. Registry mode
+is ready only after its stack locks select an official version with Agent Memory;
+follow the upgrade procedure in [maintenance](maintenance.md).
 
-Store deletion and replacement must not be treated as proof of physical data erasure. Confirm the service retention and cleanup contract before relying on deletion for data removal.
+Read the summary before approval. New or renamed parents can defer downstream
+plans; the summary identifies them. One approval covers the pinned configuration,
+including those deferred steps. It expires one hour after planning. Unchanged
+runs request no approval. Failure stops subsequent work and does not roll back
+completed changes.
 
-For `apply`, one environment approval covers the complete configuration. Subscription and database creation or renaming can defer downstream plans; those steps are identified before approval and planned after their dependencies exist. The provider binary and inputs remain frozen. Approval must begin within one hour of planning. An unchanged run requests no approval.
+Follow the [walkthrough](demo-guide.md) for add/update/remove/teardown. Config
+Destroy requires confirmation and can target one store with `agent_memory_key`.
+External resources and the backend remain outside that teardown.
 
-Execution follows subscription → databases → stores. A failure stops subsequent work and does not roll back completed resources. Fix the configuration or dependency and run again, reviewing the new plan.
+## 6. Connect applications
 
-## Delete resources
+Agree delivery of store IDs, endpoints and runtime keys before deployment.
+Generated runtime keys are sensitive outputs in each store's state. `secret_ref`
+records a desired destination; no automatic Secrets Manager publication is
+implemented. Do not expose keys through Actions summaries or public artifacts.
 
-Remove a managed store from `agent_memory_stores`, commit and run Config Apply. Its existing state produces a deletion plan. Other stores, its database and its subscription remain managed.
-
-Remove a database from `databases` to propose deleting the database and its ACLs. Remove dependent stores too; references to absent database keys fail validation. The pipeline destroys omitted stores before omitted databases. Other users of the database can still prevent deletion in the API.
-
-For a full teardown, use **Redis Cloud Config Destroy**, select the same JSON and set `confirm_destroy = true`. Use `agent_memory_key` to target just one store. The workflow includes previously managed resources omitted from the file when doing a full teardown. External resources and the backend remain intact.
-
-Deleting a file does not run Terraform. Never delete the last configuration before tearing down its infrastructure. If a selective destroy leaves its entry in the JSON, the next apply will recreate it.
-
-Git keeps the configuration change history. Actions keeps run records according to its retention policy. Terraform state lists managed resources as of the last refresh; resources created outside this project are not automatically inventoried or adopted.
-
-## Keys and model credentials
-
-Generated data-plane API keys are available as sensitive outputs in each store's Terraform state. `secret_ref` records a desired destination only; this repository does not automatically publish values to Secrets Manager. Plan a secret-delivery step appropriate to your applications before handoff.
-
-Customer-managed models require both `llm` and `embedding`. Their `credentials.api_key_env_var` names reference environment variables exposed to the renderer. Actions currently exposes the GitHub secrets `AGENT_MEMORY_LLM_API_KEY` and `AGENT_MEMORY_EMBEDDING_API_KEY`.
-
-Set `credentials.api_key_version` to a positive integer (default 1). When rotating a model key, change the GitHub secret and increase this version in JSON. The provider's `api_key` does not save model keys in resource state. Renderer tfvars and reviewed plan bundles remain sensitive and must stay private and encrypted; the root inputs are not ephemeral.
-
-## Verify and maintain
-
-Run **Terraform Validate** for format, configuration, regression tests and stack validation. Use [architecture notes](config-driven-architecture.md) when modifying the rendering/execution code. The `scripts/internal/`, provider validation workflow and historical test fixtures support provider development; customer operations only need the config workflows.
-
-Before using a new provider version or changing the stack contracts, rehearse create, no-op reapply, update, addition, selective deletion and full teardown on an isolated subscription. Rehearse store replacement separately with known test memories and sessions; check both application visibility and physical database retention rather than assuming either behavior.
+The example uses platform-managed models and needs no model-provider key. BYO
+models require both `llm` and `embedding`, with GitHub secrets
+`AGENT_MEMORY_LLM_API_KEY` and `AGENT_MEMORY_EMBEDDING_API_KEY`. Reference their
+environment-variable names in JSON. Update the secret and increment its
+`api_key_version` when rotating. See the configuration reference for details.
