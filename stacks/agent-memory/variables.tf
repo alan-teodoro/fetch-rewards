@@ -37,6 +37,8 @@ variable "agent_memory_name" {
   type        = string
 }
 
+# null leaves retention/cadence selection to the provider/API. These validators
+# reject non-positive or fractional seconds without freezing evolving API limits.
 variable "short_term_ttl_seconds" {
   description = "Short-term memory TTL in seconds. Leave null to use the Redis Cloud default."
   type        = number
@@ -76,6 +78,8 @@ variable "extraction_strategy" {
   default     = null
 }
 
+# These are operation wait budgets, not memory TTLs. Omitted members inherit
+# provider defaults; the workflow's job timeout can end the operation earlier.
 variable "timeouts" {
   description = "Optional operation timeouts using provider duration strings, such as 30m."
   type = object({
@@ -87,6 +91,9 @@ variable "timeouts" {
   default = null
 }
 
+# Model identity is separate from the sensitive API key input. The version is
+# a non-secret rotation counter: changing a write-only key alone creates no diff.
+# embedding uses the same shape; the pair is checked together in main.tf.
 variable "llm" {
   description = "Optional customer-managed LLM model configuration. Configure together with embedding when the store is created."
   type = object({
@@ -157,6 +164,9 @@ variable "embedding_api_key" {
   sensitive   = true
 }
 
+# Keep the newest retain_count events verbatim when threshold is reached.
+# For threshold = 20 and retain_count = 10, the older 10 are summarized.
+# null omits the block; enabled = false explicitly requests summarization off.
 variable "summarization" {
   description = "Optional Agent Memory session summarization configuration."
   type = object({
@@ -170,6 +180,10 @@ variable "summarization" {
   default = null
 }
 
+# Each object describes one named memory type and its structured field schema.
+# fields defaults to an empty list; extraction_strategy defaults to null.
+# Its optional enabled flag deliberately has no local true/false default: an
+# omitted value is resolved by the provider/API. See replacement notes in main.tf.
 variable "custom_memory_types" {
   description = "Optional custom long-term memory types."
   type = list(object({
@@ -188,14 +202,25 @@ variable "custom_memory_types" {
   default = []
 }
 
+# One policy object with three independently optional families. Omitting it
+# (null) supplies no block; use explicit enabled = false to request disabling.
+# Rules apply to newly extracted long-term memories, not session events,
+# summaries, direct application writes or existing records. Semantic prompts
+# guide extraction and do not guarantee that sensitive content is excluded.
+# See docs/configuration-reference.md for the hierarchy and a JSON example.
 variable "long_term_memory_exclusions" {
-  description = "Optional policy defining content that must not be kept in long-term memory."
+  description = "Optional exclusion rules for newly extracted long-term memories."
   type = object({
-    enabled = bool
+    enabled = bool # Master switch; family and detector switches are below.
+
+    # Advisory guidance; provide a prompt when this family is enabled.
     semantic = optional(object({
       enabled = bool
       prompt  = optional(string)
     }))
+
+    # IDs select API-provided detectors; [] means no configured detectors.
+    # An omitted action delegates its default to the provider/API.
     built_in_detectors = optional(object({
       enabled = bool
       detectors = optional(list(object({
@@ -204,6 +229,10 @@ variable "long_term_memory_exclusions" {
         action  = optional(string)
       })), [])
     }))
+
+    # Each named rule carries its own regex and action (redact or drop).
+    # The optional regex object preserves the API matcher shape; it must be
+    # supplied for a regex matcher rather than inferred from its name.
     custom_detectors = optional(object({
       enabled = bool
       detectors = optional(list(object({
@@ -222,6 +251,8 @@ variable "long_term_memory_exclusions" {
   default = null
 }
 
+# These map keys are durable state identities, not list positions. enabled is
+# an orchestration switch that controls resource existence; see main.tf.
 variable "api_keys" {
   description = "Named data-plane API keys to create for this Agent Memory service. The generated secrets are stored in Terraform state as sensitive values."
   type = map(object({

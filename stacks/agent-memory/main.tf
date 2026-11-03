@@ -1,3 +1,6 @@
+# terraform_data stores these checks in state without creating a Redis resource.
+# Cross-input requirements belong in preconditions; validation blocks in
+# variables.tf handle individual inputs. Dependent lookups/creation wait here.
 resource "terraform_data" "validation" {
   lifecycle {
     precondition {
@@ -5,6 +8,9 @@ resource "terraform_data" "validation" {
       error_message = "subscription_name or subscription_id is required when database_id is omitted."
     }
 
+    # Anchors require the whole name to match: 3-63 lowercase letters, digits
+    # or hyphens, with an alphanumeric first/last character. can() turns a
+    # regex no-match error into a failed precondition with the message below.
     precondition {
       condition     = local.subscription_name == null || can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", local.subscription_name))
       error_message = "subscription_name must normalize to a lowercase, hyphen-separated name that is 3 to 63 characters long."
@@ -20,6 +26,8 @@ resource "terraform_data" "validation" {
       error_message = "agent_memory_name must normalize to a lowercase, hyphen-separated name that is 3 to 63 characters long."
     }
 
+    # Omitting both models selects platform-managed models. A BYO store needs
+    # both model identities and their separately supplied credentials at create.
     precondition {
       condition     = (var.llm == null && var.embedding == null) || (var.llm != null && var.embedding != null)
       error_message = "llm and embedding must be configured together for customer-managed Agent Memory models."
@@ -30,6 +38,8 @@ resource "terraform_data" "validation" {
       error_message = "llm_api_key and embedding_api_key are required when customer-managed Agent Memory models are configured."
     }
 
+    # The API's embedding configuration belongs to long-term memory, whose
+    # TTL must also be explicit when constructing that request.
     precondition {
       condition     = var.embedding == null || var.long_term_ttl_seconds != null
       error_message = "long_term_ttl_seconds is required when embedding is configured."
@@ -37,6 +47,8 @@ resource "terraform_data" "validation" {
   }
 }
 
+# These data sources only resolve existing parents. The subscription/database
+# stacks own their creation; count = 0 skips a lookup when a direct ID is given.
 data "rediscloud_subscription" "target" {
   count = local.lookup_subscription ? 1 : 0
 
@@ -54,6 +66,9 @@ data "rediscloud_database" "target" {
   name            = local.database_name
 }
 
+# The integration uses the database's default user. Check it when lookup data
+# is available; callers supplying database_id directly must verify prerequisites
+# themselves. TLS/public connectivity checks also exist in the JSON renderer.
 resource "terraform_data" "agent_memory_database_validation" {
   count = local.lookup_database ? 1 : 0
 
@@ -65,6 +80,8 @@ resource "terraform_data" "agent_memory_database_validation" {
   }
 }
 
+# The checks below are ordering dependencies, not protection against destroy.
+# Update versus replacement is decided by the provider and shown in the plan.
 resource "rediscloud_agent_memory" "this" {
   depends_on = [
     terraform_data.validation,
@@ -78,6 +95,9 @@ resource "rediscloud_agent_memory" "this" {
   extraction_cadence_seconds = var.extraction_cadence_seconds
   extraction_strategy        = var.extraction_strategy
 
+  # Optional objects become zero or one provider blocks: null -> [], object ->
+  # [object]. The same pattern is used below for models, summarization and
+  # exclusion families. enabled = false still emits a block with an explicit flag.
   dynamic "timeouts" {
     for_each = var.timeouts == null ? [] : [var.timeouts]
     content {
@@ -95,6 +115,9 @@ resource "rediscloud_agent_memory" "this" {
       provider = llm.value.provider
       model    = llm.value.model
 
+      # try() handles an omitted credentials object; coalesce() supplies only
+      # the supported type/version defaults. api_key is write-only in provider
+      # state; increase api_key_version when rotating the supplied secret.
       credentials {
         type            = coalesce(try(llm.value.credentials.type, null), "apiKey")
         api_key         = var.llm_api_key
@@ -136,6 +159,9 @@ resource "rediscloud_agent_memory" "this" {
     }
   }
 
+  # Repeated definitions are nested blocks of one store, not separate resources.
+  # Adding a type/strategy can be in-place; redefining/removing existing types or
+  # removing strategies can replace the store. Review the provider's plan first.
   dynamic "custom_memory_types" {
     for_each = var.custom_memory_types
 
@@ -164,6 +190,9 @@ resource "rediscloud_agent_memory" "this" {
     }
   }
 
+  # Forward the policy hierarchy as configured, including explicit false flags
+  # and empty detector lists. Omitting a family and disabling it are different
+  # inputs; do not filter these blocks by enabled. See variables.tf and the guide.
   dynamic "long_term_memory_exclusions" {
     for_each = var.long_term_memory_exclusions == null ? [] : [var.long_term_memory_exclusions]
 
@@ -230,6 +259,9 @@ resource "rediscloud_agent_memory" "this" {
   }
 }
 
+# Map keys identify Terraform instances. Filtering enabled = false removes that
+# instance from desired state and revokes an existing key on apply; this is not
+# a reversible server-side pause. Create a second key before rotating clients.
 resource "rediscloud_agent_memory_api_key" "this" {
   for_each = local.enabled_api_keys
 

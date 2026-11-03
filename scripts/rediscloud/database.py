@@ -58,19 +58,28 @@ def validate_databases(databases: dict[str, Any]) -> None:
         fail_unknown_fields(
             f"$.databases.{key}",
             database,
-            {"mode", "name", "database_id", "agent_memory_compatible"} | DATABASE_FIELDS,
+            {"mode", "name", "database_id", "agent_memory_compatible"}
+            | DATABASE_FIELDS,
         )
         mode = get_mode(f"$.databases.{key}", database)
         if mode == "managed" and "database_id" in database:
-            raise ConfigError(f"$.databases.{key}.database_id is only valid when mode is external.")
+            raise ConfigError(
+                f"$.databases.{key}.database_id is only valid when mode is external."
+            )
         if "name" in database:
             validate_normalized_name(
                 f"$.databases.{key}.name",
                 require_string(f"$.databases.{key}.name", database["name"]),
             )
         elif mode == "managed":
-            raise ConfigError(f"$.databases.{key}.name is required for managed databases.")
-        if mode == "external" and "name" not in database and "database_id" not in database:
+            raise ConfigError(
+                f"$.databases.{key}.name is required for managed databases."
+            )
+        if (
+            mode == "external"
+            and "name" not in database
+            and "database_id" not in database
+        ):
             raise ConfigError(
                 f"$.databases.{key} must set name or database_id when mode is external."
             )

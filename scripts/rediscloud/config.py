@@ -52,11 +52,15 @@ def load_and_validate(path: Path) -> dict[str, Any]:
     require_string("$.customer", config.get("customer"))
     require_string("$.environment", config.get("environment"))
 
-    subscription_key = require_string("$.subscription_key", config.get("subscription_key"))
+    subscription_key = require_string(
+        "$.subscription_key", config.get("subscription_key")
+    )
     validate_key("$.subscription_key", subscription_key)
 
     subscription = require_object("$.subscription", config.get("subscription"))
-    subscription_mode, subscription_name, subscription_id = validate_subscription(subscription)
+    subscription_mode, subscription_name, subscription_id = validate_subscription(
+        subscription
+    )
     databases = optional_object("$.databases", config.get("databases"))
     validate_databases(databases)
     stores = optional_object("$.agent_memory_stores", config.get("agent_memory_stores"))
@@ -91,12 +95,16 @@ def build_manifest(config: dict[str, Any], config_path: Path) -> dict[str, Any]:
     }
 
 
-def select_destroy_config(config: dict[str, Any], agent_memory_key: str | None) -> dict[str, Any]:
+def select_destroy_config(
+    config: dict[str, Any], agent_memory_key: str | None
+) -> dict[str, Any]:
     if not agent_memory_key:
         return config
     stores = config.get("agent_memory_stores", {})
     if agent_memory_key not in stores:
-        raise ConfigError(f"Unknown Agent Memory key {agent_memory_key!r} for selective destroy.")
+        raise ConfigError(
+            f"Unknown Agent Memory key {agent_memory_key!r} for selective destroy."
+        )
     store = stores[agent_memory_key]
     if get_mode(f"$.agent_memory_stores.{agent_memory_key}", store) != "managed":
         raise ConfigError(
@@ -114,17 +122,25 @@ def select_destroy_config(config: dict[str, Any], agent_memory_key: str | None) 
 
 
 def render(
-    config_path: Path, out_dir: Path, *, destroy: bool = False, agent_memory_key: str | None = None
+    config_path: Path,
+    out_dir: Path,
+    *,
+    destroy: bool = False,
+    agent_memory_key: str | None = None,
 ) -> dict[str, Any]:
     config = load_and_validate(config_path)
     if agent_memory_key and not destroy:
-        raise ConfigError("Selecting an Agent Memory key is only supported for destroy rendering.")
+        raise ConfigError(
+            "Selecting an Agent Memory key is only supported for destroy rendering."
+        )
     if destroy:
         config = select_destroy_config(config, agent_memory_key)
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = build_manifest(config, config_path)
     if destroy:
-        manifest["destroy_scope"] = "agent_memory" if agent_memory_key else "all_managed_resources"
+        manifest["destroy_scope"] = (
+            "agent_memory" if agent_memory_key else "all_managed_resources"
+        )
 
     render_subscription(config, out_dir, manifest)
 
@@ -141,14 +157,13 @@ def render(
 
 def validate_workflow_path(path: Path) -> None:
     parts = path.parts
-    customer_config = len(parts) == 4 and parts[0] == "configs" and parts[2] == "subscriptions"
-    test_config = len(parts) == 4 and parts[:3] == ("tests", "fixtures", "configs")
+    customer_config = (
+        len(parts) == 4 and parts[0] == "configs" and parts[2] == "subscriptions"
+    )
     if (
-        not (customer_config or test_config)
+        not customer_config
         or path.suffix != ".json"
         or ".." in parts
         or not path.resolve().is_relative_to(Path.cwd().resolve())
     ):
-        raise ConfigError(
-            "Use configs/<customer>/subscriptions/<file>.json or a versioned test fixture."
-        )
+        raise ConfigError("Use configs/<customer>/subscriptions/<file>.json.")

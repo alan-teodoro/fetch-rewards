@@ -79,9 +79,6 @@ runs:
             cd .provider/terraform-provider-rediscloud
             go build -trimpath -o "${binary}" .
           )
-        elif [ -n "${PROVIDER_DEV_OVERRIDE_DIR:-}" ]; then
-          binary="${PROVIDER_DEV_OVERRIDE_DIR}/terraform-provider-rediscloud"
-          test -f "${binary}"
         fi
         if [ -n "${binary}" ]; then
           install_dir="$(dirname "${binary}")"

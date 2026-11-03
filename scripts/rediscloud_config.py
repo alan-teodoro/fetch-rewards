@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import sys
 
-from rediscloud.config_common import ConfigError, get_mode, read_json as read_json
+from rediscloud.config_common import ConfigError, get_mode
 from rediscloud.config import (
     load_and_validate,
     render,
@@ -42,7 +42,9 @@ def render_command(args: argparse.Namespace) -> None:
 
 
 def validate_destroy_command(args: argparse.Namespace) -> None:
-    config = select_destroy_config(load_and_validate(args.config), args.agent_memory_key)
+    config = select_destroy_config(
+        load_and_validate(args.config), args.agent_memory_key
+    )
     print(
         json.dumps(
             {
@@ -65,7 +67,12 @@ def validate_destroy_command(args: argparse.Namespace) -> None:
 def render_destroy_command(args: argparse.Namespace) -> None:
     print(
         json.dumps(
-            render(args.config, args.out_dir, destroy=True, agent_memory_key=args.agent_memory_key),
+            render(
+                args.config,
+                args.out_dir,
+                destroy=True,
+                agent_memory_key=args.agent_memory_key,
+            ),
             indent=2,
             sort_keys=True,
         )
@@ -78,10 +85,14 @@ def main() -> None:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    validate_parser = subparsers.add_parser("validate", help="Validate a subscription config file.")
+    validate_parser = subparsers.add_parser(
+        "validate", help="Validate a subscription config file."
+    )
     validate_parser.add_argument("--config", required=True, type=Path)
     validate_parser.add_argument(
-        "--workflow", action="store_true", help="Require a repository configuration path."
+        "--workflow",
+        action="store_true",
+        help="Require a repository configuration path.",
     )
     validate_parser.set_defaults(func=validate_command)
 
@@ -93,7 +104,8 @@ def main() -> None:
     render_parser.set_defaults(func=render_command)
 
     validate_destroy_parser = subparsers.add_parser(
-        "validate-destroy", help="Validate the complete config or an Agent Memory key for destroy."
+        "validate-destroy",
+        help="Validate the complete config or an Agent Memory key for destroy.",
     )
     validate_destroy_parser.add_argument("--config", required=True, type=Path)
     validate_destroy_parser.add_argument("--agent-memory-key", default=None)

@@ -1,131 +1,206 @@
 # Configuration reference
 
-One JSON file describes one subscription. Start from the complete example in
-`configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json`, copy it to the
-customer's directory and remove the resources or optional settings you do not
-need. Review billing, names, region, network CIDR and source IPs before running it.
-
-The example contains demonstration values. It is not a production network policy.
-
-## Editing and validation
-
-The workspace includes a JSON Schema association for VS Code. Other editors can
-use `schemas/rediscloud-config.schema.json`; an optional `$schema` property may
-reference that local file. Validation does not fetch schema references from the
-configuration or contact Redis Cloud.
+One JSON file describes one subscription. Start from
+`configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json`. The JSON Schema in
+`schemas/rediscloud-config.schema.json` supplies editor hints through the included
+VS Code settings. An optional `$schema` property can reference that local file;
+the validator does not fetch schemas or contact Redis Cloud.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-python scripts/rediscloud_config.py validate \
-  --config configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json
+python scripts/rediscloud_config.py validate --config configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json
 ```
 
-The schema checks JSON types, required properties and unknown fields. The Python
-resource modules check references and ownership rules. Terraform validates stack
-inputs and produces the actual lifecycle plan. The API remains authoritative for
-available models, regions, detector IDs, capacity and evolving service limits.
+Schema checks cover types, required properties and unknown fields. Python checks
+references/ownership; Terraform produces the lifecycle plan. The API validates
+available models, detector IDs, regions, capacity and evolving service limits.
 
-Schema defaults are documentation; Terraform applies omitted input defaults.
-Strings such as `"false"` are not booleans. Durations in seconds must be positive
-integers. Provider timeout strings use units, for example `30m`.
-
-## Top-level properties
+## Identity and ownership
 
 | Property | Meaning |
 | --- | --- |
-| `schema_version` | Configuration format, currently `1` |
-| `customer`, `environment` | Descriptive labels; they do not select credentials or an approval environment |
-| `subscription_key` | Durable state namespace; choose it once |
-| `subscription` | Managed subscription or reference to an external subscription |
-| `databases` | Map of database identities to configuration |
-| `agent_memory_stores` | Map of Agent Memory identities to configuration |
+| `schema_version` | Format version, currently `1` |
+| `customer`, `environment` | Labels; do not select credentials or approval environment |
+| `subscription_key` | Durable state namespace |
+| `subscription` | Managed subscription or external reference |
+| `databases` | Map of database identities to settings |
+| `agent_memory_stores` | Map of store identities to settings |
 
-Map keys contain lowercase letters, numbers, underscores or hyphens and have
-2–64 characters. Resource display names are normalized to lowercase words
-separated by hyphens, with 3–63 characters. Keep map keys stable when renaming a
-display name. Moving a resource to another map key is a state migration.
+Map keys contain lowercase letters, digits, underscores or hyphens and have 2–64
+characters. Display names normalize to lowercase, hyphen-separated names with
+3–63 characters. Keep keys stable when changing display names.
+
+`mode: managed` creates/owns a resource. `mode: external` references infrastructure
+owned elsewhere. External subscriptions can supply `subscription_id`; external
+databases can supply `database_id`. This project does not import automatically.
+Changing a managed entry to external needs explicit state reconciliation.
 
 ## Subscription and databases
 
-`subscription.mode` defaults to `managed`. Supply its name and the region,
-deployment CIDR and billing selector appropriate for the account. The basic
-stack accepts `AWS` or `GCP`; the reference lifecycle is qualified against AWS.
-Active-Active and CMEK are not part of this configuration contract.
+For a managed subscription, supply its name, region, deployment CIDR and billing
+selector. Set `payment_method_id` or card type/last four for credit-card billing;
+marketplace billing has its own selector. The stack accepts AWS or GCP, while the
+reference lifecycle is qualified against AWS Pro single-region.
 
-Use `subscription.creation_plan` for the initial capacity envelope:
-`dataset_size_in_gb`, `throughput_ops_per_second`, `replication`,
-`support_oss_cluster_api` and `modules`. Historical top-level capacity properties
-remain accepted; the nested values take precedence. Do not specify both forms
-for new configurations.
+Use `subscription.creation_plan` for initial capacity: `dataset_size_in_gb`,
+`throughput_ops_per_second`, `replication`, `support_oss_cluster_api` and `modules`.
+Historical top-level capacity properties remain accepted; nested values take
+precedence. Use the nested form in new files. Do not specify modules for Redis 8+.
 
-Each managed database requires a name. Its optional fields cover capacity, Redis
-version, persistence, eviction, TLS, source IPs, alerts, remote backups and the
-application ACL. Omit `redis_version` to use the service default. For Agent Memory,
-enable TLS and the default database user; `agent_memory_compatible: true` enables
-the default user when it was not explicitly set. Keep public endpoint access
-enabled on the backing subscription as required by the current integration.
+A managed database requires a name. Optional settings cover size, throughput,
+Redis version, persistence, eviction, TLS, source IPs, alerts, remote backups,
+tags and its application ACL. Omit `redis_version` for the service default.
+Database names must be unique across managed subscriptions in the same account
+because application ACL names derive from them.
 
-`source_ips` must include the service egress addresses supplied for the selected
-Agent Memory region and any application addresses that need direct database
-access. A public endpoint is not a reason to allow every source address.
+For Agent Memory, enable TLS, the default database user and public endpoint access
+on the subscription as required by the integration. `agent_memory_compatible: true`
+enables the default user when it is not explicitly supplied. The source-IP list
+must include the service egress addresses for the region and any required direct
+application access; confirm them before deploying.
 
-`mode: external` preserves infrastructure owned elsewhere. An external
-subscription can provide `subscription_id`; an external database can provide
-`database_id`. This repository does not adopt existing resources automatically.
-Changing a managed entry to external requires an explicit ownership transfer.
+## Agent Memory inputs
 
-## Agent Memory
-
-A managed store requires a name and either `database`, referring to a database
-map key, or `database_id`, referring to an existing database. Prefer map references
-when the database is described by the same file.
+A managed store needs a name and either `database` (a database map key) or
+`database_id` (an existing database), never both. Prefer map references for
+databases described in the same file.
 
 | Group | Inputs |
 | --- | --- |
 | Retention | `short_term_ttl_seconds`, `long_term_ttl_seconds` |
 | Extraction | `extraction_cadence_seconds`, optional `extraction_strategy` |
-| Models | `llm` and `embedding`, configured together for customer-managed models |
-| Summarization | `enabled`, optional strategy and event-count settings |
-| Memory types | List of named types, descriptions, fields and extraction prompts |
-| Exclusions | Semantic policy, built-in detectors and custom regex detectors |
-| Runtime keys | Named `api_keys` map; each entry can be enabled or disabled |
-| Timeouts | Optional `create`, `read`, `update`, `delete` provider durations |
+| Models | `llm` and `embedding`, supplied together for BYO models |
+| Summarization | `enabled`, optional strategy and event-count threshold/retain count |
+| Memory types | Named types, descriptions, structured fields and extraction strategies |
+| Exclusions | Semantic guidance, built-in detectors and custom regex detectors |
+| Runtime keys | Named `api_keys` map with optional name, enabled flag and timeouts |
+| Timeouts | Provider durations for `create`, `read`, `update`, `delete`, such as `30m` |
 
-Each runtime key also accepts `create`, `read` and `delete` timeouts. A key's
-`secret_ref` is metadata only; it does not publish the generated value. Store
-`tags` are reserved metadata and are not applied to the API. They may be omitted.
+Second-based values must be positive integers. Timeouts are operation budgets,
+not retention periods. Store `tags` and key `secret_ref` are metadata only; they
+do not apply store tags or publish secrets.
 
-For customer-managed models, put the GitHub secret's environment variable name
-in `credentials.api_key_env_var`, never its value. The workflows expose
-`AGENT_MEMORY_LLM_API_KEY` and `AGENT_MEMORY_EMBEDDING_API_KEY`. Increase
-`credentials.api_key_version` whenever changing the secret. A secret change alone
-does not create a Terraform diff for a write-only argument.
+### Optional objects and switches
 
-The JSON and stack inputs keep optional blocks as objects for readability. The
-provider represents them as zero-or-one lists in state. The state adapter makes
-that translation when an omitted resource must be destroyed; it rejects
-ambiguous shapes rather than guessing and never copies stored model secrets.
+The JSON and Terraform inputs use objects for optional policies and lists for
+repeated fields/detectors. Terraform `dynamic` blocks translate these into the
+provider's nested blocks. Its state stores optional blocks as zero-or-one lists;
+the state adapter handles that shape when reconstructing omitted-resource deletion.
 
-## Changes and removal
+| Input | Stack behavior |
+| --- | --- |
+| Omit an optional object or set it null | Emit no corresponding block |
+| Supply an object with `enabled: false` | Emit a block with an explicit off flag |
+| Omit a property declared `optional(bool)` | Keep null for the provider to resolve |
+| Omit a property declared `optional(bool, true)` | Use true |
+| Omit a detector list with default `[]` | Configure zero entries |
 
-Always inspect the plan. Supported updates preserve store identity; immutable
-changes can replace the store and its keys. This includes changing its database
-or a configured extraction strategy and removing or redefining existing custom
-memory types. Exact replacement behavior belongs to the pinned provider.
+These are input semantics; removing a block is not a promise to reset an existing
+remote setting. Use explicit switches when disabling and inspect the plan.
+Schema defaults document intent; the input/provider contracts apply defaults.
+Strings such as `"false"` are not booleans.
 
-Removing a managed store or database map entry produces a reviewed deletion
-plan. Remove dependent store entries before deleting their database. Deleting the
-whole JSON file does not tear infrastructure down: use Config Destroy first.
+### Models and keys
 
-## Format upgrades and extensions
+Omit both model blocks for platform-managed models. For BYO models, choose
+provider/model values supported by the service and supply both blocks at creation.
+The following properties go inside a store; names shown are examples:
 
-Compatible optional additions keep `schema_version: 1`. A breaking JSON contract
-needs a new version and a documented migration. Terraform state schema changes
-are separate from the JSON format and require an explicit upgrade rehearsal.
+```json
+"llm": {
+  "provider": "openai",
+  "model": "gpt-4o-mini",
+  "credentials": {
+    "api_key_env_var": "AGENT_MEMORY_LLM_API_KEY",
+    "api_key_version": 1
+  }
+},
+"embedding": {
+  "provider": "openai",
+  "model": "text-embedding-3-small",
+  "credentials": {
+    "api_key_env_var": "AGENT_MEMORY_EMBEDDING_API_KEY",
+    "api_key_version": 1
+  }
+}
+```
 
-To expose another provider field, update the JSON Schema, its resource renderer,
-Terraform variables/resource, example or guide and a lifecycle test together.
-Keep resource behavior in Terraform and service-specific input handling in its
-Python module. Do not copy the entire provider schema into a generic renderer.
+Use the GitHub secrets' environment-variable names, never their values. BYO
+embedding also needs explicit `long_term_ttl_seconds`. Model keys are write-only
+in provider state. Changing a key alone creates no diff: update the GitHub secret
+and increase the positive integer `api_key_version` (default 1).
+
+Runtime keys are different resources. Setting a key's `enabled` flag false removes
+it from desired state and revokes an existing key on apply; it is not a pause.
+For rotation, create/deliver/test another named key before removing the old one.
+Generated keys remain sensitive state outputs; secret delivery is customer-owned.
+
+### Exclusions
+
+The policy has one master switch and three independently optional families.
+Detector families and individual detectors have their own switches. Configure
+all applicable flags explicitly when enabling a rule.
+
+| Family | Purpose |
+| --- | --- |
+| `semantic` | Advisory extraction prompt; supply a prompt when enabled |
+| `built_in_detectors` | Select service detectors by `id` |
+| `custom_detectors` | Named application patterns with a regex matcher |
+
+`redact` requests redaction of a match; `drop` requests dropping the matching
+memory. An omitted action delegates its default to the provider/API. Semantic
+guidance does not guarantee exclusion. Rules apply to newly extracted long-term
+memories, not session events, summaries, direct application writes or existing
+records. They are not a general input sanitizer and do not guarantee that
+sensitive text cannot reach a model provider.
+
+This property goes inside a managed store:
+
+```json
+"long_term_memory_exclusions": {
+  "enabled": true,
+  "semantic": {
+    "enabled": true,
+    "prompt": "Do not extract credentials, access tokens or recovery codes."
+  },
+  "built_in_detectors": {
+    "enabled": true,
+    "detectors": [
+      { "id": "email", "enabled": true, "action": "redact" }
+    ]
+  },
+  "custom_detectors": {
+    "enabled": true,
+    "detectors": [
+      {
+        "name": "fetch_account_id",
+        "enabled": true,
+        "action": "redact",
+        "matcher": {
+          "kind": "regex",
+          "regex": { "pattern": "FR-[0-9]{8}" }
+        }
+      }
+    ]
+  }
+}
+```
+
+The custom pattern describes `FR-` followed by eight digits. In `.tfvars`, assign
+the same object using `long_term_memory_exclusions = { ... }`; in `variables.tf`,
+`bool` and `string` declare types rather than sample values. The commented stack
+example shows the direct Terraform form.
+
+## Updates and removal
+
+Always inspect the plan. Supported updates preserve identity; immutable changes
+can replace the store and its keys. Examples include changing its database or a
+configured extraction strategy, removing/redefining an existing custom type, or
+removing its extraction strategy. The pinned provider determines the actual plan.
+
+Remove a managed store/database entry to propose deletion. Remove dependent
+stores before removing their database. Deleting the JSON itself performs no
+teardown. Changing map keys requires migration rather than an ordinary rename.
+
+For extensions, update schema, renderer, stack and regression coverage together.
+Breaking JSON contracts require a schema-version migration. Provider state
+upgrades are separate; see [maintenance](maintenance.md).

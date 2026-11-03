@@ -26,7 +26,9 @@ def deferred_plan(
     return bundles.freeze_inputs(bundle, index, stack, item, directory)
 
 
-def reviewed_plan(bundle: Path, index: int, stack: str, item: dict, *, deleting: bool) -> tuple:
+def reviewed_plan(
+    bundle: Path, index: int, stack: str, item: dict, *, deleting: bool
+) -> tuple:
     directory = terraform.backend(stack, item["state_key"])
     if (
         deleting
@@ -40,7 +42,9 @@ def reviewed_plan(bundle: Path, index: int, stack: str, item: dict, *, deleting:
         )
         return None, None
     filename = f"review-{index}.tfplan"
-    plan = terraform.plan(directory, Path(item["tfvars_path"]), filename, destroy=deleting)
+    plan = terraform.plan(
+        directory, Path(item["tfvars_path"]), filename, destroy=deleting
+    )
     reporting.describe(stack + " " + item["name"], plan)
     if item.get("removed") and any(
         change["change"]["actions"] not in (["delete"], ["no-op"], ["read"])
@@ -53,15 +57,19 @@ def reviewed_plan(bundle: Path, index: int, stack: str, item: dict, *, deleting:
 
 
 def plan_phase(args):
+    """Validate inventory and collect reviewed/deferred plans without applying changes."""
     manifest = json.loads(args.manifest.read_text())
     bundle = args.bundle
     bundle.mkdir(parents=True, exist_ok=True)
     review = bundles.new_review(args.phase)
     omitted = []
     if args.phase in {"preview", "rollout"} or (
-        args.phase == "destroy" and manifest.get("destroy_scope") == "all_managed_resources"
+        args.phase == "destroy"
+        and manifest.get("destroy_scope") == "all_managed_resources"
     ):
-        omitted = inventory.removed_entries(manifest, args.manifest.parent, terraform.run)
+        omitted = inventory.removed_entries(
+            manifest, args.manifest.parent, terraform.run
+        )
     planned_entries = omitted + stacks.entries(manifest, args.phase)
     if args.phase == "destroy":
         planned_entries.sort(key=lambda entry: stacks.DESTROY_ORDER.index(entry[0]))
@@ -77,13 +85,18 @@ def plan_phase(args):
             and args.phase in {"preview", "rollout"}
             and (
                 (stack == "database" and pending_subscription)
-                or (stack == "agent-memory" and item.get("database_key") in pending_databases)
+                or (
+                    stack == "agent-memory"
+                    and item.get("database_key") in pending_databases
+                )
             )
         )
         if deferred:
             if stack == "database":
                 pending_databases.add(item["key"])
-            record = deferred_plan(bundle, index, stack, item, preview=args.phase == "preview")
+            record = deferred_plan(
+                bundle, index, stack, item, preview=args.phase == "preview"
+            )
             if record is not None:
                 review["plans"].append(record)
                 needs_apply = True
@@ -94,18 +107,23 @@ def plan_phase(args):
         if not deleting and args.phase in {"preview", "rollout"}:
             if stack == "subscription":
                 pending_subscription = (
-                    terraform.dependency_status(plan, "rediscloud_subscription") == "pending"
+                    terraform.dependency_status(plan, "rediscloud_subscription")
+                    == "pending"
                 )
             elif (
                 stack == "database"
-                and terraform.dependency_status(plan, "rediscloud_subscription_database")
+                and terraform.dependency_status(
+                    plan, "rediscloud_subscription_database"
+                )
                 == "pending"
             ):
                 pending_databases.add(item["key"])
         needs_apply |= terraform.has_changes(plan)
         review["plans"].append(record)
 
-    reporting.output("needs_apply", str(needs_apply and args.phase != "preview").lower())
+    reporting.output(
+        "needs_apply", str(needs_apply and args.phase != "preview").lower()
+    )
     if args.phase == "preview" or not needs_apply:
         reporting.summary(
             "\nNo deployment approval is requested."
@@ -129,11 +147,13 @@ def apply_plan(
 
 
 def apply_phase(args):
+    """Verify the entire approved bundle before executing its saved/deferred plans."""
     review = bundles.validate_bundle(args.bundle, args.phase)
     overridden = "provider_sha256" in review
     if (
         overridden
-        and bundles.digest(Path(os.environ["PROVIDER_BINARY"])) != review["provider_sha256"]
+        and bundles.digest(Path(os.environ["PROVIDER_BINARY"]))
+        != review["provider_sha256"]
     ):
         raise ValueError("The active provider is not the reviewed provider binary.")
     if args.phase == "rollout":
@@ -149,11 +169,14 @@ def apply_phase(args):
 
 
 def prepare_phase_plans(bundle: Path, review: dict, stack: str) -> list:
+    """Prepare every sibling plan before applying any resource in this dependency phase."""
     phase = []
     for index, item in enumerate(review["plans"]):
         if item["stack"] != stack or item.get("removed"):
             continue
-        directory = terraform.prepare_apply_backend(bundle, item, "provider_sha256" in review)
+        directory = terraform.prepare_apply_backend(
+            bundle, item, "provider_sha256" in review
+        )
         if item.get("deferred"):
             name = f"deferred-{index}.tfplan"
             plan = terraform.plan(directory, bundle / item["variables"], name)
@@ -167,12 +190,15 @@ def prepare_phase_plans(bundle: Path, review: dict, stack: str) -> list:
 
 
 def apply_rollout(bundle: Path, review: dict) -> None:
+    """Run approved omissions first, then configured resources in dependency order."""
     overridden = "provider_sha256" in review
     for stack in stacks.DESTROY_ORDER:
         for item in review["plans"]:
             if item["stack"] != stack or not item.get("removed"):
                 continue
-            apply_plan(bundle, item, bundle / item["file"], overridden, "Removing omitted ")
+            apply_plan(
+                bundle, item, bundle / item["file"], overridden, "Removing omitted "
+            )
             reporting.summary(
                 f"## Approved deletion applied: {reporting.cell(item['title'])}\n\nPlan SHA-256: `{item['sha256']}`"
             )

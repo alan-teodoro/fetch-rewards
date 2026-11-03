@@ -1,3 +1,6 @@
+# Validate the bootstrap mode before entering the module: either grant access
+# to existing roles or create repository-bound roles. A new role needs repository,
+# branch and environment identities; OIDC creation and reuse are exclusive modes.
 resource "terraform_data" "validation" {
   lifecycle {
     precondition {
@@ -22,6 +25,9 @@ resource "terraform_data" "validation" {
   }
 }
 
+# The module owns backend security settings in both bucket modes. The explicit
+# create_bucket choice must remain stable; changing it requires state migration
+# rather than using it as an "already exists" toggle.
 module "state_backend" {
   source = "../../modules/terraform_state_backend"
 

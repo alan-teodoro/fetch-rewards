@@ -57,6 +57,7 @@ def dependency_lock_content(path, overridden_provider=False):
 
 
 def prepare_apply_backend(bundle, item, overridden_provider):
+    """Select the reviewed state and reject dependency changes introduced by init."""
     directory = Path("stacks") / item["stack"]
     reviewed_lock = bundle / item["lock"]
     lock = directory / ".terraform.lock.hcl"
@@ -65,7 +66,9 @@ def prepare_apply_backend(bundle, item, overridden_provider):
     if dependency_lock_content(lock, overridden_provider) != dependency_lock_content(
         reviewed_lock, overridden_provider
     ):
-        raise ValueError("Provider dependencies changed after approval; generate a new plan.")
+        raise ValueError(
+            "Provider dependencies changed after approval; generate a new plan."
+        )
     # Apply must see exactly the lock snapshot embedded in its saved plan.
     # init can add/remove an ignored Registry entry under dev_overrides.
     shutil.copyfile(reviewed_lock, lock)
@@ -76,21 +79,28 @@ def dependency_status(plan: dict, resource_type: str) -> str:
     resources = [
         item
         for item in plan.get("resource_changes", [])
-        if item.get("mode", "managed") == "managed" and item.get("type") == resource_type
+        if item.get("mode", "managed") == "managed"
+        and item.get("type") == resource_type
     ]
     if len(resources) != 1:
-        raise ValueError(f"Expected exactly one managed {resource_type} resource in the plan.")
+        raise ValueError(
+            f"Expected exactly one managed {resource_type} resource in the plan."
+        )
     change = resources[0]["change"]
     if any(action in {"create", "delete"} for action in change["actions"]):
         return "pending"
     before = change.get("before") or {}
     after = change.get("after") or {}
-    if (change.get("after_unknown") or {}).get("name") or before.get("name") != after.get("name"):
+    if (change.get("after_unknown") or {}).get("name") or before.get(
+        "name"
+    ) != after.get("name"):
         return "pending"
     return "ready"
 
 
-def plan(directory: Path, variables: Path, filename: str, *, destroy: bool = False) -> dict:
+def plan(
+    directory: Path, variables: Path, filename: str, *, destroy: bool = False
+) -> dict:
     command = [
         "terraform",
         f"-chdir={directory}",
@@ -109,13 +119,22 @@ def plan(directory: Path, variables: Path, filename: str, *, destroy: bool = Fal
 
 def has_changes(plan: dict) -> bool:
     resources_changed = any(
-        item["change"]["actions"] != ["no-op"] for item in plan.get("resource_changes", [])
+        item["change"]["actions"] != ["no-op"]
+        for item in plan.get("resource_changes", [])
     )
     outputs_changed = any(
-        item.get("actions") != ["no-op"] for item in plan.get("output_changes", {}).values()
+        item.get("actions") != ["no-op"]
+        for item in plan.get("output_changes", {}).values()
     )
     return resources_changed or outputs_changed
 
 
 def apply(directory: Path, filename: str) -> None:
-    run("terraform", f"-chdir={directory}", "apply", "-input=false", "-auto-approve", filename)
+    run(
+        "terraform",
+        f"-chdir={directory}",
+        "apply",
+        "-input=false",
+        "-auto-approve",
+        filename,
+    )

@@ -69,7 +69,11 @@ def entries(manifest, phase):
     subscription = manifest["subscription"]
     if subscription["mode"] == "managed":
         result.append(("subscription", subscription))
-    result += [("database", item) for item in manifest["databases"] if item["mode"] == "managed"]
+    result += [
+        ("database", item)
+        for item in manifest["databases"]
+        if item["mode"] == "managed"
+    ]
     result += [
         ("agent-memory", item)
         for item in manifest["agent_memory_stores"]

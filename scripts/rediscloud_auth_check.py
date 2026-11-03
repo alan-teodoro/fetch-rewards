@@ -37,10 +37,14 @@ def describe_http_error(exc: HTTPError) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Validate Redis Cloud API credentials.")
+    parser = argparse.ArgumentParser(
+        description="Validate Redis Cloud API credentials."
+    )
     parser.add_argument(
         "--api-base",
-        default=os.getenv("REDISCLOUD_URL") or os.getenv("REDISCLOUD_API_BASE") or API_BASE_DEFAULT,
+        default=os.getenv("REDISCLOUD_URL")
+        or os.getenv("REDISCLOUD_API_BASE")
+        or API_BASE_DEFAULT,
         help="Redis Cloud API base URL. Defaults to REDISCLOUD_URL, REDISCLOUD_API_BASE, or the public API.",
     )
     args = parser.parse_args()
@@ -48,7 +52,10 @@ def main() -> None:
     access_key = os.getenv("REDISCLOUD_ACCESS_KEY")
     secret_key = os.getenv("REDISCLOUD_SECRET_KEY")
     if not access_key or not secret_key:
-        print("REDISCLOUD_ACCESS_KEY and REDISCLOUD_SECRET_KEY must be set.", file=sys.stderr)
+        print(
+            "REDISCLOUD_ACCESS_KEY and REDISCLOUD_SECRET_KEY must be set.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     params = urlencode({"offset": 0, "limit": 1})
@@ -66,7 +73,10 @@ def main() -> None:
         with urlopen(request) as response:
             json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
-        print(f"Redis Cloud credential validation failed: {describe_http_error(exc)}", file=sys.stderr)
+        print(
+            f"Redis Cloud credential validation failed: {describe_http_error(exc)}",
+            file=sys.stderr,
+        )
         sys.exit(1)
     except URLError as exc:
         print(f"Redis Cloud credential validation failed: {exc}", file=sys.stderr)

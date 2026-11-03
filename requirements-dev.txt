@@ -1,2 +1,0 @@
--r requirements.txt
-redis-agent-memory==0.4.1

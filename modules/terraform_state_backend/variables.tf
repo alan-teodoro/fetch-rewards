@@ -51,6 +51,8 @@ variable "github_allowed_branches" {
   default     = ["main"]
 }
 
+# Keys are GitHub environment identities, not display labels. For a "prod"
+# entry, set REDISCLOUD_ENVIRONMENT=prod and configure that environment's reviewers.
 variable "github_actions_role_names_by_environment" {
   description = "Role names to create for each GitHub Actions environment when create_github_actions_roles is enabled."
   type        = map(string)
@@ -75,6 +77,8 @@ variable "enable_versioning" {
   default     = true
 }
 
+# false lets S3 reject deletion of a non-empty bucket; it is not a general
+# prevent_destroy rule. Backend teardown is separate from customer Config Destroy.
 variable "force_destroy" {
   description = "Whether Terraform may destroy a non-empty state bucket."
   type        = bool

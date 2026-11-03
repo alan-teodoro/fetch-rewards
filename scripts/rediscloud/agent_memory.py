@@ -71,7 +71,9 @@ def validate_model_config(path: str, value: Any) -> dict[str, Any]:
     validate_env_var_name(f"{path}.credentials.api_key_env_var", env_var)
     version = credentials.get("api_key_version", 1)
     if isinstance(version, bool) or not isinstance(version, int) or version < 1:
-        raise ConfigError(f"{path}.credentials.api_key_version must be a positive integer.")
+        raise ConfigError(
+            f"{path}.credentials.api_key_version must be a positive integer."
+        )
     return model
 
 
@@ -118,9 +120,7 @@ def validate_custom_memory_types(path: str, memory_types: Any) -> None:
             field_path = f"{memory_path}.fields[{field_index}]"
             field = require_object(field_path, field)
             require_string(f"{field_path}.name", field.get("name"))
-            require_string(
-                f"{field_path}.description", field.get("description")
-            )
+            require_string(f"{field_path}.description", field.get("description"))
             require_string(f"{field_path}.type", field.get("type"))
 
 
@@ -139,7 +139,9 @@ def validate_api_keys(path: str, value: Any) -> None:
             require_string(f"{path}.{api_key_key}.name", api_key["name"])
 
 
-def validate_agent_memory_stores(stores: dict[str, Any], databases: dict[str, Any]) -> set[str]:
+def validate_agent_memory_stores(
+    stores: dict[str, Any], databases: dict[str, Any]
+) -> set[str]:
     referenced_databases: set[str] = set()
     for key, store in stores.items():
         validate_key(f"$.agent_memory_stores.{key}", key)
@@ -147,7 +149,8 @@ def validate_agent_memory_stores(stores: dict[str, Any], databases: dict[str, An
         fail_unknown_fields(
             f"$.agent_memory_stores.{key}",
             store,
-            {"mode", "name", "database", "database_id", "api_keys"} | AGENT_MEMORY_FIELDS,
+            {"mode", "name", "database", "database_id", "api_keys"}
+            | AGENT_MEMORY_FIELDS,
         )
         mode = get_mode(f"$.agent_memory_stores.{key}", store)
         if mode == "managed":
@@ -156,9 +159,13 @@ def validate_agent_memory_stores(stores: dict[str, Any], databases: dict[str, An
                 require_string(f"$.agent_memory_stores.{key}.name", store.get("name")),
             )
             if "database" not in store and "database_id" not in store:
-                raise ConfigError(f"$.agent_memory_stores.{key} must set database or database_id.")
+                raise ConfigError(
+                    f"$.agent_memory_stores.{key} must set database or database_id."
+                )
             if "database" in store and "database_id" in store:
-                raise ConfigError(f"$.agent_memory_stores.{key} must set only one of database or database_id.")
+                raise ConfigError(
+                    f"$.agent_memory_stores.{key} must set only one of database or database_id."
+                )
             llm = store.get("llm")
             embedding = store.get("embedding")
             if (llm is None) != (embedding is None):
@@ -167,7 +174,9 @@ def validate_agent_memory_stores(stores: dict[str, Any], databases: dict[str, An
                 )
             if llm is not None:
                 validate_model_config(f"$.agent_memory_stores.{key}.llm", llm)
-                validate_model_config(f"$.agent_memory_stores.{key}.embedding", embedding)
+                validate_model_config(
+                    f"$.agent_memory_stores.{key}.embedding", embedding
+                )
                 if store.get("long_term_ttl_seconds") is None:
                     raise ConfigError(
                         f"$.agent_memory_stores.{key}.long_term_ttl_seconds is required when embedding is configured."
@@ -182,9 +191,12 @@ def validate_agent_memory_stores(stores: dict[str, Any], databases: dict[str, An
                 )
             referenced_databases.add(database_key)
         validate_custom_memory_types(
-            f"$.agent_memory_stores.{key}.custom_memory_types", store.get("custom_memory_types", [])
+            f"$.agent_memory_stores.{key}.custom_memory_types",
+            store.get("custom_memory_types", []),
         )
-        validate_api_keys(f"$.agent_memory_stores.{key}.api_keys", store.get("api_keys"))
+        validate_api_keys(
+            f"$.agent_memory_stores.{key}.api_keys", store.get("api_keys")
+        )
     return referenced_databases
 
 
@@ -239,14 +251,18 @@ def render_agent_memory(
         "database_key": store.get("database"),
         "database_id": store.get(
             "database_id",
-            config.get("databases", {}).get(store.get("database"), {}).get("database_id"),
+            config.get("databases", {})
+            .get(store.get("database"), {})
+            .get("database_id"),
         ),
         "state_key": agent_memory_state_key(config, store_key),
         "api_key_secret_refs": {},
         "model_credential_env_vars": {},
     }
 
-    api_keys = optional_object(f"$.agent_memory_stores.{store_key}.api_keys", store.get("api_keys"))
+    api_keys = optional_object(
+        f"$.agent_memory_stores.{store_key}.api_keys", store.get("api_keys")
+    )
     for api_key_key, api_key in api_keys.items():
         if "secret_ref" in api_key:
             entry["api_key_secret_refs"][api_key_key] = api_key["secret_ref"]
@@ -291,7 +307,9 @@ def render_agent_memory(
     managed_api_keys = {}
     for api_key_key, api_key in api_keys.items():
         if (
-            get_mode(f"$.agent_memory_stores.{store_key}.api_keys.{api_key_key}", api_key)
+            get_mode(
+                f"$.agent_memory_stores.{store_key}.api_keys.{api_key_key}", api_key
+            )
             != "managed"
         ):
             continue

@@ -41,7 +41,9 @@ class ConfigError(Exception):
 
 def normalize_name(value: str) -> str:
     ascii_value = (
-        unicodedata.normalize("NFKD", value.strip()).encode("ascii", "ignore").decode("ascii")
+        unicodedata.normalize("NFKD", value.strip())
+        .encode("ascii", "ignore")
+        .decode("ascii")
     )
     normalized = re.sub(r"[^a-z0-9]+", "-", ascii_value.lower())
     normalized = re.sub(r"-+", "-", normalized).strip("-")
@@ -66,7 +68,8 @@ def read_json(path: Path) -> dict[str, Any]:
 
     try:
         payload = json.loads(
-            path.read_text(encoding="utf-8"), object_pairs_hook=unique_json_object,
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=unique_json_object,
             parse_constant=reject_constant,
         )
     except json.JSONDecodeError as exc:
@@ -107,7 +110,9 @@ def require_string(path: str, value: Any) -> str:
 def get_mode(path: str, obj: dict[str, Any]) -> str:
     mode = obj.get("mode", "managed")
     if mode not in MODE_VALUES:
-        raise ConfigError(f"{path}.mode must be one of: {', '.join(sorted(MODE_VALUES))}.")
+        raise ConfigError(
+            f"{path}.mode must be one of: {', '.join(sorted(MODE_VALUES))}."
+        )
     return mode
 
 
@@ -145,7 +150,9 @@ def walk_sensitive_literals(path: str, value: Any) -> None:
 
 def compact(value: Any) -> Any:
     if isinstance(value, dict):
-        return {key: compact(child) for key, child in value.items() if child is not None}
+        return {
+            key: compact(child) for key, child in value.items() if child is not None
+        }
     if isinstance(value, list):
         return [compact(child) for child in value]
     return value

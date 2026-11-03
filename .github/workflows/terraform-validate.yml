@@ -14,7 +14,6 @@ env:
   REDISCLOUD_PROVIDER_SOURCE: ${{ vars.REDISCLOUD_PROVIDER_SOURCE || 'branch' }}
   REDISCLOUD_PROVIDER_REPOSITORY: RedisLabs/terraform-provider-rediscloud
   REDISCLOUD_PROVIDER_REF: ${{ vars.REDISCLOUD_PROVIDER_REF || '6ac1f02d497616ccd3b80791f7032661a85a0429' }}
-  PROVIDER_DEV_OVERRIDE_DIR: ${{ vars.REDISCLOUD_PROVIDER_DEV_OVERRIDE_DIR }}
   PROVIDER_BUILD_PATH: .provider/terraform-provider-rediscloud
 
 jobs:
@@ -68,10 +67,10 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: requirements*.txt
+          cache-dependency-path: requirements.txt
 
-      - name: Install test dependencies
-        run: python3 -m pip install -r requirements-dev.txt
+      - name: Install configuration dependencies
+        run: python3 -m pip install -r requirements.txt
 
       - name: Test config and workflow lifecycle behavior
         run: python3 -m unittest discover -s tests -v
@@ -134,20 +133,6 @@ jobs:
           provider_installation {
             dev_overrides {
               "RedisLabs/rediscloud" = "${install_dir}"
-            }
-
-            direct {}
-          }
-          EOF
-          echo "TF_CLI_CONFIG_FILE=${RUNNER_TEMP}/terraformrc" >> "$GITHUB_ENV"
-
-      - name: Configure legacy Terraform provider override
-        if: env.REDISCLOUD_PROVIDER_SOURCE == 'registry' && env.PROVIDER_DEV_OVERRIDE_DIR != ''
-        run: |
-          cat > "${RUNNER_TEMP}/terraformrc" <<EOF
-          provider_installation {
-            dev_overrides {
-              "RedisLabs/rediscloud" = "${PROVIDER_DEV_OVERRIDE_DIR}"
             }
 
             direct {}
