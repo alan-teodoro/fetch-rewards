@@ -172,6 +172,15 @@ states and API confirmation that the stores and subscription no longer existed.
 Existing demo state was not used; this run did not exercise GitHub OIDC, S3 or
 migration of an older state.
 
+A subsequent [GitHub Actions apply](https://github.com/alan-teodoro/fetch-rewards/actions/runs/41870395916)
+validated commit `2bec5dd` with the official provider, production API, GitHub OIDC,
+reviewed-plan approval and private S3 state. Subscription, database/ACLs, store and
+runtime key creation all succeeded; API reads matched the complete JSON example.
+The [follow-up plan](https://github.com/alan-teodoro/fetch-rewards/actions/runs/41873230663)
+reported no changes in all three stacks. The [CI checks](https://github.com/alan-teodoro/fetch-rewards/actions/runs/41870033377)
+also passed. These demo resources were retained; the earlier disposable local
+test resources were removed.
+
 The production API rejected a fourth custom memory type with a clear 400 error
 and task ID; the existing store remained intact, and correcting the configuration
 allowed the update to complete. At qualification time, the API limit was three
