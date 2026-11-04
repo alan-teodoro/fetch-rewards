@@ -79,7 +79,6 @@ def render_model_config(
     block_name: str,
     model: dict[str, Any],
     tfvars: dict[str, Any],
-    manifest_entry: dict[str, Any],
     *,
     require_credentials: bool = True,
 ) -> dict[str, Any]:
@@ -94,7 +93,6 @@ def render_model_config(
 
     if api_key:
         tfvars[f"{block_name}_api_key"] = api_key
-    manifest_entry["model_credential_env_vars"][block_name] = api_key_env_var
     return {
         "provider": model["provider"],
         "model": model["model"],
@@ -255,7 +253,6 @@ def render_agent_memory(
             .get("database_id"),
         ),
         "api_key_secret_refs": {},
-        "model_credential_env_vars": {},
     }
 
     api_keys = optional_object(
@@ -283,7 +280,6 @@ def render_agent_memory(
             "llm",
             store["llm"],
             tfvars,
-            entry,
             require_credentials=(
                 not config.get("_destroy", False)
                 and store_key != config.get("_selected_destroy")
@@ -294,7 +290,6 @@ def render_agent_memory(
             "embedding",
             store["embedding"],
             tfvars,
-            entry,
             require_credentials=(
                 not config.get("_destroy", False)
                 and store_key != config.get("_selected_destroy")

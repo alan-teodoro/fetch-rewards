@@ -118,7 +118,6 @@ def save_plan(
     shutil.copyfile(directory / ".terraform.lock.hcl", bundle / lock_name)
     return {
         "stack": stack,
-        "title": stack + " " + item["name"],
         "state_key": item["state_key"],
         "file": filename,
         "sha256": digest(target),
