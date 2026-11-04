@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @unittest.skipUnless(
-    os.environ.get("TEST_REGISTRY_PROVIDER") or os.environ.get("MOCK_PROVIDER_BINARY"),
+    os.environ.get("TEST_REGISTRY_PROVIDER"),
     "Set TEST_REGISTRY_PROVIDER=1 for offline Terraform contract checks",
 )
 class TerraformContractTests(unittest.TestCase):
@@ -32,14 +32,7 @@ class TerraformContractTests(unittest.TestCase):
             self.directory / ".terraform.lock.hcl",
         )
         cli = self.folder / "terraformrc"
-        binary = os.environ.get("MOCK_PROVIDER_BINARY")
-        cli.write_text(
-            'provider_installation {\n dev_overrides { "RedisLabs/rediscloud" = '
-            + json.dumps(str(Path(binary).resolve().parent))
-            + " }\n direct {}\n}\n"
-            if binary
-            else "provider_installation { direct {} }\n"
-        )
+        cli.write_text("provider_installation { direct {} }\n")
         self.env = {
             k: v
             for k, v in os.environ.items()

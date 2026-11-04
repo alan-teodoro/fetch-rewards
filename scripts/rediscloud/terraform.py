@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,36 +15,27 @@ def run(*args: str, capture=False):
     ).stdout
 
 
-def backend(stack, state_key):
-    directory = Path("stacks") / stack
+DEPLOYMENT_DIRECTORY = Path("stacks/deployment")
+
+
+def backend(state_key):
+    directory = DEPLOYMENT_DIRECTORY
     run(
         "terraform",
         f"-chdir={directory}",
         "init",
         "-reconfigure",
         "-input=false",
+        "-lockfile=readonly",
         f"-backend-config=bucket={os.environ['TF_STATE_BUCKET_NAME']}",
         f"-backend-config=region={os.environ['TF_STATE_REGION_NAME']}",
         f"-backend-config=key={state_key}",
     )
-    # Keep the raw init result with each saved plan, including empty override locks.
-    lock = directory / ".terraform.lock.hcl"
-    if not lock.exists():
-        lock.write_text("")
     return directory
 
 
-def dependency_lock_content(path, overridden_provider=False):
+def dependency_lock_content(path):
     content = path.read_text()
-    if overridden_provider:
-        # This Registry entry does not select the active development binary.
-        # Its identity is independently enforced by the reviewed binary SHA-256.
-        content = re.sub(
-            r'^provider "registry\.terraform\.io/redislabs/rediscloud" \{\n.*?^\}\n?',
-            "",
-            content,
-            flags=re.MULTILINE | re.DOTALL,
-        )
     return "\n".join(
         line.rstrip()
         for line in content.splitlines()
@@ -53,21 +43,18 @@ def dependency_lock_content(path, overridden_provider=False):
     )
 
 
-def prepare_apply_backend(bundle, item, overridden_provider):
+def prepare_apply_backend(bundle, item):
     """Select the reviewed state and reject dependency changes introduced by init."""
-    directory = Path("stacks") / item["stack"]
+    directory = DEPLOYMENT_DIRECTORY
     reviewed_lock = bundle / item["lock"]
     lock = directory / ".terraform.lock.hcl"
     shutil.copyfile(reviewed_lock, lock)
-    backend(item["stack"], item["state_key"])
-    if dependency_lock_content(lock, overridden_provider) != dependency_lock_content(
-        reviewed_lock, overridden_provider
-    ):
+    backend(item["state_key"])
+    if dependency_lock_content(lock) != dependency_lock_content(reviewed_lock):
         raise ValueError(
             "Provider dependencies changed after approval; generate a new plan."
         )
     # Apply must see exactly the lock snapshot embedded in its saved plan.
-    # init can add/remove an ignored Registry entry under dev_overrides.
     shutil.copyfile(reviewed_lock, lock)
     return directory
 

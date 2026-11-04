@@ -1,4 +1,4 @@
-# Maintenance and recovery
+# Operations and recovery
 
 ## Execution path
 
@@ -25,7 +25,6 @@ ordering, omitted resources and partial-apply state itself.
 | `scripts/rediscloud/bundles.py` | Encrypted saved-plan storage, integrity and approval bindings |
 | `scripts/rediscloud/terraform.py` | Terraform CLI calls and dependency-lock verification |
 | `scripts/rediscloud/reporting.py` | Summaries with secret values omitted |
-| `scripts/rediscloud/stacks.py` | Stable backend key and public summary fields |
 
 No delivery script lists state objects, downloads state files or interprets their
 internal JSON. AWS CLI access in the review code is exclusively for encrypted
@@ -55,13 +54,13 @@ raw ID, and managed-to-external changes that would silently delete owned resourc
 These checks cover this deployment, not every consumer in the account.
 
 Ownership transfers, renaming keys and adopting existing resources require an
-explicit maintenance procedure. Existing multi-state installations must follow
-[state migration](state-migration.md) before changing workflows/backend keys.
+explicit state ownership changes. Keep these identities stable during ordinary
+configuration updates.
 
 ## Approval and concurrency
 
 One approval covers one saved plan. Its bundle binds the commit, run/attempt,
-Terraform version, backend, environment, provider identity and dependency lock.
+Terraform version, backend, environment, dependency lock.
 It expires after one hour. Apply validates the complete bundle before using it;
 it never silently replans after approval. A stale plan must be regenerated.
 

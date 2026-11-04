@@ -7,18 +7,13 @@ The deployment root passes parent IDs between modules, so Terraform orders both
 creation and deletion. Python validates/renders inputs and manages plan approval;
 it does not download, parse or edit state files.
 
-> Existing deployments with separate states require the
-> [migration procedure](docs/state-migration.md) before using this root.
-> New deployments use one state from their first apply.
-
 ## Start here
 
 | Goal | Guide |
 | --- | --- |
 | Configure the customer's accounts, credentials and backend | [Customer setup](docs/customer-setup.md) |
 | Understand the JSON and optional settings | [Configuration reference](docs/configuration-reference.md) |
-| Rehearse creation, updates and removal | [Walkthrough](docs/demo-guide.md) |
-| Maintain the code, investigate failures or upgrade | [Maintenance](docs/maintenance.md) |
+| Operate the deployment and recover from failures | [Operations and recovery](docs/maintenance.md) |
 
 After setup, use **Redis Cloud Config Apply** with `operation = plan`, review the
 summary, then run `operation = apply`. Changed configurations require approval in
@@ -81,8 +76,7 @@ commands or synthetic state and do not create cloud infrastructure.
 The qualified deployment path is AWS, Pro single-region, databases with ACLs and
 Agent Memory. Active-Active, customer-managed Redis Cloud encryption and private
 connectivity need separate integration work. The default workflows install the
-official Redis Cloud provider 2.20.0 from the Terraform Registry. A source-build
-option remains available for development; customer deployments need no Go build.
+official Redis Cloud provider 2.20.0 from the Terraform Registry.
 
 Generated passwords and runtime keys are sensitive state outputs. `secret_ref`
 does not publish keys to a secret manager; store `tags` are reserved metadata.

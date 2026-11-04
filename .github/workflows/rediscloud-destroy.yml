@@ -18,19 +18,6 @@ on:
         required: false
         type: string
         default: ""
-      rediscloud_provider_source:
-        description: Use the official Registry provider or build the Agent Memory provider from a branch.
-        required: true
-        type: choice
-        options:
-          - registry
-          - branch
-        default: registry
-      rediscloud_provider_ref:
-        description: Provider branch, tag, or commit used when rediscloud_provider_source is branch.
-        required: true
-        type: string
-        default: v2.20.0
 
 permissions:
   contents: read
@@ -81,6 +68,4 @@ jobs:
       phase: destroy
       apply: true
       config_path: ${{ inputs.config_path }}
-      provider_source: ${{ inputs.rediscloud_provider_source }}
-      provider_ref: ${{ inputs.rediscloud_provider_ref }}
       agent_memory_key: ${{ inputs.agent_memory_key }}

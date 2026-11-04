@@ -5,7 +5,25 @@ from __future__ import annotations
 import json
 import os
 
-from .stacks import PUBLIC_FIELDS
+PUBLIC_FIELDS = {
+    "rediscloud_subscription": {"name", "public_endpoint_access", "memory_storage"},
+    "rediscloud_subscription_database": {
+        "name",
+        "dataset_size_in_gb",
+        "throughput_measurement_value",
+        "alerts",
+        "enable_tls",
+        "enable_default_user",
+    },
+    "rediscloud_agent_memory": {
+        "name",
+        "database_id",
+        "short_term_ttl_seconds",
+        "long_term_ttl_seconds",
+        "extraction_cadence_seconds",
+        "extraction_strategy",
+    },
+}
 
 
 def output(key, value):
@@ -141,5 +159,5 @@ def describe_approval(review: dict, bundle_hash: str) -> None:
     summary(
         f"## Approval required: {review['phase']}\n\nReview the complete saved Terraform plan before approving **{environment}**. "
         "The apply job reuses this exact plan; no deferred plans or replanning. Approval expires after one hour.\n\n"
-        f"- Commit: `{review['commit']}`\n- Provider: `{review['provider_ref']}`\n- Bundle SHA-256: `{bundle_hash}`"
+        f"- Commit: `{review['commit']}`\n- Provider: Registry version pinned by `.terraform.lock.hcl`\n- Bundle SHA-256: `{bundle_hash}`"
     )

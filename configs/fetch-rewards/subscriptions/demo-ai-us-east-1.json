@@ -15,8 +15,8 @@
     "memory_storage": "ram",
     "payment_method": "credit-card",
     "payment_method_id": null,
-    "payment_card_type": "Mastercard",
-    "payment_card_last_four": "1006",
+    "payment_card_type": "Visa",
+    "payment_card_last_four": "0000",
     "maintenance_windows": {
       "mode": "automatic"
     },

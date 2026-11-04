@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 from pathlib import Path
 
@@ -73,7 +72,7 @@ def plan_phase(args):
     manifest = json.loads(args.manifest.read_text())
     item = manifest["deployment"]
     args.bundle.mkdir(parents=True, exist_ok=True)
-    directory = terraform.backend("deployment", item["state_key"])
+    directory = terraform.backend(item["state_key"])
     deleting = args.phase == "destroy" and not manifest.get("selected_module")
     plan = terraform.plan(
         directory, Path(item["tfvars_path"]), "review.tfplan", destroy=deleting
@@ -91,13 +90,9 @@ def plan_phase(args):
             else "Plan-only preview; no changes will be applied."
         )
         return
-    review = bundles.new_review(args.phase)
-    review["plans"].append(
-        bundles.save_plan(
-            args.bundle, 0, "deployment", item, directory, "review.tfplan"
-        )
-    )
-    key, checksum = bundles.publish(args.bundle, manifest, review)
+    review = bundles.new_review(args.phase, item["state_key"])
+    review["plan"] = bundles.save_plan(args.bundle, item, directory)
+    key, checksum = bundles.publish(args.bundle, review)
     reporting.output("bundle_key", key)
     reporting.output("bundle_sha256", checksum)
     reporting.describe_approval(review, checksum)
@@ -105,15 +100,8 @@ def plan_phase(args):
 
 def apply_phase(args):
     review = bundles.validate_bundle(args.bundle, args.phase)
-    overridden = "provider_sha256" in review
-    if (
-        overridden
-        and bundles.digest(Path(os.environ["PROVIDER_BINARY"]))
-        != review["provider_sha256"]
-    ):
-        raise ValueError("The active provider is not the reviewed provider binary.")
-    item = review["plans"][0]
-    directory = terraform.prepare_apply_backend(args.bundle, item, overridden)
+    item = review["plan"]
+    directory = terraform.prepare_apply_backend(args.bundle, item)
     shutil.copyfile(args.bundle / item["file"], directory / "approved.tfplan")
     terraform.apply(directory, "approved.tfplan")
     reporting.summary("Approved deployment plan applied. No replanning was performed.")

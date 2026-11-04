@@ -12,7 +12,6 @@ from pathlib import Path
 
 from rediscloud.bundles import load_bundle
 from rediscloud.lifecycle import apply_phase, plan_phase
-from rediscloud.stacks import STACKS
 
 
 def main():
@@ -22,7 +21,7 @@ def main():
     parser.add_argument(
         "--phase",
         required=True,
-        choices=[*sorted(STACKS), "preview", "destroy", "rollout"],
+        choices=["preview", "destroy", "rollout"],
     )
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--bundle", required=True, type=Path)

@@ -25,7 +25,6 @@ from .config_common import (
 )
 from .database import render_database, validate_databases
 from .schema import validate_schema
-from .stacks import deployment_state_key
 from .subscription import render_subscription, validate_subscription
 
 
@@ -192,7 +191,7 @@ def render(
     write_json(tfvars_path, inputs)
     manifest["deployment"] = {
         "name": config["_normalized"]["subscription_name"],
-        "state_key": deployment_state_key(config),
+        "state_key": f"subscriptions/{config['subscription_key']}/terraform.tfstate",
         "tfvars_path": str(tfvars_path),
     }
     if destroy and agent_memory_key:

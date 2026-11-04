@@ -64,8 +64,7 @@ their branch subject trusted because they run outside an environment.
 Set repository secrets `REDISCLOUD_ACCESS_KEY` and `REDISCLOUD_SECRET_KEY`.
 Leave `REDISCLOUD_URL` unset for the public API; set it only for an intentional
 alternative endpoint. The default uses the official Registry provider
-2.20.0 and requires no Go build or provider checkout token. An optional private
-source checkout may need `REDISCLOUD_PROVIDER_CHECKOUT_TOKEN`. Restrict workflow
+2.20.0. Restrict workflow
 and secret changes to trusted maintainers: deployment approval does not restrict
 what workflow authors can do with repository credentials.
 
@@ -74,7 +73,9 @@ what workflow authors can do with repository credentials.
 Start with `configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json`. For another
 namespace, use `configs/<customer>/subscriptions/<file>.json`.
 
-Replace demo billing, names, region, CIDR and source IPs. Include the Agent Memory
+Replace example billing, names, region, CIDR and source IPs. The card selector
+`Visa` ending in `0000` is a placeholder; use a payment method registered in the
+customer account. Include the Agent Memory
 service egress addresses required for the selected region and any application
 addresses needing direct database access. Confirm those addresses with the
 service team; the example is not a production network policy.
@@ -95,24 +96,27 @@ Open **Redis Cloud Config Apply** from the approved branch.
 | --- | --- |
 | `config_path` | Versioned subscription JSON |
 | `operation` | `plan` to preview; `apply` to review and deploy |
-| `rediscloud_provider_source` | `registry` (default) for the locked official release; `branch` for development |
-| `rediscloud_provider_ref` | Source commit/ref used in branch mode |
 
-Keep `registry` selected across plan, apply and destroy. All Redis Cloud stacks
-pin provider 2.20.0, including checksums for Linux Actions runners and macOS.
-The official provider includes its SDK; no separate SDK installation is needed.
-Switching provider builds alone preserves resource identity. This single-state
-layout additionally requires [migration](state-migration.md) for existing
-multi-state deployments. Review a plan before applying. Follow [maintenance](maintenance.md) for upgrades.
+All Redis Cloud stacks pin provider 2.20.0, including checksums for Linux Actions
+runners and macOS. The official provider includes its SDK; no separate SDK
+installation or build is needed. Review a new plan after any provider upgrade.
 
 Read the complete Terraform plan before approval. Subscription, database and
 Agent Memory changes are planned together in one state. One approval applies
 that exact saved plan; it expires one hour after planning. Unchanged runs request
 no approval. Failure stops execution without rolling back completed changes.
 
-Follow the [walkthrough](demo-guide.md) for add/update/remove/teardown. Config
-Destroy requires confirmation and can target one store with `agent_memory_key`.
-External resources and the backend remain outside that teardown.
+Use the same JSON path and stable map keys for subsequent updates. Add an entry
+to create a resource, edit its settings to update it, or remove a managed entry
+to propose deletion. Remove dependent stores before removing their database.
+Review replacements because existing memories are not migrated to a new store.
+
+For complete teardown, run **Redis Cloud Config Destroy** with the same
+`config_path`, `confirm_destroy = true` and an empty `agent_memory_key`.
+For one store, supply its map key in `agent_memory_key`. Remove that entry from
+the JSON too if it must remain deleted on the next Apply run. Keep the JSON until
+teardown finishes. External resources and the state backend are not destroyed.
+See [Operations and recovery](maintenance.md) for state and retry behavior.
 
 ## 6. Connect applications
 

@@ -118,22 +118,14 @@ class ConfigTests(unittest.TestCase):
             2,
         )
 
-    def test_documented_demo_and_added_agent_are_valid(self):
-        p = ROOT / "configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json"
-        c = configuration.load_and_validate(p)
-        self.assertEqual(len(c["agent_memory_stores"]), 1)
-        fragment = json.loads(
-            "{"
-            + (ROOT / "docs/demo-guide.md")
-            .read_text()
-            .split("```json\n", 1)[1]
-            .split("```", 1)[0]
-            + "}"
+    def test_example_configuration_is_valid(self):
+        path = ROOT / "configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json"
+        config = configuration.load_and_validate(path)
+        self.assertEqual(len(config["agent_memory_stores"]), 1)
+        manifest = configuration.render(path, self.folder / "example")
+        self.assertEqual(
+            set(self.values(manifest)["agent_memory_stores"]), {"shopping_agent"}
         )
-        c.pop("_normalized")
-        c["agent_memory_stores"].update(fragment)
-        self.path.write_text(json.dumps(c))
-        self.assertEqual(len(self.values(self.render())["agent_memory_stores"]), 2)
 
     def test_null_optional_collections_render_as_empty_maps(self):
         config = json.loads(self.path.read_text())
@@ -164,8 +156,6 @@ class WorkflowTests(unittest.TestCase):
             p = b / name
             shutil.copyfile(ROOT / f"tests/fakes/{name}.py", p)
             p.chmod(0o755)
-        provider = self.work / "provider"
-        provider.write_text("reviewed binary")
         self.env = {
             **os.environ,
             "PATH": str(b) + os.pathsep + os.environ["PATH"],
@@ -180,8 +170,6 @@ class WorkflowTests(unittest.TestCase):
             "GITHUB_SERVER_URL": "https://github.com",
             "GITHUB_REPOSITORY": "example/test",
             "TF_VERSION": "1.16.7",
-            "RESOLVED_PROVIDER_REF": "registry",
-            "PROVIDER_BINARY": str(provider),
             "MOCK_EVENTS": str(self.work / "events"),
             "MOCK_CHANGES": "{}",
             "MOCK_S3": str(self.work / "s3"),
@@ -284,20 +272,10 @@ class WorkflowTests(unittest.TestCase):
                 self.assertNotEqual(self.execute("apply").returncode, 0)
         self.assertEqual(len(self.events()), 1)
 
-    def test_wrong_active_binary_and_dependency_changes_are_rejected(self):
+    def test_dependency_changes_are_rejected_before_apply(self):
         self.changed()
-        p = Path(self.env["PROVIDER_BINARY"])
-        p.write_text("changed")
-        self.assertNotEqual(self.execute("apply").returncode, 0)
-        p.write_text("reviewed binary")
         self.assertNotEqual(self.execute("apply", MOCK_REWRITE_LOCK="1").returncode, 0)
         self.assertEqual(len(self.events()), 1)
-
-    def test_registry_mode_uses_saved_lock_without_a_source_binary(self):
-        self.env.pop("PROVIDER_BINARY")
-        self.changed()
-        r = self.execute("apply")
-        self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_apply_failure_is_reported_without_a_success_summary(self):
         self.changed()

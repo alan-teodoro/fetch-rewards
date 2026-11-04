@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "customer": "fetch-rewards",
+  "environment": "validation",
+  "subscription_key": "registry-workflow-check-d60f6d",
+  "subscription": {
+    "mode": "external",
+    "name": "pro-raffamendes-mastercard",
+    "subscription_id": 3472119
+  },
+  "databases": {},
+  "agent_memory_stores": {}
+}
