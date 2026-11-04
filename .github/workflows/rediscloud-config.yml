@@ -21,14 +21,14 @@ on:
         required: true
         type: choice
         options:
-          - branch
           - registry
-        default: branch
+          - branch
+        default: registry
       rediscloud_provider_ref:
         description: Provider branch, tag, or commit used when rediscloud_provider_source is branch.
         required: true
         type: string
-        default: 6ac1f02d497616ccd3b80791f7032661a85a0429
+        default: v2.20.0
 
 permissions:
   contents: read

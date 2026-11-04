@@ -1,4 +1,4 @@
-"""Exercise the stack/state contract with Terraform and the built provider, without cloud calls."""
+"""Exercise the stack/state contract with the selected provider, without cloud calls."""
 
 import json
 import os
@@ -15,26 +15,36 @@ from rediscloud.agent_memory_state import agent_destroy_variables  # noqa: E402 
 
 
 @unittest.skipUnless(
-    os.environ.get("MOCK_PROVIDER_BINARY"),
-    "Built provider required for the Terraform contract test",
+    os.environ.get("MOCK_PROVIDER_BINARY") or os.environ.get("TEST_REGISTRY_PROVIDER"),
+    "Set TEST_REGISTRY_PROVIDER=1 or MOCK_PROVIDER_BINARY for the Terraform contract test",
 )
 class TerraformContractTests(unittest.TestCase):
     def test_current_provider_state_produces_a_deletion_only_plan(self):
         terraform = os.environ.get("TF_ACC_TERRAFORM_PATH") or shutil.which("terraform")
         self.assertTrue(terraform, "Install the pinned Terraform version")
-        binary = Path(os.environ["MOCK_PROVIDER_BINARY"]).resolve()
-        self.assertTrue(binary.is_file())
+        binary_path = os.environ.get("MOCK_PROVIDER_BINARY")
+        binary = Path(binary_path).resolve() if binary_path else None
+        if binary:
+            self.assertTrue(binary.is_file())
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder)
             for path in (ROOT / "stacks/agent-memory").glob("*.tf"):
                 if path.name != "backend.generated.tf":
                     shutil.copyfile(path, directory / path.name)
             config = directory / "terraformrc"
-            config.write_text(
-                'provider_installation {\n dev_overrides { "RedisLabs/rediscloud" = '
-                + json.dumps(str(binary.parent))
-                + " }\n direct {}\n}\n"
-            )
+            if binary:
+                config.write_text(
+                    'provider_installation {\n dev_overrides { "RedisLabs/rediscloud" = '
+                    + json.dumps(str(binary.parent))
+                    + " }\n direct {}\n}\n"
+                )
+            else:
+                # Use the same released version and checksums as the delivery stacks.
+                config.write_text("provider_installation { direct {} }\n")
+                shutil.copyfile(
+                    ROOT / "stacks/agent-memory/.terraform.lock.hcl",
+                    directory / ".terraform.lock.hcl",
+                )
             env = {
                 k: v
                 for k, v in os.environ.items()
@@ -114,7 +124,12 @@ class TerraformContractTests(unittest.TestCase):
             }
             path = directory / "inputs.json"
             path.write_text(json.dumps(variables))
-            run("init", "-backend=false", "-input=false")
+            run(
+                "init",
+                "-backend=false",
+                "-input=false",
+                *([] if binary else ["-lockfile=readonly"]),
+            )
             run(
                 "plan",
                 "-input=false",

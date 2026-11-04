@@ -147,15 +147,37 @@ saved/deferred plans, no-op, omission, selective/full destroy, failed
 execution, private summaries and rejected tampered/expired bundles. The simulated commands in `tests/fakes/` and synthetic state keep these tests
 independent of customer resources.
 
-The Terraform stack contract test needs `MOCK_PROVIDER_BINARY` pointing to the
-candidate binary and optionally `TF_ACC_TERRAFORM_PATH` pointing to Terraform.
+Run the Terraform stack contract test against the locked official provider with
+`TEST_REGISTRY_PROVIDER=1`, or set `MOCK_PROVIDER_BINARY` for a source build.
+Optionally set `TF_ACC_TERRAFORM_PATH` to the pinned Terraform executable.
 It uses fake credentials and no refresh to verify the current block/state shape
-can produce a deletion-only plan. Without the binary, that test reports a skip.
+can produce a deletion-only plan. Without either selection, that test reports a skip.
 
 **Terraform Validate** checks configuration/tests, all four stacks, and four
-mocked AWS bootstrap tests. In branch mode it builds the pinned provider and runs
-the stack contract test. There is no live provider-development workflow in this
-customer repository.
+mocked AWS bootstrap tests. It runs the stack contract test with the official
+Registry provider by default, or builds the selected source revision in branch
+mode. There is no live provider-development workflow in this customer repository.
+
+The 2026-11-04 release qualification used Terraform 1.16.7 and the signed
+[Registry provider 2.20.0](https://github.com/RedisLabs/terraform-provider-rediscloud/releases/tag/v2.20.0),
+without development overrides. All 70 automation/contract tests, four mocked AWS
+bootstrap tests, formatting and validation of all four stacks passed.
+
+The live check against `https://api.redislabs.com/v1` used a new subscription,
+database/ACLs and disposable Agent Memory stores with isolated local state. It
+verified the full example configuration, in-place updates, key rotation, adding
+a custom memory type and unchanged plans. Both stores, their keys, the
+database/ACLs and the subscription were destroyed afterward, with empty final
+states and API confirmation that the stores and subscription no longer existed.
+Existing demo state was not used; this run did not exercise GitHub OIDC, S3 or
+migration of an older state.
+
+The production API rejected a fourth custom memory type with a clear 400 error
+and task ID; the existing store remained intact, and correcting the configuration
+allowed the update to complete. At qualification time, the API limit was three
+types per store. Service limits remain API-owned rather than frozen in the JSON
+Schema. Review any future API error before retrying; failure does not imply
+rollback of earlier successful workflow steps.
 
 For a provider upgrade, use a branch, update the workflow source pins or Registry
 lock selections, run these checks, then rehearse create, unchanged reapply,

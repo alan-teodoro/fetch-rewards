@@ -63,10 +63,11 @@ their branch subject trusted because they run outside an environment.
 
 Set repository secrets `REDISCLOUD_ACCESS_KEY` and `REDISCLOUD_SECRET_KEY`.
 Leave `REDISCLOUD_URL` unset for the public API; set it only for an intentional
-alternative endpoint. A private provider checkout may also need
-`REDISCLOUD_PROVIDER_CHECKOUT_TOKEN`. Restrict workflow and secret changes to trusted
-maintainers: deployment approval does not restrict what workflow authors can do
-with repository credentials.
+alternative endpoint. The default uses the official Registry provider
+2.20.0 and requires no Go build or provider checkout token. An optional private
+source checkout may need `REDISCLOUD_PROVIDER_CHECKOUT_TOKEN`. Restrict workflow
+and secret changes to trusted maintainers: deployment approval does not restrict
+what workflow authors can do with repository credentials.
 
 ## 4. Prepare the configuration
 
@@ -94,12 +95,15 @@ Open **Redis Cloud Config Apply** from the approved branch.
 | --- | --- |
 | `config_path` | Versioned subscription JSON |
 | `operation` | `plan` to preview; `apply` to review and deploy |
-| `rediscloud_provider_source` | `branch` for the pinned source build; `registry` for a compatible locked release |
+| `rediscloud_provider_source` | `registry` (default) for the locked official release; `branch` for development |
 | `rediscloud_provider_ref` | Source commit/ref used in branch mode |
 
-Keep the tested provider defaults across plan, apply and destroy. Registry mode
-is ready only after its stack locks select an official version with Agent Memory;
-follow the upgrade procedure in [maintenance](maintenance.md).
+Keep `registry` selected across plan, apply and destroy. All Redis Cloud stacks
+pin provider 2.20.0, including checksums for Linux Actions runners and macOS.
+The official provider includes its SDK; no separate SDK installation is needed.
+Switching from the source build preserves the existing state paths and resource
+identities. Review a plan before applying; changing providers must not silently
+recreate existing resources. Follow [maintenance](maintenance.md) for upgrades.
 
 Read the summary before approval. New or renamed parents can defer downstream
 plans; the summary identifies them. One approval covers the pinned configuration,

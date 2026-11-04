@@ -69,9 +69,9 @@ commands or synthetic state and do not create cloud infrastructure.
 
 The qualified deployment path is AWS, Pro single-region, databases with ACLs and
 Agent Memory. Active-Active, customer-managed Redis Cloud encryption and private
-connectivity need separate integration work. The default workflows build an
-immutable provider commit; Registry mode requires a locked release that includes
-Agent Memory.
+connectivity need separate integration work. The default workflows install the
+official Redis Cloud provider 2.20.0 from the Terraform Registry. A source-build
+option remains available for development; customer deployments need no Go build.
 
 Generated passwords and runtime keys are sensitive state outputs. `secret_ref`
 does not publish keys to a secret manager; store `tags` are reserved metadata.

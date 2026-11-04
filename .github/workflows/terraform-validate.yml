@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 env:
-  REDISCLOUD_PROVIDER_SOURCE: ${{ vars.REDISCLOUD_PROVIDER_SOURCE || 'branch' }}
+  REDISCLOUD_PROVIDER_SOURCE: ${{ vars.REDISCLOUD_PROVIDER_SOURCE || 'registry' }}
   REDISCLOUD_PROVIDER_REPOSITORY: RedisLabs/terraform-provider-rediscloud
-  REDISCLOUD_PROVIDER_REF: ${{ vars.REDISCLOUD_PROVIDER_REF || '6ac1f02d497616ccd3b80791f7032661a85a0429' }}
+  REDISCLOUD_PROVIDER_REF: ${{ vars.REDISCLOUD_PROVIDER_REF || 'v2.20.0' }}
   PROVIDER_BUILD_PATH: .provider/terraform-provider-rediscloud
 
 jobs:
@@ -155,16 +155,15 @@ jobs:
         run: terraform validate
 
       - name: Set up Python for the Terraform contract test
-        if: env.REDISCLOUD_PROVIDER_SOURCE == 'branch'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
 
       - name: Verify current provider state can be removed through the stack
-        if: env.REDISCLOUD_PROVIDER_SOURCE == 'branch'
         env:
-          MOCK_PROVIDER_BINARY: ${{ runner.temp }}/rediscloud-provider-dev/terraform-provider-rediscloud
+          MOCK_PROVIDER_BINARY: ${{ env.REDISCLOUD_PROVIDER_SOURCE == 'branch' && format('{0}/rediscloud-provider-dev/terraform-provider-rediscloud', runner.temp) || '' }}
+          TEST_REGISTRY_PROVIDER: ${{ env.REDISCLOUD_PROVIDER_SOURCE == 'registry' && '1' || '' }}
         run: |
           python3 -m pip install -r requirements.txt
           python3 -m unittest discover -s tests -p 'test_terraform_contract.py' -v

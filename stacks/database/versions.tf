@@ -9,7 +9,7 @@ terraform {
 
     rediscloud = {
       source  = "RedisLabs/rediscloud"
-      version = ">= 2.12.0, < 3.0.0"
+      version = "2.20.0"
     }
   }
 }
