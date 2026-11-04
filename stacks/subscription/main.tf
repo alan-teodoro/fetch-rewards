@@ -46,7 +46,7 @@ resource "rediscloud_subscription" "this" {
   }
 
   # This is the subscription's initial capacity envelope. Actual databases
-  # are owned by separate database stacks/states, not by this nested block.
+  # are declared by the database module, not by this nested block.
   creation_plan {
     dataset_size_in_gb           = var.dataset_size_in_gb
     quantity                     = 1

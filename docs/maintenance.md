@@ -106,20 +106,9 @@ state. `secret_ref` is metadata; automatic Secrets Manager publication is not
 implemented. BYO models require both model identities and their environment keys;
 increment `api_key_version` when rotating a model credential.
 
-## Validation status
+## Verification
 
-The published multi-state baseline at commit `544ae35` passed the
-[production apply](https://github.com/alan-teodoro/fetch-rewards/actions/runs/41870395916),
-[no-op plan](https://github.com/alan-teodoro/fetch-rewards/actions/runs/41873230663)
-and [CI](https://github.com/alan-teodoro/fetch-rewards/actions/runs/41873588106).
-The demo resources remain on that baseline and those states.
-
-This local single-state branch passed 34 schema/renderer, saved-plan workflow
-and offline Terraform contract tests, plus formatting, static checks and root
-validation. The real-provider plans used fake credentials and synthetic state;
-they verified unknown parent IDs, native deletion and write-only BYO credentials.
-The branch has not been pushed, deployed or used to migrate the demo.
-Run the maintained checks before adopting it:
+Before changing the automation or provider version, run:
 
 ```bash
 python3 -m unittest discover -s tests -v
@@ -129,11 +118,11 @@ terraform -chdir=stacks/deployment init -backend=false
 terraform -chdir=stacks/deployment validate
 ```
 
-The offline contract verifies a first plan with unknown managed-parent IDs and
-native deletion when an Agent Memory entry is omitted. Plans use loopback fake
-credentials; no real Redis Cloud requests or resources are created.
+The offline contract uses fake credentials and synthetic state. It verifies
+unknown managed-parent IDs, native deletion and write-only model credentials
+without creating cloud resources. Rehearse creation, unchanged apply, updates,
+addition, selective deletion and full teardown on isolated infrastructure before
+adopting lifecycle changes.
 
-Before release, rehearse one-state creation, unchanged apply, updates, addition,
-selective deletion and full teardown on isolated infrastructure. Separately
-validate the existing-demo migration with a plan containing no cloud resource
-creation, replacement, update or deletion.
+For existing infrastructure, rehearse the state migration separately and require
+a refreshed plan with no cloud resource creation, replacement, update or deletion.

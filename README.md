@@ -7,9 +7,9 @@ The deployment root passes parent IDs between modules, so Terraform orders both
 creation and deletion. Python validates/renders inputs and manages plan approval;
 it does not download, parse or edit state files.
 
-> Local single-state refactor: existing multi-state deployments require the
-> [migration procedure](docs/state-migration.md) before using this root. The
-> deployed demo has not been migrated by this change.
+> Existing deployments with separate states require the
+> [migration procedure](docs/state-migration.md) before using this root.
+> New deployments use one state from their first apply.
 
 ## Start here
 

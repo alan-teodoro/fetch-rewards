@@ -88,15 +88,15 @@
       "mode": "managed",
       "name": "fetch-state-memory-c7c462",
       "database": "shared_agent_memory",
-      "short_term_ttl_seconds": 86400,
-      "long_term_ttl_seconds": 31536000,
-      "extraction_cadence_seconds": 300,
+      "short_term_ttl_seconds": 172800,
+      "long_term_ttl_seconds": 1209600,
+      "extraction_cadence_seconds": 120,
       "summarization": {
         "enabled": true,
         "trigger_strategy": "event_count",
         "event_count": {
-          "threshold": 20,
-          "retain_count": 10
+          "threshold": 24,
+          "retain_count": 8
         }
       },
       "custom_memory_types": [
@@ -170,7 +170,7 @@
         "enabled": true,
         "semantic": {
           "enabled": true,
-          "prompt": "Do not remember passwords, access tokens, recovery codes, payment credentials, authentication secrets, or short-lived one-time codes."
+          "prompt": "Exclude credentials, payment details, recovery codes and operational secrets."
         },
         "built_in_detectors": {
           "enabled": true,
@@ -248,6 +248,24 @@
         "customer": "fetch-rewards",
         "environment": "validation",
         "agent": "shopping"
+      }
+    },
+    "support_agent": {
+      "mode": "managed",
+      "name": "fetch-state-support-c7c462",
+      "database": "shared_agent_memory",
+      "short_term_ttl_seconds": 43200,
+      "long_term_ttl_seconds": 604800,
+      "extraction_cadence_seconds": 300,
+      "summarization": {
+        "enabled": false
+      },
+      "api_keys": {
+        "runtime": {
+          "mode": "managed",
+          "enabled": true,
+          "name": "fetch-state-support-key-c7c462"
+        }
       }
     }
   }
