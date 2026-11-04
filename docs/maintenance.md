@@ -1,202 +1,139 @@
 # Maintenance and recovery
 
-Daily operators use the JSON and the Apply/Destroy workflows. Start with
-[customer setup](customer-setup.md), the [configuration reference](configuration-reference.md)
-and the [walkthrough](demo-guide.md). This guide is for maintaining the automation.
-
 ## Execution path
 
-```mermaid
-flowchart LR
-  A[Versioned JSON] --> B[Validate and render inputs]
-  B --> C[Plan and publish private review bundle]
-  C --> D[Environment approval]
-  D --> E[Verify bundle and execute]
-```
+1. Validate the versioned JSON and render one private tfvars file and a manifest.
+2. Initialize `stacks/deployment` with the backend key from `subscription_key`.
+3. Generate one complete Terraform plan and a non-sensitive review summary.
+4. After environment approval, verify and apply that exact saved plan.
 
-Creation runs subscription → databases → Agent Memory; deletion reverses that
-order. Each resource has its own state, so Python coordinates dependencies across
-states. Terraform controls resources and dependencies inside each stack.
+There are no deferred plans. Terraform references connect the subscription ID to
+the databases and each database ID to its Agent Memory stores. Terraform manages
+ordering, omitted resources and partial-apply state itself.
 
-| Start here | Responsibility |
+## Code map
+
+| File or directory | Responsibility |
 | --- | --- |
-| `scripts/rediscloud_config.py` | CLI for JSON validation and input rendering |
-| `scripts/rediscloud_review.py` | CLI for review preparation, bundle loading and execution |
-| `scripts/rediscloud_auth_check.py` | Administrative API access check before planning |
-| `scripts/rediscloud/config.py`, `schema.py`, `config_common.py` | Configuration loading, schema checks and private JSON writing |
-| `subscription.py`, `database.py`, `agent_memory.py` in that package | Resource-specific validation and input mapping |
-| `stacks.py` | State identities, recognized resources and dependency order |
-| `lifecycle.py` | Planning and approved execution, including deferred steps |
-| `inventory.py`, `agent_memory_state.py` | Omitted-resource discovery and deletion-only inputs reconstructed from state |
-| `bundles.py`, `terraform.py` | Review bindings, saved plans, provider/lock checks and Terraform CLI calls |
-| `reporting.py` | Summaries that omit secret values |
+| `stacks/deployment/main.tf` | Compose managed modules and resolve external parents |
+| `stacks/deployment/variables.tf` | Typed input tree; secrets are separate from instance keys |
+| `stacks/deployment/backend.tf` | S3 state backend and locking |
+| `stacks/subscription`, `stacks/database`, `stacks/agent-memory` | Resource-specific modules; also usable as standalone roots |
+| `scripts/rediscloud_config.py` | JSON validation and rendering CLI |
+| `scripts/rediscloud/config.py`, `subscription.py`, `database.py`, `agent_memory.py` | Input normalization, references and model credentials |
+| `scripts/rediscloud/lifecycle.py` | One plan/apply; additional checks over Terraform's documented JSON plan |
+| `scripts/rediscloud/bundles.py` | Encrypted saved-plan storage, integrity and approval bindings |
+| `scripts/rediscloud/terraform.py` | Terraform CLI calls and dependency-lock verification |
+| `scripts/rediscloud/reporting.py` | Summaries with secret values omitted |
+| `scripts/rediscloud/stacks.py` | Stable backend key and public summary fields |
 
-For a new field, start in its resource module. For an ordering issue, start in
-`lifecycle.py`; for state omission/recovery, start in `inventory.py`. The package
-modules are implementation units, not additional commands operators must run.
+No delivery script lists state objects, downloads state files or interprets their
+internal JSON. AWS CLI access in the review code is exclusively for encrypted
+plan bundles. Terraform alone reads and writes state through its S3 backend.
 
-## State and approval invariants
+## State and identity
 
-State keys are durable:
+Each JSON uses one state. Use a unique `subscription_key` for each independent
+deployment in the same backend; two files sharing that key manage the same state:
 
 ```text
-subscriptions/<subscription_key>/subscription.tfstate
-subscriptions/<subscription_key>/databases/<database_key>.tfstate
-subscriptions/<subscription_key>/agent-memory/<store_key>.tfstate
+subscriptions/<subscription_key>/terraform.tfstate
 ```
 
-Renaming keys, adopting console-created resources or transferring ownership needs
-explicit state reconciliation. No automatic import is performed. Omitted managed
-entries produce deletion plans; unfamiliar or ambiguous state stops reconciliation.
-Retained agents must not still reference a database proposed for omission.
+Module addresses are stable map-key identities:
 
-Existing dependencies are planned before approval. New/replaced/renamed parents
-can defer dependent plans. Their input files are frozen before approval; the
-actual plans are generated after those parents exist. A preview cannot prove the
-complete first-deployment lifecycle.
+```text
+module.subscription[0]
+module.database["shared_agent_memory"]
+module.agent_memory["shopping_agent"]
+```
 
-The review binds commit, run/attempt, Terraform version, provider binary, stack
-locks, backend and approval environment. All saved payloads are checked before
-the first apply. Plans expire after one hour. Only explicitly deferred plans are
-generated after approval. Removed stores are destroyed before removed databases,
-then configured resources are applied in creation order.
+Removing a managed entry from JSON makes Terraform propose deleting its module's
+resources. A removed database key still referenced by an agent fails input
+validation. Plan checks also reject retained agents using a deleted database's
+raw ID, and managed-to-external changes that would silently delete owned resources.
+These checks cover this deployment, not every consumer in the account.
 
-Apply and destroy share a repository concurrency group. S3 locks coordinate each
-state. Completed changes are not rolled back when a later step fails.
+Ownership transfers, renaming keys and adopting existing resources require an
+explicit maintenance procedure. Existing multi-state installations must follow
+[state migration](state-migration.md) before changing workflows/backend keys.
 
-## Reading the Terraform
+## Approval and concurrency
 
-| Pattern | Why it appears |
-| --- | --- |
-| `object`, `list(object)`, `map(object)` | One structured input, repeated nested items, or named resource instances |
-| `optional(...)`, `null`, `[]` | Distinguish omitted values/blocks from an empty collection; defaults belong to input/provider contracts |
-| `dynamic` with `[]` or `[object]` | Emit zero or one provider blocks from an optional object |
-| Resource `for_each` over a map | Keep addresses stable when siblings are added; removing a key removes that resource |
-| Lookup `count` and guarded `[0]` | Resolve existing parents only when a direct ID was not supplied |
-| `validation` | Check an individual input |
-| `terraform_data` with `lifecycle.precondition` | Hold cross-input/dependency checks in state without creating a Redis resource |
-| `depends_on` and attribute references | Order resources inside one state; workflow orchestration handles other states |
-| `can(regex(...))` | Turn a name mismatch into the intended validation message |
-| `try`, `coalesce` | Handle absent nested values and select supported defaults |
+One approval covers one saved plan. Its bundle binds the commit, run/attempt,
+Terraform version, backend, environment, provider identity and dependency lock.
+It expires after one hour. Apply validates the complete bundle before using it;
+it never silently replans after approval. A stale plan must be regenerated.
 
-Name normalization lowercases, replaces runs matching `[^a-z0-9]+` with `-`,
-collapses repeated hyphens and trims their ends. The anchored validation
-`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$` requires a complete 3–63 character name with
-alphanumeric ends. Backslashes in quoted HCL/JSON strings must be escaped;
-`[0-9]` avoids that extra escape for an ASCII digit match.
+Apply and destroy share a GitHub concurrency group. Terraform's S3 lock protects
+the single state. Failure does not roll back successful cloud operations;
+Terraform records completed resources so the next plan can reconcile them.
 
-The stacks' lifecycle preconditions do not prevent destruction or suppress drift.
-The provider decides update versus replacement. Review immutable changes and
-application migration before applying. Direct parent IDs skip their data-source
-checks, so verify external database prerequisites separately.
+Selective destroy uses a normal plan with the selected store omitted from the
+rendered inputs, leaving parents and other stores configured. The plan must only
+delete resources in that store's module; unrelated changes stop the operation.
+The JSON is unchanged, so a subsequent ordinary apply recreates that store unless
+its entry is also removed. Full destroy uses Terraform's native destroy plan.
 
-Backend `create_bucket` is a stable ownership choice. Do not toggle it to detect
-existence. `force_destroy = false` blocks non-empty bucket deletion through S3;
-it is not a general `prevent_destroy` rule. Keep bootstrap state backed up.
+## Local use
 
-## Failures and recovery
-
-Keep the JSON and inspect the failed step. Resolve the service/configuration
-issue, then generate a new review from the same state keys. Start a new run or
-rerun all jobs: an apply-only retry cannot reuse a bundle from another attempt.
-
-| Situation | Operator action |
-| --- | --- |
-| API rejection or failed task | Keep the task ID and error; correct the cause before reviewing a retry |
-| Create acknowledged but readiness failed | The ID can be saved and the resource tainted; inspect the remote store and replacement proposal before approving |
-| Remote create succeeded but no identity was saved | Identify/import the exact resource before retrying to avoid duplicates |
-| Stale lock | Confirm no operation is active; an authorized operator may unlock the exact state by its lock ID |
-| Unrecognized omitted state | Back up the state version and reconcile ownership/shape manually |
-| Selective destroy followed by recreation | Remove its JSON entry too if it should remain deleted |
-
-Restoring a state version restores Terraform's record, not application data or
-infrastructure. Confirm resource identities and that no later apply has progressed.
-
-A replacement receives a new store ID and keys. Application context is not
-automatically migrated. Loss of access through the old ID does not prove physical
-data erasure; confirm retention and cleanup requirements with the service team.
-This project does not perform an implicit flush or delete internal Redis key patterns.
-
-## Credentials and access
-
-Sensitive outputs suppress ordinary display; they do not encrypt state. State,
-rendered inputs and plan bundles require private storage and restricted access.
-Model credentials are write-only in provider state, but renderer root inputs are
-not ephemeral. Increase `api_key_version` when changing a model secret.
-
-Rotate runtime keys by creating a second named key, delivering/testing it, then
-removing the old key. Setting its JSON `enabled` flag false revokes it on apply.
-`secret_ref` is metadata and performs no secret publication.
-
-OIDC trust needs the allowed plan branch and the selected deployment environment.
-The default S3-managed encryption path is qualified; custom KMS policies and
-permissions need their own setup. Removing current plan objects does not remove
-their older S3 versions; define retention separately.
-
-## Tests and upgrades
-
-Use the Python environment from setup:
+With AWS backend access and Redis Cloud credentials set in the environment:
 
 ```bash
-python -m unittest discover -s tests -v
-terraform fmt -check -recursive
+python3 scripts/rediscloud_config.py render \
+  --config configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json \
+  --out-dir .generated/demo
+terraform -chdir=stacks/deployment init \
+  -backend-config="bucket=<private-state-bucket>" \
+  -backend-config="region=us-east-1" \
+  -backend-config="key=subscriptions/demo-ai-us-east-1/terraform.tfstate"
+terraform -chdir=stacks/deployment plan \
+  -var-file=../../.generated/demo/deployment.auto.tfvars.json -out=tfplan
+# Review the full plan before executing it.
+terraform -chdir=stacks/deployment apply tfplan
 ```
 
-The maintained suite covers schema/input mapping, ownership, dependency order,
-saved/deferred plans, no-op, omission, selective/full destroy, failed
-execution, private summaries and rejected tampered/expired bundles. The simulated commands in `tests/fakes/` and synthetic state keep these tests
-independent of customer resources.
+Use the same backend and key as the workflow for the same infrastructure. For a
+new isolated test, use distinct resource names and a distinct subscription key.
+Do not point an unmigrated deployment at an empty new state.
 
-Run the Terraform stack contract test against the locked official provider with
-`TEST_REGISTRY_PROVIDER=1`, or set `MOCK_PROVIDER_BINARY` for a source build.
-Optionally set `TF_ACC_TERRAFORM_PATH` to the pinned Terraform executable.
-It uses fake credentials and no refresh to verify the current block/state shape
-can produce a deletion-only plan. Without either selection, that test reports a skip.
+## Credentials
 
-**Terraform Validate** checks configuration/tests, all four stacks, and four
-mocked AWS bootstrap tests. It runs the stack contract test with the official
-Registry provider by default, or builds the selected source revision in branch
-mode. There is no live provider-development workflow in this customer repository.
+State, tfvars and saved plans can contain passwords/API keys. Keep them private,
+encrypted and out of Git/logs. Sensitive Terraform outputs suppress display;
+they do not encrypt state. Runtime API keys are generated once and stored in
+state. `secret_ref` is metadata; automatic Secrets Manager publication is not
+implemented. BYO models require both model identities and their environment keys;
+increment `api_key_version` when rotating a model credential.
 
-The 2026-11-04 release qualification used Terraform 1.16.7 and the signed
-[Registry provider 2.20.0](https://github.com/RedisLabs/terraform-provider-rediscloud/releases/tag/v2.20.0),
-without development overrides. All 70 automation/contract tests, four mocked AWS
-bootstrap tests, formatting and validation of all four stacks passed.
+## Validation status
 
-The live check against `https://api.redislabs.com/v1` used a new subscription,
-database/ACLs and disposable Agent Memory stores with isolated local state. It
-verified the full example configuration, in-place updates, key rotation, adding
-a custom memory type and unchanged plans. Both stores, their keys, the
-database/ACLs and the subscription were destroyed afterward, with empty final
-states and API confirmation that the stores and subscription no longer existed.
-Existing demo state was not used; this run did not exercise GitHub OIDC, S3 or
-migration of an older state.
+The published multi-state baseline at commit `544ae35` passed the
+[production apply](https://github.com/alan-teodoro/fetch-rewards/actions/runs/41870395916),
+[no-op plan](https://github.com/alan-teodoro/fetch-rewards/actions/runs/41873230663)
+and [CI](https://github.com/alan-teodoro/fetch-rewards/actions/runs/41873588106).
+The demo resources remain on that baseline and those states.
 
-A subsequent [GitHub Actions apply](https://github.com/alan-teodoro/fetch-rewards/actions/runs/41870395916)
-validated commit `2bec5dd` with the official provider, production API, GitHub OIDC,
-reviewed-plan approval and private S3 state. Subscription, database/ACLs, store and
-runtime key creation all succeeded; API reads matched the complete JSON example.
-The [follow-up plan](https://github.com/alan-teodoro/fetch-rewards/actions/runs/41873230663)
-reported no changes in all three stacks. The [CI checks](https://github.com/alan-teodoro/fetch-rewards/actions/runs/41870033377)
-also passed. These demo resources were retained; the earlier disposable local
-test resources were removed.
+This local single-state branch passed 34 schema/renderer, saved-plan workflow
+and offline Terraform contract tests, plus formatting, static checks and root
+validation. The real-provider plans used fake credentials and synthetic state;
+they verified unknown parent IDs, native deletion and write-only BYO credentials.
+The branch has not been pushed, deployed or used to migrate the demo.
+Run the maintained checks before adopting it:
 
-The production API rejected a fourth custom memory type with a clear 400 error
-and task ID; the existing store remained intact, and correcting the configuration
-allowed the update to complete. At qualification time, the API limit was three
-types per store. Service limits remain API-owned rather than frozen in the JSON
-Schema. Review any future API error before retrying; failure does not imply
-rollback of earlier successful workflow steps.
+```bash
+python3 -m unittest discover -s tests -v
+TEST_REGISTRY_PROVIDER=1 python3 -m unittest discover -s tests -p test_terraform_contract.py -v
+terraform fmt -check -recursive
+terraform -chdir=stacks/deployment init -backend=false
+terraform -chdir=stacks/deployment validate
+```
 
-For a provider upgrade, use a branch, update the workflow source pins or Registry
-lock selections, run these checks, then rehearse create, unchanged reapply,
-update, addition, selective removal and teardown on isolated target-account
-resources. Exercise replacement separately with known disposable context.
+The offline contract verifies a first plan with unknown managed-parent IDs and
+native deletion when an Agent Memory entry is omitted. Plans use loopback fake
+credentials; no real Redis Cloud requests or resources are created.
 
-For new fields, update the JSON Schema, renderer, Terraform variables/resource,
-documentation and relevant regression together. Breaking JSON changes require a
-schema-version migration; provider state upgrades are a separate concern.
-
-Git records desired configuration and code history, Actions records runs, and
-Terraform state records managed identities. Scheduled account-wide inventory,
-drift detection and automatic adoption are outside this reference.
+Before release, rehearse one-state creation, unchanged apply, updates, addition,
+selective deletion and full teardown on isolated infrastructure. Separately
+validate the existing-demo migration with a plan containing no cloud resource
+creation, replacement, update or deletion.

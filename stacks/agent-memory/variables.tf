@@ -272,3 +272,11 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+# The deployment root passes false when it supplies a parent's computed ID.
+# Selecting by ID value alone would make lookup count unknown on the first plan.
+variable "lookup_database" {
+  description = "Optional explicit lookup selection for composition with managed parent resources."
+  type        = bool
+  default     = null
+}

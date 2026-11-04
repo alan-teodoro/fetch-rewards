@@ -5,13 +5,13 @@ from __future__ import annotations
 
 import argparse
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tarfile
+from pathlib import Path
 
 from rediscloud.bundles import load_bundle
-from rediscloud.lifecycle import plan_phase, apply_phase
+from rediscloud.lifecycle import apply_phase, plan_phase
 from rediscloud.stacks import STACKS
 
 

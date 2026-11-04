@@ -14,7 +14,7 @@ on:
         type: boolean
         default: false
       agent_memory_key:
-        description: Delete only this Agent Memory config key. Leave empty to destroy all managed resources.
+        description: Delete only this Agent Memory config key; other pending changes block selective deletion. Leave empty for full destroy.
         required: false
         type: string
         default: ""

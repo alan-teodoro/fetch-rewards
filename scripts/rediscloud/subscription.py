@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from .config_common import (
@@ -13,9 +12,7 @@ from .config_common import (
     optional_object,
     require_string,
     validate_normalized_name,
-    write_json,
 )
-from .stacks import subscription_state_key
 
 SUBSCRIPTION_FIELDS = {
     "cloud_provider",
@@ -86,9 +83,7 @@ def validate_subscription(subscription: dict[str, Any]) -> tuple[str, str, int |
     return subscription_mode, subscription_name, subscription_id
 
 
-def render_subscription(
-    config: dict[str, Any], out_dir: Path, manifest: dict[str, Any]
-) -> None:
+def render_subscription(config: dict[str, Any], manifest: dict[str, Any]) -> None:
     subscription = config["subscription"]
     normalized = config["_normalized"]
     if normalized["subscription_mode"] != "managed":
@@ -104,7 +99,4 @@ def render_subscription(
         **copy_fields(creation_plan, SUBSCRIPTION_CREATION_PLAN_FIELDS),
     }
 
-    path = out_dir / "subscription.auto.tfvars.json"
-    write_json(path, tfvars)
-    manifest["subscription"]["tfvars_path"] = str(path)
-    manifest["subscription"]["state_key"] = subscription_state_key(config)
+    manifest["subscription"]["inputs"] = tfvars

@@ -1,4 +1,4 @@
-"""Coordinate dependency-ordered plans and approved execution."""
+"""Review and apply exactly one Terraform plan for a subscription JSON."""
 
 from __future__ import annotations
 
@@ -7,147 +7,103 @@ import os
 import shutil
 from pathlib import Path
 
-from . import bundles, inventory, reporting, stacks, terraform
+from . import bundles, reporting, terraform
 
 
-def deferred_plan(
-    bundle: Path, index: int, stack: str, item: dict, *, preview: bool
-) -> dict | None:
-    title = reporting.cell(stack + " " + item["name"])
-    if preview:
-        reporting.summary(
-            f"## Terraform plan: {title}\n\nSkipped in plan-only mode: dependency creation/replacement/rename is pending."
+def validate_plan(plan, manifest):
+    """Check exceptional ownership/binding cases using Terraform's plan interface.
+
+    Ordinary relationships are declared in HCL. These checks cover raw external
+    database IDs and prevent an ownership-mode change from silently deleting a
+    previously managed resource. No raw state format or S3 state reads are used.
+    """
+    changes = [
+        r
+        for r in plan.get("resource_changes", [])
+        if r.get("mode", "managed") == "managed"
+    ]
+    deleted_databases = {
+        str((r["change"].get("before") or {}).get("db_id"))
+        for r in changes
+        if r["type"] == "rediscloud_subscription_database"
+        and "delete" in r["change"]["actions"]
+    }
+    for resource in changes:
+        change = resource["change"]
+        if (
+            resource["type"] == "rediscloud_agent_memory"
+            and "delete" not in change["actions"]
+        ):
+            if str((change.get("after") or {}).get("database_id")) in deleted_databases:
+                raise ValueError(
+                    "A retained Agent Memory still uses a database scheduled for deletion."
+                )
+        if "delete" in change["actions"]:
+            external = []
+            if manifest["subscription"]["mode"] == "external":
+                external.append("module.subscription[0].")
+            for collection, module in (
+                ("databases", "database"),
+                ("agent_memory_stores", "agent_memory"),
+            ):
+                external += [
+                    f'module.{module}["{item["key"]}"].'
+                    for item in manifest[collection]
+                    if item["mode"] == "external"
+                ]
+            if any(resource["address"].startswith(prefix) for prefix in external):
+                raise ValueError(
+                    "Changing managed resources to external requires explicit ownership transfer."
+                )
+    selected = manifest.get("selected_module")
+    if selected and any(
+        r["change"]["actions"] != ["no-op"]
+        and (
+            not r["address"].startswith(selected + ".")
+            or r["change"]["actions"] != ["delete"]
         )
-        return None
-    reporting.summary(
-        f"## Deferred plan: {title}\n\nIts dependency is pending. The actual plan will be generated and checked after the single approval, before applying this phase."
-    )
-    directory = terraform.backend(stack, item["state_key"])
-    return bundles.freeze_inputs(bundle, index, stack, item, directory)
-
-
-def reviewed_plan(
-    bundle: Path, index: int, stack: str, item: dict, *, deleting: bool
-) -> tuple:
-    directory = terraform.backend(stack, item["state_key"])
-    if (
-        deleting
-        and not terraform.run(
-            "terraform", f"-chdir={directory}", "state", "list", capture=True
-        ).strip()
-    ):
-        # Empty states must not trigger name lookups against deleted parents.
-        reporting.summary(
-            f"## Terraform plan: {reporting.cell(stack + ' ' + item['name'])}\n\nNo resources in this state; nothing to destroy."
-        )
-        return None, None
-    filename = f"review-{index}.tfplan"
-    plan = terraform.plan(
-        directory, Path(item["tfvars_path"]), filename, destroy=deleting
-    )
-    reporting.describe(stack + " " + item["name"], plan)
-    if item.get("removed") and any(
-        change["change"]["actions"] not in (["delete"], ["no-op"], ["read"])
-        for change in plan.get("resource_changes", [])
+        for r in changes
     ):
         raise ValueError(
-            "An omitted resource must have a deletion-only plan; generate a new review."
+            "Selective destroy may only delete the selected Agent Memory; reconcile other changes first."
         )
-    return bundles.save_plan(bundle, index, stack, item, directory, filename), plan
 
 
 def plan_phase(args):
-    """Validate inventory and collect reviewed/deferred plans without applying changes."""
     manifest = json.loads(args.manifest.read_text())
-    bundle = args.bundle
-    bundle.mkdir(parents=True, exist_ok=True)
-    review = bundles.new_review(args.phase)
-    omitted = []
-    if args.phase in {"preview", "rollout"} or (
-        args.phase == "destroy"
-        and manifest.get("destroy_scope") == "all_managed_resources"
-    ):
-        omitted = inventory.removed_entries(
-            manifest, args.manifest.parent, terraform.run
-        )
-    planned_entries = omitted + stacks.entries(manifest, args.phase)
-    if args.phase == "destroy":
-        planned_entries.sort(key=lambda entry: stacks.DESTROY_ORDER.index(entry[0]))
-    reporting.describe_inventory(manifest, args.phase, omitted)
-
-    pending_subscription = False
-    pending_databases = set()
-    needs_apply = False
-    for index, (stack, item) in enumerate(planned_entries):
-        deleting = args.phase == "destroy" or item.get("removed", False)
-        deferred = (
-            not deleting
-            and args.phase in {"preview", "rollout"}
-            and (
-                (stack == "database" and pending_subscription)
-                or (
-                    stack == "agent-memory"
-                    and item.get("database_key") in pending_databases
-                )
-            )
-        )
-        if deferred:
-            if stack == "database":
-                pending_databases.add(item["key"])
-            record = deferred_plan(
-                bundle, index, stack, item, preview=args.phase == "preview"
-            )
-            if record is not None:
-                review["plans"].append(record)
-                needs_apply = True
-            continue
-        record, plan = reviewed_plan(bundle, index, stack, item, deleting=deleting)
-        if record is None:
-            continue
-        if not deleting and args.phase in {"preview", "rollout"}:
-            if stack == "subscription":
-                pending_subscription = (
-                    terraform.dependency_status(plan, "rediscloud_subscription")
-                    == "pending"
-                )
-            elif (
-                stack == "database"
-                and terraform.dependency_status(
-                    plan, "rediscloud_subscription_database"
-                )
-                == "pending"
-            ):
-                pending_databases.add(item["key"])
-        needs_apply |= terraform.has_changes(plan)
-        review["plans"].append(record)
-
+    item = manifest["deployment"]
+    args.bundle.mkdir(parents=True, exist_ok=True)
+    directory = terraform.backend("deployment", item["state_key"])
+    deleting = args.phase == "destroy" and not manifest.get("selected_module")
+    plan = terraform.plan(
+        directory, Path(item["tfvars_path"]), "review.tfplan", destroy=deleting
+    )
+    validate_plan(plan, manifest)
+    reporting.describe("deployment " + item["name"], plan)
+    needs_apply = terraform.has_changes(plan)
     reporting.output(
         "needs_apply", str(needs_apply and args.phase != "preview").lower()
     )
-    if args.phase == "preview" or not needs_apply:
+    if not needs_apply or args.phase == "preview":
         reporting.summary(
-            "\nNo deployment approval is requested."
+            "No deployment approval is requested."
             if not needs_apply
-            else "\nPlan-only preview; no changes will be applied."
+            else "Plan-only preview; no changes will be applied."
         )
         return
-    key, checksum = bundles.publish(bundle, manifest, review)
+    review = bundles.new_review(args.phase)
+    review["plans"].append(
+        bundles.save_plan(
+            args.bundle, 0, "deployment", item, directory, "review.tfplan"
+        )
+    )
+    key, checksum = bundles.publish(args.bundle, manifest, review)
     reporting.output("bundle_key", key)
     reporting.output("bundle_sha256", checksum)
     reporting.describe_approval(review, checksum)
 
 
-def apply_plan(
-    bundle: Path, item: dict, plan_file: Path, overridden_provider: bool, message: str
-) -> None:
-    directory = terraform.prepare_apply_backend(bundle, item, overridden_provider)
-    shutil.copyfile(plan_file, directory / "approved.tfplan")
-    print(message + item["title"], flush=True)
-    terraform.apply(directory, "approved.tfplan")
-
-
 def apply_phase(args):
-    """Verify the entire approved bundle before executing its saved/deferred plans."""
     review = bundles.validate_bundle(args.bundle, args.phase)
     overridden = "provider_sha256" in review
     if (
@@ -156,56 +112,8 @@ def apply_phase(args):
         != review["provider_sha256"]
     ):
         raise ValueError("The active provider is not the reviewed provider binary.")
-    if args.phase == "rollout":
-        apply_rollout(args.bundle, review)
-        return
-    # validate_bundle checks every reviewed file before the first apply.
-    for item in review["plans"]:
-        message = "Destroying " if args.phase == "destroy" else "Applying "
-        apply_plan(args.bundle, item, args.bundle / item["file"], overridden, message)
-        reporting.summary(
-            f"## Approved plan applied: {reporting.cell(item['title'])}\n\nSHA-256: `{item['sha256']}`"
-        )
-
-
-def prepare_phase_plans(bundle: Path, review: dict, stack: str) -> list:
-    """Prepare every sibling plan before applying any resource in this dependency phase."""
-    phase = []
-    for index, item in enumerate(review["plans"]):
-        if item["stack"] != stack or item.get("removed"):
-            continue
-        directory = terraform.prepare_apply_backend(
-            bundle, item, "provider_sha256" in review
-        )
-        if item.get("deferred"):
-            name = f"deferred-{index}.tfplan"
-            plan = terraform.plan(directory, bundle / item["variables"], name)
-            reporting.describe("Post-approval deferred plan: " + item["title"], plan)
-            plan_file = bundle / name
-            shutil.copyfile(directory / name, plan_file)
-        else:
-            plan_file = bundle / item["file"]
-        phase.append((item, plan_file))
-    return phase
-
-
-def apply_rollout(bundle: Path, review: dict) -> None:
-    """Run approved omissions first, then configured resources in dependency order."""
-    overridden = "provider_sha256" in review
-    for stack in stacks.DESTROY_ORDER:
-        for item in review["plans"]:
-            if item["stack"] != stack or not item.get("removed"):
-                continue
-            apply_plan(
-                bundle, item, bundle / item["file"], overridden, "Removing omitted "
-            )
-            reporting.summary(
-                f"## Approved deletion applied: {reporting.cell(item['title'])}\n\nPlan SHA-256: `{item['sha256']}`"
-            )
-    for stack in stacks.CREATE_ORDER:
-        # Prepare all deferred siblings before applying any resource in this phase.
-        for item, plan_file in prepare_phase_plans(bundle, review, stack):
-            apply_plan(bundle, item, plan_file, overridden, "Applying ")
-            reporting.summary(
-                f"## Approved configuration applied: {reporting.cell(item['title'])}\n\nPlan SHA-256: `{bundles.digest(plan_file)}`"
-            )
+    item = review["plans"][0]
+    directory = terraform.prepare_apply_backend(args.bundle, item, overridden)
+    shutil.copyfile(args.bundle / item["file"], directory / "approved.tfplan")
+    terraform.apply(directory, "approved.tfplan")
+    reporting.summary("Approved deployment plan applied. No replanning was performed.")

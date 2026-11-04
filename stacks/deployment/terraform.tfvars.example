@@ -1,0 +1,23 @@
+# Normal input comes from scripts/rediscloud_config.py render.
+# This minimal standalone example references an existing subscription by ID.
+subscription = {
+  mode              = "external"
+  subscription_name = "customer-subscription"
+  subscription_id   = 123
+}
+databases = {
+  shared = {
+    mode                = "managed"
+    database_name       = "customer-agent-memory-db"
+    enable_tls          = true
+    enable_default_user = true
+  }
+}
+agent_memory_stores = {
+  shopping = {
+    mode                 = "managed"
+    agent_memory_name    = "customer-shopping-agent"
+    database_key         = "shared"
+    api_keys = { runtime = { name = "shopping-runtime" } }
+  }
+}

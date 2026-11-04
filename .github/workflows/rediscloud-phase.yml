@@ -1,4 +1,4 @@
-name: Redis Cloud reviewed phase
+name: Redis Cloud reviewed deployment
 on:
   workflow_call:
     inputs:

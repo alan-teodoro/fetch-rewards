@@ -1,251 +1,147 @@
-from __future__ import annotations
+"""JSON mapping and saved-plan workflow regressions, without cloud operations."""
 
-from copy import deepcopy
+import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
-import hashlib
 import tempfile
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
+from rediscloud import config as configuration
+from rediscloud.config_common import ConfigError, read_json
+from rediscloud.lifecycle import validate_plan
 
-
-from rediscloud import config as config_module  # noqa: E402
-from rediscloud.config_common import ConfigError, read_json  # noqa: E402
-from rediscloud.terraform import dependency_status  # noqa: E402
-
-CONFIG_PATH = ROOT / "tests/fixtures/configs/two-agents.json"
-
-
-def change(resource_type, actions, before="existing", after="existing"):
-    return {
-        "mode": "managed",
-        "type": resource_type,
-        "change": {
-            "actions": actions,
-            "before": {"name": before},
-            "after": {"name": after},
-            "after_unknown": {},
-        },
-    }
+FIXTURE = ROOT / "tests/fixtures/configs/two-agents.json"
 
 
 class ConfigTests(unittest.TestCase):
-    def test_documented_demo_starts_with_one_agent_and_accepts_second_agent_fragment(
-        self,
-    ):
-        path = ROOT / "configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json"
-        baseline = config_module.load_and_validate(path)
-        self.assertEqual(list(baseline["agent_memory_stores"]), ["shopping_agent"])
-        guide = (ROOT / "docs/demo-guide.md").read_text()
-        fragment = json.loads(
-            "{" + guide.split("```json\n", 1)[1].split("```", 1)[0] + "}"
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.folder = Path(self.tmp.name)
+        self.path = self.folder / "config.json"
+        self.path.write_text(FIXTURE.read_text())
+
+    def render(self, **kwargs):
+        return configuration.render(self.path, self.folder / "render", **kwargs)
+
+    def values(self, m):
+        return json.loads(Path(m["deployment"]["tfvars_path"]).read_text())
+
+    def test_one_json_has_one_state_and_one_tfvars_file(self):
+        m = self.render()
+        self.assertEqual(
+            m["deployment"]["state_key"],
+            "subscriptions/demo-ai-us-east-1/terraform.tfstate",
         )
-        updated = json.loads(path.read_text())
-        updated["agent_memory_stores"].update(fragment)
-        with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "demo.json"
-            config_path.write_text(json.dumps(updated))
-            manifest = config_module.render(config_path, Path(tmp) / "render")
-            self.assertEqual(len(manifest["agent_memory_stores"]), 2)
-            self.assertEqual(
-                {item["database_key"] for item in manifest["agent_memory_stores"]},
-                {"shared_agent_memory"},
-            )
-            self.assertEqual(
-                len({item["state_key"] for item in manifest["agent_memory_stores"]}), 2
-            )
-            self.assertEqual(
-                updated["agent_memory_stores"]["shopping_agent"],
-                baseline["agent_memory_stores"]["shopping_agent"],
-            )
-
-    def test_missing_or_empty_field_description_fails_config_validation(self):
-        original = json.loads(CONFIG_PATH.read_text())
-        for value in (None, "", " "):
-            with self.subTest(description=value), tempfile.TemporaryDirectory() as tmp:
-                config = deepcopy(original)
-                field = config["agent_memory_stores"]["shopping_agent"][
-                    "custom_memory_types"
-                ][0]["fields"][0]
-                if value is None:
-                    field.pop("description")
-                else:
-                    field["description"] = value
-                path = Path(tmp) / "config.json"
-                path.write_text(json.dumps(config))
-                with self.assertRaisesRegex(ConfigError, r"fields\[0\]\.description"):
-                    config_module.load_and_validate(path)
-
-    def test_selective_destroy_preserves_original_and_targets_one_state(self):
-        original = config_module.load_and_validate(CONFIG_PATH)
-        before = deepcopy(original)
-        selected = config_module.select_destroy_config(original, "support_agent")
-        self.assertEqual(original, before)
-        self.assertEqual(selected["subscription"]["mode"], "external")
-        self.assertTrue(
-            all(db["mode"] == "external" for db in selected["databases"].values())
+        self.assertEqual(
+            len(list((self.folder / "render").glob("*.auto.tfvars.json"))), 1
         )
-        self.assertEqual(list(selected["agent_memory_stores"]), ["support_agent"])
-        with tempfile.TemporaryDirectory() as tmp:
-            manifest = config_module.render(
-                CONFIG_PATH, Path(tmp), destroy=True, agent_memory_key="support_agent"
-            )
-            targeted = [
-                item
-                for item in [
-                    manifest["subscription"],
-                    *manifest["databases"],
-                    *manifest["agent_memory_stores"],
-                ]
-                if item["mode"] == "managed"
-            ]
-            self.assertEqual(
-                [item["state_key"] for item in targeted],
-                ["subscriptions/demo-ai-us-east-1/agent-memory/support_agent.tfstate"],
-            )
-            self.assertEqual(len(list(Path(tmp).glob("*.auto.tfvars.json"))), 1)
+        self.assertEqual(len(self.values(m)["agent_memory_stores"]), 2)
 
-    def test_duplicate_json_keys_are_rejected_before_rendering(self):
-        for text in (
-            '{"subscription_key":"first","subscription_key":"second"}',
-            '{"agent_memory_stores":{"agent":{},"agent":{}}}',
-        ):
-            with self.subTest(text=text), tempfile.TemporaryDirectory() as tmp:
-                path = Path(tmp) / "config.json"
-                path.write_text(text)
-                with self.assertRaisesRegex(ConfigError, "Duplicate JSON property"):
-                    read_json(path)
+    def test_keys_and_external_database_ids_are_preserved(self):
+        c = json.loads(self.path.read_text())
+        db = next(iter(c["databases"].values()))
+        db.update(mode="external", database_id=123)
+        self.path.write_text(json.dumps(c))
+        v = self.values(self.render())
+        self.assertEqual(next(iter(v["databases"].values()))["database_id"], 123)
+        self.assertEqual(set(v["agent_memory_stores"]), set(c["agent_memory_stores"]))
 
-    def test_workflow_paths_support_other_customers_and_reject_escape(self):
-        for path in (
-            "configs/example/subscriptions/prod.json",
-            "configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json",
-        ):
-            config_module.validate_workflow_path(Path(path))
-        for path in (
-            "tests/fixtures/configs/two-agents.json",
-            "../outside.json",
-            "/tmp/config.json",
-            "configs/customer/subscriptions/../../escape.json",
-            "other/config.json",
-        ):
-            with self.subTest(path=path), self.assertRaises(ConfigError):
-                config_module.validate_workflow_path(Path(path))
-
-    def test_model_key_rotation_version_is_validated_and_rendered(self):
-        from unittest.mock import patch
-
-        config = json.loads(CONFIG_PATH.read_text())
-        store = config["agent_memory_stores"]["shopping_agent"]
-        for block in ("llm", "embedding"):
-            store[block] = {
-                "provider": "openai",
-                "model": "example",
-                "credentials": {
-                    "api_key_env_var": "TEST_MODEL_KEY",
-                    "api_key_version": 2,
-                },
-            }
-        with (
-            tempfile.TemporaryDirectory() as tmp,
-            patch.dict(os.environ, {"TEST_MODEL_KEY": "synthetic-secret"}),
-        ):
-            path = Path(tmp) / "config.json"
-            path.write_text(json.dumps(config))
-            manifest = config_module.render(path, Path(tmp) / "render")
-            entry = next(
-                item
-                for item in manifest["agent_memory_stores"]
-                if item["key"] == "shopping_agent"
-            )
-            self.assertEqual(Path(entry["tfvars_path"]).stat().st_mode & 0o077, 0)
-            variables = json.loads(Path(entry["tfvars_path"]).read_text())
-            self.assertEqual(variables["llm"]["credentials"]["api_key_version"], 2)
-            self.assertNotIn("synthetic-secret", json.dumps(manifest))
-            for invalid in (0, -1, True, "2", 1.5):
-                store["llm"]["credentials"]["api_key_version"] = invalid
-                path.write_text(json.dumps(config))
-                with (
-                    self.subTest(version=invalid),
-                    self.assertRaisesRegex(ConfigError, "api_key_version"),
-                ):
-                    config_module.load_and_validate(path)
+    def test_selective_destroy_keeps_parents_and_other_agents(self):
+        original = json.loads(self.path.read_text())
+        m = self.render(destroy=True, agent_memory_key="support_agent")
+        v = self.values(m)
+        self.assertEqual(v["subscription"]["mode"], "managed")
+        self.assertEqual(len(v["databases"]), 1)
+        self.assertEqual(set(v["agent_memory_stores"]), {"shopping_agent"})
+        self.assertEqual(m["selected_module"], 'module.agent_memory["support_agent"]')
+        self.assertEqual(json.loads(self.path.read_text()), original)
 
     def test_unknown_or_external_destroy_target_is_rejected(self):
-        config = config_module.load_and_validate(CONFIG_PATH)
         with self.assertRaises(ConfigError):
-            config_module.select_destroy_config(config, "typo")
-        config["agent_memory_stores"]["support_agent"]["mode"] = "external"
+            self.render(destroy=True, agent_memory_key="missing")
+        c = json.loads(self.path.read_text())
+        c["agent_memory_stores"]["shopping_agent"]["mode"] = "external"
+        self.path.write_text(json.dumps(c))
         with self.assertRaises(ConfigError):
-            config_module.select_destroy_config(config, "support_agent")
+            self.render(destroy=True, agent_memory_key="shopping_agent")
 
-    def test_destroy_does_not_require_unrelated_model_credentials(self):
-        config = json.loads(CONFIG_PATH.read_text())
-        for block in ("llm", "embedding"):
-            config["agent_memory_stores"]["shopping_agent"][block] = {
-                "provider": "openai",
-                "model": "placeholder",
-                "credentials": {
-                    "type": "apiKey",
-                    "api_key_env_var": "MISSING_DEMO_CREDENTIAL",
-                },
-            }
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "config.json"
-            path.write_text(json.dumps(config))
-            manifest = config_module.render(
-                path,
-                Path(tmp) / "render",
-                destroy=True,
-                agent_memory_key="support_agent",
-            )
-            self.assertEqual(manifest["agent_memory_stores"][0]["key"], "support_agent")
+    def test_duplicate_keys_and_unsafe_paths_are_rejected(self):
+        self.path.write_text('{"a":1,"a":2}')
+        with self.assertRaises(ConfigError):
+            read_json(self.path)
+        for p in ("../outside.json", "/tmp/config.json", "tests/config.json"):
+            with self.assertRaises(ConfigError):
+                configuration.validate_workflow_path(Path(p))
 
+    def test_removing_referenced_database_is_rejected_before_terraform(self):
+        c = json.loads(self.path.read_text())
+        c["databases"] = {}
+        self.path.write_text(json.dumps(c))
+        with self.assertRaisesRegex(ConfigError, "unknown database"):
+            self.render()
 
-class DependencyTests(unittest.TestCase):
-    def test_dependency_states(self):
-        for resource_type in (
-            "rediscloud_subscription",
-            "rediscloud_subscription_database",
+    def test_model_credentials_are_separate_from_for_each_identities(self):
+        c = json.loads(self.path.read_text())
+        s = c["agent_memory_stores"]["shopping_agent"]
+        s["llm"] = {
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "credentials": {"api_key_env_var": "TEST_LLM_KEY", "api_key_version": 2},
+        }
+        s["embedding"] = {
+            "provider": "openai",
+            "model": "text-embedding-3-small",
+            "credentials": {"api_key_env_var": "TEST_EMBED_KEY", "api_key_version": 2},
+        }
+        self.path.write_text(json.dumps(c))
+        from unittest.mock import patch
+
+        with patch.dict(
+            os.environ, {"TEST_LLM_KEY": "fake-llm", "TEST_EMBED_KEY": "fake-embedding"}
         ):
-            for actions, before, after, expected in [
-                (["no-op"], "existing", "existing", "ready"),
-                (["update"], "existing", "existing", "ready"),
-                (["update"], "existing", "renamed", "pending"),
-                (["create"], "existing", "existing", "pending"),
-                (["delete", "create"], "existing", "existing", "pending"),
-                (["delete"], "existing", "existing", "pending"),
-            ]:
-                with self.subTest(
-                    resource_type=resource_type, actions=actions, after=after
-                ):
-                    self.assertEqual(
-                        dependency_status(
-                            {
-                                "resource_changes": [
-                                    change(resource_type, actions, before, after)
-                                ]
-                            },
-                            resource_type,
-                        ),
-                        expected,
-                    )
-
-    def test_unknown_name_is_pending_and_missing_dependency_is_an_error(self):
-        item = change("rediscloud_subscription", ["update"])
-        item["change"]["after_unknown"] = {"name": True}
+            v = self.values(self.render())
         self.assertEqual(
-            dependency_status({"resource_changes": [item]}, item["type"]), "pending"
+            v["model_api_keys"]["shopping_agent"]["llm_api_key"], "fake-llm"
         )
-        with self.assertRaises(ValueError):
-            dependency_status({"resource_changes": []}, item["type"])
+        self.assertNotIn("llm_api_key", v["agent_memory_stores"]["shopping_agent"])
+        self.assertEqual(
+            v["agent_memory_stores"]["shopping_agent"]["llm"]["credentials"][
+                "api_key_version"
+            ],
+            2,
+        )
+
+    def test_documented_demo_and_added_agent_are_valid(self):
+        p = ROOT / "configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json"
+        c = configuration.load_and_validate(p)
+        self.assertEqual(len(c["agent_memory_stores"]), 1)
+        fragment = json.loads(
+            "{"
+            + (ROOT / "docs/demo-guide.md")
+            .read_text()
+            .split("```json\n", 1)[1]
+            .split("```", 1)[0]
+            + "}"
+        )
+        c.pop("_normalized")
+        c["agent_memory_stores"].update(fragment)
+        self.path.write_text(json.dumps(c))
+        self.assertEqual(len(self.values(self.render())["agent_memory_stores"]), 2)
+
+    def test_null_optional_collections_render_as_empty_maps(self):
+        config = json.loads(self.path.read_text())
+        config.update(databases=None, agent_memory_stores=None)
+        self.path.write_text(json.dumps(config))
+        values = self.values(self.render())
+        self.assertEqual(values["databases"], {})
+        self.assertEqual(values["agent_memory_stores"], {})
 
 
 class WorkflowTests(unittest.TestCase):
@@ -253,34 +149,29 @@ class WorkflowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.work = Path(self.tmp.name)
-        for kind in ("subscription", "database", "agent-memory"):
-            directory = self.work / "stacks" / kind
-            directory.mkdir(parents=True)
-            (directory / ".terraform.lock.hcl").write_text("# test provider lock")
-        (self.work / "scripts").mkdir()
-        for source in (ROOT / "scripts").glob("rediscloud*.py"):
-            shutil.copy(source, self.work / "scripts")
+        d = self.work / "stacks/deployment"
+        d.mkdir(parents=True)
+        (d / ".terraform.lock.hcl").write_text("reviewed dependencies")
         shutil.copytree(
-            ROOT / "scripts/rediscloud",
-            self.work / "scripts/rediscloud",
+            ROOT / "scripts",
+            self.work / "scripts",
             ignore=shutil.ignore_patterns("__pycache__"),
         )
         shutil.copytree(ROOT / "schemas", self.work / "schemas")
-        binary = self.work / "bin"
-        binary.mkdir()
-        for name in ("terraform", "aws"):
-            target = binary / name
-            shutil.copyfile(ROOT / "tests/fakes" / (name + ".py"), target)
-            target.chmod(0o755)
+        b = self.work / "bin"
+        b.mkdir()
+        for name in ("aws", "terraform"):
+            p = b / name
+            shutil.copyfile(ROOT / f"tests/fakes/{name}.py", p)
+            p.chmod(0o755)
         provider = self.work / "provider"
-        provider.write_text("test-provider-binary")
+        provider.write_text("reviewed binary")
         self.env = {
             **os.environ,
-            "PATH": str(binary) + os.pathsep + os.environ["PATH"],
+            "PATH": str(b) + os.pathsep + os.environ["PATH"],
             "TF_STATE_BUCKET_NAME": "test-bucket",
             "TF_STATE_REGION_NAME": "us-east-1",
             "RUNNER_TEMP": str(self.work),
-            "GITHUB_WORKSPACE": str(self.work),
             "GITHUB_STEP_SUMMARY": str(self.work / "summary.md"),
             "GITHUB_OUTPUT": str(self.work / "output"),
             "GITHUB_SHA": "a" * 40,
@@ -289,35 +180,22 @@ class WorkflowTests(unittest.TestCase):
             "GITHUB_SERVER_URL": "https://github.com",
             "GITHUB_REPOSITORY": "example/test",
             "TF_VERSION": "1.16.7",
-            "RESOLVED_PROVIDER_REF": "b" * 40,
+            "RESOLVED_PROVIDER_REF": "registry",
             "PROVIDER_BINARY": str(provider),
-            "MOCK_EVENTS": str(self.work / "events.jsonl"),
+            "MOCK_EVENTS": str(self.work / "events"),
             "MOCK_CHANGES": "{}",
             "MOCK_S3": str(self.work / "s3"),
         }
-        self.render = self.work / ".generated/rediscloud/test"
-        self.config = self.work / "config.json"
-        self.config.write_text(CONFIG_PATH.read_text())
-        self.render_config()
+        path = self.work / "config.json"
+        path.write_text(FIXTURE.read_text())
+        self.manifest = configuration.render(path, self.work / "render")
+        self.manifest_path = self.work / "render/manifest.json"
+        self.bundle = self.work / "bundle"
 
-    def render_config(self, destroy=False, key=None):
-        self.manifest = config_module.render(
-            self.config, self.render, destroy=destroy, agent_memory_key=key
-        )
-        for item in [
-            self.manifest["subscription"],
-            *self.manifest["databases"],
-            *self.manifest["agent_memory_stores"],
-        ]:
-            if "tfvars_path" in item:
-                item["tfvars_path"] = str(
-                    Path(item["tfvars_path"]).relative_to(self.work)
-                )
-        self.manifest["config_path"] = "configs/fetch-rewards/subscriptions/test.json"
-        (self.render / "manifest.json").write_text(json.dumps(self.manifest))
-
-    def execute(self, command, phase, **options):
+    def execute(self, command, phase="rollout", **options):
+        self.env.update(options)
         Path(self.env["GITHUB_OUTPUT"]).write_text("")
+        self.manifest_path.write_text(json.dumps(self.manifest))
         args = [
             sys.executable,
             "scripts/rediscloud_review.py",
@@ -325,834 +203,221 @@ class WorkflowTests(unittest.TestCase):
             "--phase",
             phase,
             "--bundle",
-            str(self.work / ("bundle-" + phase)),
+            str(self.bundle),
         ]
         if command == "plan":
-            args += ["--manifest", str(self.render / "manifest.json")]
-        for key, value in options.items():
-            args += ["--" + key, str(value)]
-        result = subprocess.run(
-            args, cwd=self.work, env=self.env, capture_output=True, text=True
+            args += ["--manifest", str(self.manifest_path)]
+        if command == "load":
+            args += ["--key", self.key, "--sha256", self.sha]
+        r = subprocess.run(
+            args, cwd=self.work, env=self.env, text=True, capture_output=True
         )
-        self.outputs = dict(
-            line.split("=", 1)
-            for line in Path(self.env["GITHUB_OUTPUT"]).read_text().splitlines()
+        outputs = dict(
+            x.split("=", 1)
+            for x in Path(self.env["GITHUB_OUTPUT"]).read_text().splitlines()
         )
-        return result
+        if "bundle_key" in outputs:
+            self.key = outputs["bundle_key"]
+            self.sha = outputs["bundle_sha256"]
+        return r
+
+    def changed(self):
+        r = self.execute("plan", MOCK_CHANGES=json.dumps({"actions": ["update"]}))
+        self.assertEqual(r.returncode, 0, r.stderr)
 
     def events(self):
-        path = Path(self.env["MOCK_EVENTS"])
-        return (
-            [json.loads(line) for line in path.read_text().splitlines()]
-            if path.exists()
-            else []
-        )
+        p = Path(self.env["MOCK_EVENTS"])
+        return [json.loads(x) for x in p.read_text().splitlines()] if p.exists() else []
 
-    def summary(self):
-        path = Path(self.env["GITHUB_STEP_SUMMARY"])
-        return path.read_text() if path.exists() else ""
-
-    def approved_apply(self, phase):
-        # Model the job boundary: plan -> reviewer approval -> download -> apply.
-        key, sha = self.outputs["bundle_key"], self.outputs["bundle_sha256"]
-        shutil.rmtree(self.work / ("bundle-" + phase))
-        result = self.execute("load", phase, key=key, sha256=sha)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        if self.outputs["provider_binary"]:
-            self.env["PROVIDER_BINARY"] = self.outputs["provider_binary"]
-        return self.execute("apply", phase)
-
-    def seed_state(self, stack, key, name, namespace="demo-ai-us-east-1", **attributes):
-        folder = "databases" if stack == "database" else "agent-memory"
-        resource_type = (
-            "rediscloud_subscription_database"
-            if stack == "database"
-            else "rediscloud_agent_memory"
+    def test_fresh_plan_includes_complete_root_without_deferred_plans(self):
+        r = self.execute(
+            "plan", "preview", MOCK_CHANGES=json.dumps({"actions": ["create"]})
         )
-        values = {
-            "id": "42",
-            "db_id": "42",
-            "name": name,
-            "database_id": "42",
-            "subscription_id": "99",
-            **attributes,
-        }
-        state = {
-            "version": 4,
-            "resources": [
-                {
-                    "mode": "managed",
-                    "type": resource_type,
-                    "name": "this",
-                    "instances": [{"attributes": values}],
-                }
-            ],
-        }
-        state_key = f"subscriptions/{namespace}/{folder}/{key}.tfstate"
-        path = Path(self.env["MOCK_S3"]) / state_key
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(state))
-        return state_key, path
-
-    def test_omitted_agent_and_database_are_reviewed_then_deleted_before_updates(self):
-        agent_key, _ = self.seed_state(
-            "agent-memory", "old_agent", "old-agent", api_key="private-state-value"
-        )
-        database_key, _ = self.seed_state("database", "old_database", "old-database")
-        self.seed_state(
-            "agent-memory", "other_agent", "other-agent", namespace="other-subscription"
-        )
-        result = self.execute("plan", "rollout")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        index = json.loads((self.work / "bundle-rollout/index.json").read_text())
-        removed = [item for item in index["plans"] if item.get("removed")]
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(self.events()), 1)
         self.assertEqual(
-            [item["state_key"] for item in removed], [agent_key, database_key]
+            self.events()[0]["state_key"],
+            "subscriptions/demo-ai-us-east-1/terraform.tfstate",
         )
-        self.assertIn("Resources removed from configuration", self.summary())
-        self.assertNotIn("private-state-value", self.summary() + result.stdout)
-        self.assertFalse(any(event["command"] == "apply" for event in self.events()))
-        planned = len([event for event in self.events() if event["command"] == "plan"])
-        result = self.approved_apply("rollout")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        applied = [
-            event["state_key"] for event in self.events() if event["command"] == "apply"
-        ]
-        self.assertEqual(applied[:2], [agent_key, database_key])
-        self.assertNotIn("other-subscription", " ".join(applied))
-        self.assertEqual(
-            len([event for event in self.events() if event["command"] == "plan"]),
-            planned,
-        )
+        self.assertNotIn("Deferred", Path(self.env["GITHUB_STEP_SUMMARY"]).read_text())
 
-    def test_removed_json_entry_has_destroy_plan_in_preview_without_apply(self):
-        config = json.loads(self.config.read_text())
-        config["agent_memory_stores"].pop("support_agent")
-        self.config.write_text(json.dumps(config))
-        self.render_config()
-        state_key, _ = self.seed_state(
-            "agent-memory", "support_agent", "support-agent-memory"
-        )
-        result = self.execute("plan", "preview")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.outputs["needs_apply"], "false")
-        plans = [event for event in self.events() if event["command"] == "plan"]
-        self.assertEqual(plans[0]["state_key"], state_key)
-        plan = json.loads(
-            (self.work / "stacks/agent-memory/review-0.tfplan").read_text()
-        )
-        self.assertEqual(plan["resource_changes"][0]["change"]["actions"], ["delete"])
-        self.assertFalse(any(event["command"] == "apply" for event in self.events()))
+    def test_saved_plan_is_applied_without_replanning(self):
+        self.changed()
+        self.assertEqual(self.execute("load").returncode, 0)
+        r = self.execute("apply")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([e["command"] for e in self.events()], ["plan", "apply"])
 
-    def test_inventory_failure_stops_without_approval_or_mutation(self):
-        self.env["MOCK_INVENTORY_FAILURE"] = "1"
-        result = self.execute("plan", "rollout")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn("bundle_key", self.outputs)
-        self.assertEqual(self.events(), [])
+    def test_unchanged_configuration_needs_no_approval_or_bundle(self):
+        r = self.execute("plan")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(self.bundle.with_suffix(".tar.gz").exists())
+        self.assertIn("needs_apply=false", Path(self.env["GITHUB_OUTPUT"]).read_text())
 
-    def test_managed_to_external_requires_explicit_ownership_transfer(self):
-        config = json.loads(self.config.read_text())
-        config["agent_memory_stores"]["support_agent"]["mode"] = "external"
-        self.config.write_text(json.dumps(config))
-        self.render_config()
-        self.seed_state("agent-memory", "support_agent", "support-agent-memory")
-        result = self.execute("plan", "rollout")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("transfer its ownership explicitly", result.stderr)
-        self.assertEqual(self.events(), [])
+    def test_tampered_archive_is_rejected(self):
+        self.changed()
+        (Path(self.env["MOCK_S3"]) / self.key).write_text("tampered")
+        self.assertNotEqual(self.execute("load").returncode, 0)
 
-    def test_key_rename_cannot_silently_destroy_same_named_resource(self):
-        self.seed_state("agent-memory", "previous_key", "support-agent-memory")
-        result = self.execute("plan", "rollout")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("migrate its state", result.stderr)
-        self.assertEqual(self.events(), [])
+    def test_tampered_plan_is_rejected_before_apply(self):
+        self.changed()
+        (self.bundle / "review.tfplan").write_text("tampered")
+        self.assertNotEqual(self.execute("apply").returncode, 0)
+        self.assertEqual(len(self.events()), 1)
 
-    def test_omitted_database_still_used_by_direct_id_is_rejected(self):
-        self.seed_state("database", "old_database", "old-database")
-        config = json.loads(self.config.read_text())
-        store = config["agent_memory_stores"]["support_agent"]
-        store.pop("database")
-        store["database_id"] = 42
-        self.config.write_text(json.dumps(config))
-        self.render_config()
-        result = self.execute("plan", "rollout")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("still referenced by ID", result.stderr)
-        self.assertEqual(self.events(), [])
-
-    def test_empty_deleted_states_are_ignored_on_subsequent_runs(self):
-        _, path = self.seed_state("agent-memory", "old_agent", "old-agent")
-        path.write_text(json.dumps({"version": 4, "resources": []}))
-        result = self.execute("plan", "rollout")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.outputs["needs_apply"], "false")
-
-    def test_unrecognized_resources_in_omitted_state_stop_review(self):
-        _, path = self.seed_state("agent-memory", "old_agent", "old-agent")
-        state = json.loads(path.read_text())
-        state["resources"].append(
-            {
-                "mode": "managed",
-                "type": "rediscloud_subscription",
-                "name": "this",
-                "instances": [],
-            }
-        )
-        path.write_text(json.dumps(state))
-        result = self.execute("plan", "rollout")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Unrecognized resources", result.stderr)
-        self.assertEqual(self.events(), [])
-
-    def test_selective_destroy_does_not_include_other_omitted_states(self):
-        self.seed_state("agent-memory", "old_agent", "old-agent")
-        self.render_config(destroy=True, key="support_agent")
-        result = self.execute("plan", "destroy")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        index = json.loads((self.work / "bundle-destroy/index.json").read_text())
-        self.assertEqual(len(index["plans"]), 1)
-        self.assertTrue(
-            index["plans"][0]["state_key"].endswith("/support_agent.tfstate")
-        )
-
-    def test_full_destroy_includes_omitted_resources_in_dependency_order(self):
-        self.seed_state("database", "old_database", "old-database")
-        self.seed_state("agent-memory", "old_agent", "old-agent")
-        self.render_config(destroy=True)
-        result = self.execute("plan", "destroy")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        index = json.loads((self.work / "bundle-destroy/index.json").read_text())
-        self.assertEqual(
-            [item["stack"] for item in index["plans"]],
-            ["agent-memory"] * 3 + ["database"] * 2 + ["subscription"],
-        )
-
-    def test_omitted_plan_tampering_stops_before_any_apply(self):
-        self.seed_state("agent-memory", "old_agent", "old-agent")
-        self.assertEqual(self.execute("plan", "rollout").returncode, 0)
-        index = json.loads((self.work / "bundle-rollout/index.json").read_text())
-        removed = next(item for item in index["plans"] if item.get("removed"))
-        (self.work / "bundle-rollout" / removed["file"]).write_text("tampered")
-        self.assertNotEqual(self.execute("apply", "rollout").returncode, 0)
-        self.assertFalse(any(event["command"] == "apply" for event in self.events()))
-
-    def test_retained_agent_current_binding_blocks_deletion_even_with_new_desired_database(
-        self,
-    ):
-        self.seed_state("database", "old_database", "old-database")
-        self.seed_state(
-            "agent-memory", "support_agent", "support-agent-memory", database_id="42"
-        )
-        # Desired config points to shared_agent_memory; state still uses old DB.
-        self.env["MOCK_CHANGES"] = json.dumps({"database": {"actions": ["create"]}})
-        result = self.execute("plan", "rollout")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn(
-            "retained Agent Memory still uses an omitted database", result.stderr
-        )
-        self.assertEqual(self.events(), [])
-
-    def test_removing_all_agents_and_databases_keeps_subscription(self):
-        keys = [
-            self.seed_state("agent-memory", "shopping_agent", "shopping-agent-memory")[
-                0
-            ],
-            self.seed_state("agent-memory", "support_agent", "support-agent-memory")[0],
-            self.seed_state("database", "shared_agent_memory", "agent-memory-db")[0],
-        ]
-        config = json.loads(self.config.read_text())
-        config["agent_memory_stores"] = {}
-        config["databases"] = {}
-        self.config.write_text(json.dumps(config))
-        self.render_config()
-        result = self.execute("plan", "rollout")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        index = json.loads((self.work / "bundle-rollout/index.json").read_text())
-        self.assertEqual(
-            [item["state_key"] for item in index["plans"] if item.get("removed")], keys
-        )
-        self.assertFalse(index["plans"][-1].get("removed"))
-        self.assertEqual(index["plans"][-1]["stack"], "subscription")
-
-    def test_failure_deleting_omitted_agent_stops_database_deletion_and_updates(self):
-        self.seed_state("agent-memory", "old_agent", "old-agent")
-        self.seed_state("database", "old_database", "old-database")
-        self.assertEqual(self.execute("plan", "rollout").returncode, 0)
-        self.env["MOCK_FAIL_APPLY"] = "agent-memory"
-        self.assertNotEqual(self.approved_apply("rollout").returncode, 0)
-        self.assertEqual(
-            [event["kind"] for event in self.events() if event["command"] == "apply"],
-            ["agent-memory"],
-        )
-
-    def test_external_agent_without_managed_state_is_preserved(self):
-        config = json.loads(self.config.read_text())
-        config["agent_memory_stores"]["support_agent"]["mode"] = "external"
-        self.config.write_text(json.dumps(config))
-        self.render_config()
-        self.seed_state("agent-memory", "old_agent", "old-agent")
-        result = self.execute("plan", "rollout")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        index = json.loads((self.work / "bundle-rollout/index.json").read_text())
-        self.assertFalse(
-            any(
-                item["state_key"].endswith("/support_agent.tfstate")
-                for item in index["plans"]
-            )
-        )
-
-    def test_partial_validation_only_state_can_be_cleaned_without_parent_lookups(self):
-        _, path = self.seed_state("agent-memory", "old_agent", "old-agent")
-        path.write_text(
-            json.dumps(
-                {
-                    "version": 4,
-                    "resources": [
-                        {
-                            "mode": "managed",
-                            "type": "terraform_data",
-                            "name": "validation",
-                            "instances": [{"attributes": {"id": "validation-id"}}],
-                        }
-                    ],
-                }
-            )
-        )
-        result = self.execute("plan", "rollout")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        variables = json.loads(
-            (self.render / "removed-agent-memory-old_agent.json").read_text()
-        )
-        self.assertIn("database_id", variables)
-        self.assertNotIn("database_name", variables)
-
-    def test_unreadable_omitted_state_stops_before_any_plan(self):
-        _, path = self.seed_state("agent-memory", "old_agent", "old-agent")
-        path.write_text("invalid state JSON")
-        self.assertNotEqual(self.execute("plan", "rollout").returncode, 0)
-        self.assertEqual(self.events(), [])
-
-    def test_omitted_agent_destroy_preserves_immutable_definitions_without_model_secrets(
-        self,
-    ):
-        memory_types = [
-            {
-                "name": "preference",
-                "description": "Stable preferences",
-                "fields": [{"name": "topic", "description": "Topic", "type": "str"}],
-                "extraction_strategy": {
-                    "enabled": True,
-                    "prompt": "Remember stable preferences",
-                },
-            }
-        ]
-        self.seed_state(
-            "agent-memory",
-            "old_agent",
-            "old-agent",
-            custom_memory_types=memory_types,
-            long_term_ttl_seconds=7776000,
-            llm={
-                "provider": "openai",
-                "model": "gpt-4o",
-                "credentials": {
-                    "type": "apiKey",
-                    "api_key": "FAKE_ORIGINAL_LLM_SECRET",
-                },
-            },
-            embedding={
-                "provider": "openai",
-                "model": "text-embedding-3-small",
-                "credentials": {
-                    "type": "apiKey",
-                    "api_key": "FAKE_ORIGINAL_EMBEDDING_SECRET",
-                },
-            },
-        )
-        result = self.execute("plan", "rollout")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        variables = json.loads(
-            (self.render / "removed-agent-memory-old_agent.json").read_text()
-        )
-        self.assertEqual(variables["custom_memory_types"], memory_types)
-        self.assertEqual(variables["long_term_ttl_seconds"], 7776000)
-        self.assertEqual(variables["llm"]["model"], "gpt-4o")
-        self.assertEqual(variables["embedding"]["model"], "text-embedding-3-small")
-        self.assertTrue(variables["llm_api_key"] and variables["embedding_api_key"])
-        self.assertNotIn(
-            "FAKE_ORIGINAL_", json.dumps(variables) + result.stdout + self.summary()
-        )
-        index = json.loads((self.work / "bundle-rollout/index.json").read_text())
-        removed = next(item for item in index["plans"] if item.get("removed"))
-        plan = json.loads((self.work / "bundle-rollout" / removed["file"]).read_text())
-        self.assertEqual(plan["resource_changes"][0]["change"]["actions"], ["delete"])
-
-    def test_omitted_agent_with_incomplete_models_requires_manual_reconciliation(self):
-        self.seed_state(
-            "agent-memory",
-            "old_agent",
-            "old-agent",
-            llm={"provider": "openai", "model": "gpt-4o"},
-        )
-        result = self.execute("plan", "rollout")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("incomplete customer-managed model configuration", result.stderr)
-        self.assertEqual(self.events(), [])
-
-    def test_fresh_plan_skips_missing_dependencies(self):
-        self.env["MOCK_CHANGES"] = json.dumps({"subscription": {"actions": ["create"]}})
-        result = self.execute("plan", "preview")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([e["kind"] for e in self.events()], ["subscription"])
-        self.assertIn("Skipped in plan-only mode", self.summary())
-
-    def test_existing_managed_resources_are_all_planned(self):
-        result = self.execute("plan", "preview")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            [e["kind"] for e in self.events()],
-            ["subscription", "database", "agent-memory", "agent-memory"],
-        )
-        self.assertNotIn("Skipped", self.summary())
-        self.assertFalse(any(e["command"] == "apply" for e in self.events()))
-
-    def test_new_database_skips_agents_but_keeps_subscription_plan(self):
-        self.env["MOCK_CHANGES"] = json.dumps({"database": {"actions": ["create"]}})
-        self.assertEqual(self.execute("plan", "preview").returncode, 0)
-        self.assertEqual(
-            [e["kind"] for e in self.events()], ["subscription", "database"]
-        )
-
-    def test_subscription_rename_skips_downstream_name_lookups(self):
-        self.env["MOCK_CHANGES"] = json.dumps(
-            {"subscription": {"actions": ["update"], "after": "renamed"}}
-        )
-        self.assertEqual(self.execute("plan", "preview").returncode, 0)
-        self.assertEqual([e["kind"] for e in self.events()], ["subscription"])
-
-    def test_apply_plans_entire_phase_then_applies_saved_plans_without_replanning(self):
-        self.env["MOCK_CHANGES"] = json.dumps(
-            {
-                kind: {"actions": ["create"]}
-                for kind in ("subscription", "database", "agent-memory")
-            }
-        )
-        for phase in ("subscription", "database", "agent-memory"):
-            result = self.execute("plan", phase)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(self.outputs["needs_apply"], "true")
-            result = self.approved_apply(phase)
-            self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            [(e["command"], e["kind"]) for e in self.events()],
-            [
-                ("plan", "subscription"),
-                ("apply", "subscription"),
-                ("plan", "database"),
-                ("apply", "database"),
-                ("plan", "agent-memory"),
-                ("plan", "agent-memory"),
-                ("apply", "agent-memory"),
-                ("apply", "agent-memory"),
-            ],
-        )
-
-    def test_no_changes_requests_no_approval_or_bundle(self):
-        self.assertEqual(self.execute("plan", "agent-memory").returncode, 0)
-        self.assertEqual(self.outputs, {"needs_apply": "false"})
-        self.assertFalse((self.work / "s3").exists())
-
-    def test_agent_replacement_is_reviewed_and_applied_as_a_saved_plan(self):
-        self.env["MOCK_CHANGES"] = json.dumps(
-            {
-                "subscriptions/demo-ai-us-east-1/agent-memory/support_agent.tfstate": {
-                    "actions": ["delete", "create"]
-                }
-            }
-        )
-        result = self.execute("plan", "agent-memory")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("replacement generates a new store ID", self.summary())
-        self.assertFalse(any(e["command"] == "apply" for e in self.events()))
-        self.assertEqual(self.approved_apply("agent-memory").returncode, 0)
-        self.assertEqual(len([e for e in self.events() if e["command"] == "apply"]), 2)
-
-    def test_selective_destroy_only_applies_selected_state(self):
-        self.render_config(destroy=True, key="support_agent")
-        self.assertEqual(self.execute("plan", "destroy").returncode, 0)
-        result = self.approved_apply("destroy")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            [e["state_key"] for e in self.events()],
-            ["subscriptions/demo-ai-us-east-1/agent-memory/support_agent.tfstate"] * 2,
-        )
-
-    def test_full_destroy_plans_all_before_approval_and_reverses_dependencies(self):
-        self.render_config(destroy=True)
-        result = self.execute("plan", "destroy")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(all(e["command"] == "plan" for e in self.events()))
-        result = self.approved_apply("destroy")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            [e["kind"] for e in self.events() if e["command"] == "apply"],
-            ["agent-memory", "agent-memory", "database", "subscription"],
-        )
-
-    def test_empty_destroy_state_skips_remote_lookups_and_approval(self):
-        self.render_config(destroy=True, key="support_agent")
-        self.env["MOCK_EMPTY_STATES"] = json.dumps(
-            ["subscriptions/demo-ai-us-east-1/agent-memory/support_agent.tfstate"]
-        )
-        self.assertEqual(self.execute("plan", "destroy").returncode, 0)
-        self.assertEqual(self.outputs["needs_apply"], "false")
-        self.assertEqual(self.events(), [])
-
-    def prepare_changed_phase(self):
-        self.env["MOCK_CHANGES"] = json.dumps({"agent-memory": {"actions": ["update"]}})
-        result = self.execute("plan", "agent-memory")
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_tampered_archive_is_rejected_before_apply(self):
-        self.prepare_changed_phase()
-        key = self.outputs["bundle_key"]
-        sha = self.outputs["bundle_sha256"]
-        (Path(self.env["MOCK_S3"]) / key).write_bytes(b"tampered")
-        result = self.execute("load", "agent-memory", key=key, sha256=sha)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("checksum mismatch", result.stderr)
-        self.assertFalse(any(e["command"] == "apply" for e in self.events()))
-
-    def test_expired_or_wrong_run_bundle_is_rejected_before_any_apply(self):
-        self.prepare_changed_phase()
-        index = self.work / "bundle-agent-memory/index.json"
-        original = json.loads(index.read_text())
+    def test_expired_wrong_run_and_backend_are_rejected(self):
+        self.changed()
+        p = self.bundle / "index.json"
+        baseline = json.loads(p.read_text())
         for field, value in (
             ("created", 0),
-            ("run_id", "different"),
+            ("commit", "other"),
+            ("run_id", "other"),
             ("attempt", "2"),
-            ("commit", "different"),
-            ("phase", "database"),
+            ("state_bucket", "other"),
+            ("state_region", "other"),
+            ("deployment_environment", "other"),
+            ("terraform_version", "other"),
         ):
             with self.subTest(field=field):
-                changed = deepcopy(original)
-                changed[field] = value
-                index.write_text(json.dumps(changed))
-                self.assertNotEqual(self.execute("apply", "agent-memory").returncode, 0)
-        self.assertFalse(any(e["command"] == "apply" for e in self.events()))
+                p.write_text(json.dumps({**baseline, field: value}))
+                self.assertNotEqual(self.execute("apply").returncode, 0)
+        self.assertEqual(len(self.events()), 1)
 
-    def test_tampering_with_later_plan_stops_all_applies(self):
-        self.prepare_changed_phase()
-        bundle = self.work / "bundle-agent-memory"
-        index = json.loads((bundle / "index.json").read_text())
-        (bundle / index["plans"][-1]["file"]).write_text("tampered")
-        self.assertNotEqual(self.execute("apply", "agent-memory").returncode, 0)
-        self.assertFalse(any(e["command"] == "apply" for e in self.events()))
+    def test_wrong_active_binary_and_dependency_changes_are_rejected(self):
+        self.changed()
+        p = Path(self.env["PROVIDER_BINARY"])
+        p.write_text("changed")
+        self.assertNotEqual(self.execute("apply").returncode, 0)
+        p.write_text("reviewed binary")
+        self.assertNotEqual(self.execute("apply", MOCK_REWRITE_LOCK="1").returncode, 0)
+        self.assertEqual(len(self.events()), 1)
 
-    def test_wrong_active_provider_is_rejected(self):
-        self.prepare_changed_phase()
-        wrong = self.work / "wrong-provider"
-        wrong.write_text("another binary")
-        self.env["PROVIDER_BINARY"] = str(wrong)
-        self.assertNotEqual(self.execute("apply", "agent-memory").returncode, 0)
-        self.assertFalse(any(e["command"] == "apply" for e in self.events()))
-
-    def test_approval_is_bound_to_the_backend_and_deployment_environment(self):
-        self.env["REDISCLOUD_ENVIRONMENT"] = "production"
-        self.prepare_changed_phase()
-        self.assertIn("**production** deployment", self.summary())
-        for key, value in (
-            ("TF_STATE_BUCKET_NAME", "another-bucket"),
-            ("TF_STATE_REGION_NAME", "eu-west-1"),
-            ("REDISCLOUD_ENVIRONMENT", "another-environment"),
-        ):
-            with self.subTest(key=key):
-                original = self.env[key]
-                self.env[key] = value
-                result = self.execute("apply", "agent-memory")
-                self.assertNotEqual(result.returncode, 0)
-                self.assertFalse(any(e["command"] == "apply" for e in self.events()))
-                self.env[key] = original
-
-    def test_dependency_change_during_apply_init_is_rejected(self):
-        self.prepare_changed_phase()
-        self.env["MOCK_REWRITE_LOCK"] = "1"
-        result = self.execute("apply", "agent-memory")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Provider dependencies changed after approval", result.stderr)
-        self.assertFalse(any(e["command"] == "apply" for e in self.events()))
-
-    def test_multiple_agents_tolerate_ignored_registry_lock_rewrite(self):
-        self.env["MOCK_CHANGES"] = json.dumps({"agent-memory": {"actions": ["update"]}})
-        self.assertEqual(self.execute("plan", "rollout").returncode, 0)
-        index = json.loads((self.work / "bundle-rollout/index.json").read_text())
-        agent_locks = [
-            item for item in index["plans"] if item["stack"] == "agent-memory"
-        ]
-        self.env["MOCK_OVERRIDE_LOCK"] = "1"
-        result = self.approved_apply("rollout")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            len(
-                [
-                    e
-                    for e in self.events()
-                    if e["command"] == "apply" and e["kind"] == "agent-memory"
-                ]
-            ),
-            2,
-        )
-        final_lock = self.work / "stacks/agent-memory/.terraform.lock.hcl"
-        self.assertEqual(
-            hashlib.sha256(final_lock.read_bytes()).hexdigest(),
-            agent_locks[-1]["lock_sha256"],
-        )
-
-    def test_registry_mode_rejects_rediscloud_lock_change(self):
+    def test_registry_mode_uses_saved_lock_without_a_source_binary(self):
         self.env.pop("PROVIDER_BINARY")
-        self.prepare_changed_phase()
-        self.env["MOCK_OVERRIDE_LOCK"] = "1"
-        self.assertNotEqual(self.approved_apply("agent-memory").returncode, 0)
-        self.assertFalse(any(e["command"] == "apply" for e in self.events()))
+        self.changed()
+        r = self.execute("apply")
+        self.assertEqual(r.returncode, 0, r.stderr)
 
-    def test_override_does_not_allow_random_provider_change(self):
-        self.prepare_changed_phase()
-        self.env["MOCK_OVERRIDE_LOCK"] = "1"
-        self.env["MOCK_REWRITE_LOCK"] = "random"
-        self.assertNotEqual(self.execute("apply", "agent-memory").returncode, 0)
-        self.assertFalse(any(e["command"] == "apply" for e in self.events()))
+    def test_apply_failure_is_reported_without_a_success_summary(self):
+        self.changed()
+        r = self.execute("apply", MOCK_FAIL_APPLY="1")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn(
+            "plan applied", Path(self.env["GITHUB_STEP_SUMMARY"]).read_text()
+        )
 
-    def test_summary_omits_secret_and_sensitive_values(self):
-        marker = "DO-NOT-PRINT-THIS-SECRET"
-        self.env["MOCK_CHANGES"] = json.dumps(
-            {
-                "agent-memory": {
+    def test_sensitive_values_are_not_published_in_summary(self):
+        marker = "DO-NOT-PRINT-SECRET"
+        r = self.execute(
+            "plan",
+            MOCK_CHANGES=json.dumps(
+                {
                     "actions": ["update"],
-                    "before": {
-                        "name": "old",
-                        "short_term_ttl_seconds": 1,
-                        "api_key": marker,
-                    },
+                    "before": {"name": "old", "api_key": marker},
                     "after": {
                         "name": marker,
-                        "short_term_ttl_seconds": 2,
                         "api_key": marker,
-                        "llm": {"credentials": marker},
+                        "short_term_ttl_seconds": 2,
                     },
                     "after_sensitive": {"name": True},
-                    "output_changes": {
-                        "api_key": {"actions": ["update"], "after": marker}
+                }
+            ),
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn(marker, Path(self.env["GITHUB_STEP_SUMMARY"]).read_text())
+
+    def test_retained_agent_cannot_reference_deleted_database(self):
+        p = {
+            "resource_changes": [
+                {
+                    "mode": "managed",
+                    "type": "rediscloud_subscription_database",
+                    "address": 'module.database["db"].rediscloud_subscription_database.this',
+                    "change": {
+                        "actions": ["delete"],
+                        "before": {"db_id": 123},
+                        "after": None,
                     },
+                },
+                {
+                    "mode": "managed",
+                    "type": "rediscloud_agent_memory",
+                    "address": 'module.agent_memory["agent"].rediscloud_agent_memory.this',
+                    "change": {"actions": ["no-op"], "after": {"database_id": 123}},
+                },
+            ]
+        }
+        with self.assertRaisesRegex(ValueError, "retained Agent Memory"):
+            validate_plan(p, self.manifest)
+
+    def test_external_ownership_transfer_requires_explicit_reconciliation(self):
+        self.manifest["databases"][0]["mode"] = "external"
+        key = self.manifest["databases"][0]["key"]
+        p = {
+            "resource_changes": [
+                {
+                    "mode": "managed",
+                    "type": "rediscloud_subscription_database",
+                    "address": f'module.database["{key}"].rediscloud_subscription_database.this',
+                    "change": {"actions": ["delete"], "before": {"db_id": 123}},
                 }
-            }
-        )
-        result = self.execute("plan", "agent-memory")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn(marker, self.summary())
-        self.assertIn("short_term_ttl_seconds", self.summary())
-        self.assertIn("Approval required", self.summary())
+            ]
+        }
+        with self.assertRaisesRegex(ValueError, "ownership transfer"):
+            validate_plan(p, self.manifest)
 
-    def test_create_and_delete_summaries_keep_actions_without_redundant_field_lists(
-        self,
-    ):
-        for actions in (["create"], ["delete"]):
-            with self.subTest(actions=actions):
-                self.env["MOCK_CHANGES"] = json.dumps(
-                    {
-                        "agent-memory": {
-                            "actions": actions,
-                            "before": {"name": "old"},
-                            "after": {"name": "new"},
-                        }
-                    }
-                )
-                (self.work / "summary.md").write_text("")
-                result = self.execute("plan", "agent-memory")
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertNotIn("Changed fields in", self.summary())
-                self.assertIn("| " + actions[0] + " |", self.summary())
-                if actions == ["delete"]:
-                    self.assertIn(
-                        "Context is not migrated automatically", self.summary()
-                    )
-
-    def test_single_approval_fresh_rollout_freezes_deferred_inputs(self):
-        self.env["MOCK_CHANGES"] = json.dumps(
-            {
-                kind: {"actions": ["create"]}
-                for kind in ("subscription", "database", "agent-memory")
-            }
-        )
-        self.assertEqual(self.execute("plan", "rollout").returncode, 0)
-        self.assertEqual(self.outputs["needs_apply"], "true")
-        self.assertEqual([e["kind"] for e in self.events()], ["subscription"])
-        self.assertIn("One approval for the full configuration", self.summary())
-        self.assertIn(
-            "/blob/"
-            + self.env["GITHUB_SHA"]
-            + "/configs/fetch-rewards/subscriptions/test.json",
-            self.summary(),
-        )
-        self.assertEqual(self.summary().count("## Deferred plan:"), 3)
-        index = json.loads((self.work / "bundle-rollout/index.json").read_text())
-        hashes = [
-            item["variables_sha256"] for item in index["plans"] if item.get("deferred")
-        ]
-        for item in [
-            *self.manifest["databases"],
-            *self.manifest["agent_memory_stores"],
-        ]:
-            (self.work / item["tfvars_path"]).write_text("changed after approval")
-        result = self.approved_apply("rollout")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            [(e["command"], e["kind"]) for e in self.events()],
-            [
-                ("plan", "subscription"),
-                ("apply", "subscription"),
-                ("plan", "database"),
-                ("apply", "database"),
-                ("plan", "agent-memory"),
-                ("plan", "agent-memory"),
-                ("apply", "agent-memory"),
-                ("apply", "agent-memory"),
-            ],
-        )
-        self.assertEqual(
-            [e["variables_hash"] for e in self.events()[1:] if e["command"] == "plan"],
-            hashes,
-        )
-
-    def test_existing_rollout_reuses_all_reviewed_plans(self):
-        self.env["MOCK_CHANGES"] = json.dumps({"agent-memory": {"actions": ["update"]}})
-        self.assertEqual(self.execute("plan", "rollout").returncode, 0)
-        self.assertEqual(len(self.events()), 4)
-        self.assertNotIn("## Deferred plan:", self.summary())
-        self.assertEqual(self.approved_apply("rollout").returncode, 0)
-        self.assertEqual(
-            [e["command"] for e in self.events()], ["plan"] * 4 + ["apply"] * 4
-        )
-
-    def test_unchanged_rollout_needs_no_approval(self):
-        self.assertEqual(self.execute("plan", "rollout").returncode, 0)
-        self.assertEqual(self.outputs, {"needs_apply": "false"})
-        self.assertFalse((self.work / "s3").exists())
-
-    def test_deferred_inputs_tampering_rejects_all_applies(self):
-        self.env["MOCK_CHANGES"] = json.dumps({"subscription": {"actions": ["create"]}})
-        self.assertEqual(self.execute("plan", "rollout").returncode, 0)
-        bundle = self.work / "bundle-rollout"
-        index = json.loads((bundle / "index.json").read_text())
-        item = next(item for item in index["plans"] if item.get("deferred"))
-        (bundle / item["variables"]).write_text("tampered")
-        self.assertNotEqual(self.execute("apply", "rollout").returncode, 0)
-        self.assertFalse(any(e["command"] == "apply" for e in self.events()))
-
-    def test_deferred_replacement_uses_native_terraform_plan(self):
-        self.env["MOCK_CHANGES"] = json.dumps({"subscription": {"actions": ["create"]}})
-        self.assertEqual(self.execute("plan", "rollout").returncode, 0)
-        self.env["MOCK_CHANGES"] = json.dumps(
-            {
-                "subscriptions/demo-ai-us-east-1/agent-memory/support_agent.tfstate": {
-                    "actions": ["delete", "create"]
+    def test_selective_destroy_rejects_unrelated_changes(self):
+        self.manifest["selected_module"] = 'module.agent_memory["support_agent"]'
+        p = {
+            "resource_changes": [
+                {
+                    "mode": "managed",
+                    "type": "rediscloud_agent_memory",
+                    "address": 'module.agent_memory["shopping_agent"].rediscloud_agent_memory.this',
+                    "change": {"actions": ["delete"], "before": {}},
                 }
-            }
-        )
-        result = self.approved_apply("rollout")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("replacement generates a new store ID", self.summary())
-        self.assertEqual(
-            len(
-                [
-                    e
-                    for e in self.events()
-                    if e["command"] == "apply" and e["kind"] == "agent-memory"
-                ]
-            ),
-            2,
-        )
+            ]
+        }
+        with self.assertRaisesRegex(ValueError, "Selective destroy"):
+            validate_plan(p, self.manifest)
 
-    def test_rollout_stops_on_apply_failure(self):
-        self.env["MOCK_CHANGES"] = json.dumps({"subscription": {"actions": ["create"]}})
-        self.assertEqual(self.execute("plan", "rollout").returncode, 0)
-        self.env["MOCK_FAIL_APPLY"] = "subscription"
-        self.assertNotEqual(self.approved_apply("rollout").returncode, 0)
-        self.assertEqual(
-            [e["kind"] for e in self.events()], ["subscription", "subscription"]
-        )
+    def test_unsafe_archive_members_are_rejected(self):
+        import io
+        import tarfile
 
-    def test_rollout_with_new_database_defers_only_its_agents(self):
-        self.env["MOCK_CHANGES"] = json.dumps({"database": {"actions": ["create"]}})
-        self.assertEqual(self.execute("plan", "rollout").returncode, 0)
-        self.assertEqual(
-            [e["kind"] for e in self.events()], ["subscription", "database"]
-        )
-        self.assertEqual(self.summary().count("## Deferred plan:"), 2)
-        self.assertEqual(self.approved_apply("rollout").returncode, 0)
+        self.changed()
+        archive = self.work / "unsafe.tar.gz"
+        with tarfile.open(archive, "w:gz") as stream:
+            entry = tarfile.TarInfo("../outside")
+            entry.size = 1
+            stream.addfile(entry, io.BytesIO(b"x"))
+        shutil.copyfile(archive, Path(self.env["MOCK_S3"]) / self.key)
+        self.sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+        result = self.execute("load")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Invalid review bundle", result.stderr)
+        self.assertFalse((self.work / "outside").exists())
 
-    def test_mixed_rollout_reviews_ready_agents_and_defers_only_new_database_agent(
-        self,
-    ):
-        config = json.loads(self.config.read_text())
-        config["databases"]["new_database"] = deepcopy(
-            next(iter(config["databases"].values()))
-        )
-        config["databases"]["new_database"]["name"] = "new-database"
-        config["agent_memory_stores"]["support_agent"]["database"] = "new_database"
-        self.config.write_text(json.dumps(config))
-        self.render_config()
-        new_database = next(
-            item for item in self.manifest["databases"] if item["key"] == "new_database"
-        )
-        self.env["MOCK_CHANGES"] = json.dumps(
-            {new_database["state_key"]: {"actions": ["create"]}}
-        )
-        self.assertEqual(self.execute("plan", "rollout").returncode, 0)
-        self.assertEqual(self.summary().count("## Deferred plan:"), 1)
-        reviewed = [e["state_key"] for e in self.events()]
-        shopping = next(
-            item
-            for item in self.manifest["agent_memory_stores"]
-            if item["key"] == "shopping_agent"
-        )
-        support = next(
-            item
-            for item in self.manifest["agent_memory_stores"]
-            if item["key"] == "support_agent"
-        )
-        self.assertIn(shopping["state_key"], reviewed)
-        self.assertNotIn(support["state_key"], reviewed)
-        self.assertEqual(self.approved_apply("rollout").returncode, 0)
-        self.assertEqual(
-            len(
-                [
-                    e
-                    for e in self.events()
-                    if e["command"] == "plan"
-                    and e["state_key"] == shopping["state_key"]
-                ]
-            ),
-            1,
-        )
+    def test_changed_state_key_is_rejected_before_apply(self):
+        self.changed()
+        path = self.bundle / "index.json"
+        index = json.loads(path.read_text())
+        index["state_key"] = "subscriptions/another/terraform.tfstate"
+        path.write_text(json.dumps(index))
+        self.assertNotEqual(self.execute("apply").returncode, 0)
+        self.assertEqual(len(self.events()), 1)
 
-    def test_single_gate_depends_on_full_configuration_review(self):
-        source = (ROOT / ".github/workflows/rediscloud-phase.yml").read_text()
-        self.assertIn("needs: plan", source)
-        self.assertIn(
-            "if: inputs.apply && needs.plan.outputs.needs_apply == 'true'", source
-        )
-        apply = source.split("\n  apply:\n", 1)[1]
-        self.assertIn("environment:", apply)
-        self.assertIn("rediscloud_review.py apply", apply)
-        self.assertNotIn("rediscloud_review.py plan", apply)
-        config = (ROOT / ".github/workflows/rediscloud-config.yml").read_text()
-        self.assertNotIn("always()", config)
-        self.assertEqual(config.count("apply: true"), 1)
-        self.assertIn("phase: rollout", config)
-        self.assertNotIn("needs: subscription", config)
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_selective_destroy_accepts_only_selected_module_deletions(self):
+        self.manifest["selected_module"] = 'module.agent_memory["support_agent"]'
+        plan = {
+            "resource_changes": [
+                {
+                    "mode": "managed",
+                    "type": "rediscloud_agent_memory",
+                    "address": 'module.agent_memory["support_agent"].rediscloud_agent_memory.this',
+                    "change": {"actions": ["delete"], "before": {"database_id": 123}},
+                }
+            ]
+        }
+        validate_plan(plan, self.manifest)

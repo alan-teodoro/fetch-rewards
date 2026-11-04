@@ -101,12 +101,8 @@ class ConfigurationSchemaTests(unittest.TestCase):
             path = Path(folder) / "config.json"
             path.write_text(json.dumps(config))
             manifest = render(path, Path(folder) / "render")
-            item = next(
-                x
-                for x in manifest["agent_memory_stores"]
-                if x["key"] == "shopping_agent"
-            )
-            values = json.loads(Path(item["tfvars_path"]).read_text())
+            values = json.loads(Path(manifest["deployment"]["tfvars_path"]).read_text())
+            values = values["agent_memory_stores"]["shopping_agent"]
             self.assertEqual(values["database_id"], 123)
             self.assertNotIn("database_name", values)
             self.assertNotIn("llm_api_key", values)

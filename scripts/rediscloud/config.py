@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +25,7 @@ from .config_common import (
 )
 from .database import render_database, validate_databases
 from .schema import validate_schema
-from .stacks import subscription_state_key
+from .stacks import deployment_state_key
 from .subscription import render_subscription, validate_subscription
 
 
@@ -69,6 +68,9 @@ def load_and_validate(path: Path) -> dict[str, Any]:
         subscription, subscription_mode, databases, referenced_databases
     )
 
+    config["databases"] = databases
+    config["agent_memory_stores"] = stores
+
     config["_normalized"] = {
         "subscription_name": subscription_name,
         "subscription_id": subscription_id,
@@ -88,7 +90,6 @@ def build_manifest(config: dict[str, Any], config_path: Path) -> dict[str, Any]:
         "subscription": {
             "mode": config["_normalized"]["subscription_mode"],
             "name": config["_normalized"]["subscription_name"],
-            "state_key": subscription_state_key(config),
         },
         "databases": [],
         "agent_memory_stores": [],
@@ -110,15 +111,7 @@ def select_destroy_config(
         raise ConfigError(
             f"Agent Memory {agent_memory_key!r} is external and cannot be destroyed by this config."
         )
-    selected = deepcopy(config)
-    selected["subscription"]["mode"] = "external"
-    selected["_normalized"]["subscription_mode"] = "external"
-    selected["databases"] = {
-        key: {**database, "mode": "external"}
-        for key, database in selected.get("databases", {}).items()
-    }
-    selected["agent_memory_stores"] = {agent_memory_key: deepcopy(store)}
-    return selected
+    return config
 
 
 def render(
@@ -135,6 +128,8 @@ def render(
         )
     if destroy:
         config = select_destroy_config(config, agent_memory_key)
+        config["_destroy"] = not bool(agent_memory_key)
+        config["_selected_destroy"] = agent_memory_key
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest = build_manifest(config, config_path)
     if destroy:
@@ -142,13 +137,66 @@ def render(
             "agent_memory" if agent_memory_key else "all_managed_resources"
         )
 
-    render_subscription(config, out_dir, manifest)
+    render_subscription(config, manifest)
 
     for database_key, database in config.get("databases", {}).items():
-        render_database(config, database_key, database, out_dir, manifest)
+        render_database(config, database_key, database, manifest)
 
     for store_key, store in config.get("agent_memory_stores", {}).items():
-        render_agent_memory(config, store_key, store, out_dir, manifest)
+        render_agent_memory(config, store_key, store, manifest)
+
+    # The JSON describes one root module. Terraform handles references, removals
+    # and ordering in a single graph; the renderer never inspects state.
+    subscription = {
+        **manifest["subscription"].pop("inputs", {}),
+        "mode": config["_normalized"]["subscription_mode"],
+        "subscription_name": config["_normalized"]["subscription_name"],
+        "subscription_id": config["_normalized"]["subscription_id"],
+    }
+    inputs = {
+        "subscription": subscription,
+        "databases": {},
+        "agent_memory_stores": {},
+        "model_api_keys": {},
+    }
+    for item in manifest["databases"]:
+        values = item.pop("inputs", {})
+        values.pop("subscription_name", None)
+        values.pop("subscription_id", None)
+        inputs["databases"][item["key"]] = {
+            **values,
+            "mode": item["mode"],
+            "database_name": item["name"],
+            "database_id": item["database_id"],
+        }
+    for item in manifest["agent_memory_stores"]:
+        values = item.pop("inputs", {})
+        for name in ("subscription_name", "subscription_id", "database_name"):
+            values.pop(name, None)
+        credentials = {
+            name: values.pop(name)
+            for name in ("llm_api_key", "embedding_api_key")
+            if name in values
+        }
+        if destroy and agent_memory_key == item["key"]:
+            continue
+        if credentials:
+            inputs["model_api_keys"][item["key"]] = credentials
+        inputs["agent_memory_stores"][item["key"]] = {
+            **values,
+            "mode": item["mode"],
+            "agent_memory_name": item["name"],
+            "database_key": item["database_key"],
+        }
+    tfvars_path = out_dir / "deployment.auto.tfvars.json"
+    write_json(tfvars_path, inputs)
+    manifest["deployment"] = {
+        "name": config["_normalized"]["subscription_name"],
+        "state_key": deployment_state_key(config),
+        "tfvars_path": str(tfvars_path),
+    }
+    if destroy and agent_memory_key:
+        manifest["selected_module"] = f'module.agent_memory["{agent_memory_key}"]'
 
     manifest_path = out_dir / "manifest.json"
     write_json(manifest_path, manifest)

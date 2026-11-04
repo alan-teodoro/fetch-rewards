@@ -5,16 +5,16 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
-from rediscloud.config_common import ConfigError, get_mode
 from rediscloud.config import (
     load_and_validate,
     render,
     select_destroy_config,
     validate_workflow_path,
 )
+from rediscloud.config_common import ConfigError, get_mode
 
 
 def validate_command(args: argparse.Namespace) -> None:
@@ -52,7 +52,9 @@ def validate_destroy_command(args: argparse.Namespace) -> None:
                 "destroy_scope": "agent_memory"
                 if args.agent_memory_key
                 else "all_managed_resources",
-                "agent_memory_keys": [
+                "agent_memory_keys": [args.agent_memory_key]
+                if args.agent_memory_key
+                else [
                     key
                     for key, store in config.get("agent_memory_stores", {}).items()
                     if get_mode(key, store) == "managed"
@@ -114,7 +116,7 @@ def main() -> None:
 
     render_destroy_parser = subparsers.add_parser(
         "render-destroy",
-        help="Render all managed resources or only one Agent Memory stack for destroy.",
+        help="Render the full deployment for destroy, or omit one Agent Memory for selective removal.",
     )
     render_destroy_parser.add_argument("--config", required=True, type=Path)
     render_destroy_parser.add_argument("--out-dir", required=True, type=Path)

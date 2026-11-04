@@ -67,24 +67,16 @@ def validate_bundle(bundle, phase):
     age = time.time() - review["created"]
     if age < -60 or age > 3600:
         raise ValueError("Reviewed plan expired; generate and approve a new plan.")
+    if len(review["plans"]) != 1:
+        raise ValueError("Expected one reviewed deployment plan.")
     for item in review["plans"]:
         if item["stack"] not in STACKS or (
             phase not in {"destroy", "rollout"} and item["stack"] != phase
         ):
             raise ValueError("Unexpected stack in reviewed plan.")
-        payload = (
-            ("variables", "variables_sha256")
-            if item.get("deferred")
-            else ("file", "sha256")
-        )
-        if item.get("deferred") and phase != "rollout":
-            raise ValueError("Deferred plans require whole-configuration approval.")
-        if item.get("removed") and (
-            item["stack"] not in {"agent-memory", "database"} or item.get("deferred")
-        ):
-            raise ValueError(
-                "Omitted resources require reviewed Agent Memory/database deletion plans."
-            )
+        payload = ("file", "sha256")
+        if item["state_key"] != review["state_key"]:
+            raise ValueError("Reviewed state key mismatch.")
         for path_key, hash_key in (payload, ("lock", "lock_sha256")):
             if (
                 Path(item[path_key]).name != item[path_key]
@@ -132,30 +124,11 @@ def save_plan(
         "sha256": digest(target),
         "lock": lock_name,
         "lock_sha256": digest(bundle / lock_name),
-        "removed": item.get("removed", False),
-    }
-
-
-def freeze_inputs(
-    bundle: Path, index: int, stack: str, item: dict, directory: Path
-) -> dict:
-    variables = f"variables-{index}.json"
-    lock = f"lock-{index}.hcl"
-    shutil.copyfile(item["tfvars_path"], bundle / variables)
-    shutil.copyfile(directory / ".terraform.lock.hcl", bundle / lock)
-    return {
-        "stack": stack,
-        "title": stack + " " + item["name"],
-        "state_key": item["state_key"],
-        "deferred": True,
-        "variables": variables,
-        "variables_sha256": digest(bundle / variables),
-        "lock": lock,
-        "lock_sha256": digest(bundle / lock),
     }
 
 
 def publish(bundle: Path, manifest: dict, review: dict) -> tuple[str, str]:
+    review["state_key"] = manifest["deployment"]["state_key"]
     binary = os.environ.get("PROVIDER_BINARY", "")
     if binary:
         shutil.copyfile(binary, bundle / "terraform-provider-rediscloud")
@@ -166,7 +139,7 @@ def publish(bundle: Path, manifest: dict, review: dict) -> tuple[str, str]:
     with tarfile.open(archive, "w:gz") as stream:
         for path in sorted(bundle.iterdir()):
             stream.add(path, arcname=path.name)
-    namespace = manifest["subscription"]["state_key"].rsplit("/", 1)[0]
+    namespace = manifest["deployment"]["state_key"].rsplit("/", 1)[0]
     key = f"{namespace}/review-plans/{review['run_id']}/{review['attempt']}/{review['phase']}.tar.gz"
     run(
         "aws",

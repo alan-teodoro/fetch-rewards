@@ -206,3 +206,11 @@ variable "enable_resource_tags" {
   type        = bool
   default     = false
 }
+
+# The deployment root passes false when it supplies a parent's computed ID.
+# Selecting by ID value alone would make lookup count unknown on the first plan.
+variable "lookup_subscription" {
+  description = "Optional explicit lookup selection for composition with managed parent resources."
+  type        = bool
+  default     = null
+}

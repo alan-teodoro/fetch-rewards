@@ -20,7 +20,7 @@ available models, detector IDs, regions, capacity and evolving service limits.
 | --- | --- |
 | `schema_version` | Format version, currently `1` |
 | `customer`, `environment` | Labels; do not select credentials or approval environment |
-| `subscription_key` | Durable state namespace |
+| `subscription_key` | Selects `subscriptions/<key>/terraform.tfstate` |
 | `subscription` | Managed subscription or external reference |
 | `databases` | Map of database identities to settings |
 | `agent_memory_stores` | Map of store identities to settings |
@@ -83,8 +83,8 @@ do not apply store tags or publish secrets.
 
 The JSON and Terraform inputs use objects for optional policies and lists for
 repeated fields/detectors. Terraform `dynamic` blocks translate these into the
-provider's nested blocks. Its state stores optional blocks as zero-or-one lists;
-the state adapter handles that shape when reconstructing omitted-resource deletion.
+provider's nested blocks. The provider manages the stored representation of those blocks. Resource removal
+is represented by Terraform's native plan; no Python state adapter is needed.
 
 | Input | Stack behavior |
 | --- | --- |

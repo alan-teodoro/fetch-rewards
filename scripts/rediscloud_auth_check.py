@@ -10,7 +10,6 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-
 API_BASE_DEFAULT = "https://api.redislabs.com/v1"
 USER_AGENT = "rediscloud-github-actions-automation/1.0"
 

@@ -2,7 +2,14 @@
 
 Manage Redis Cloud subscriptions, databases and Agent Memory through a versioned
 JSON file and GitHub Actions. The same configuration defines creation, updates
-and removal. Terraform owns the resources and stores their state in private S3.
+and removal. Terraform owns the resources and stores one state per subscription JSON in private S3.
+The deployment root passes parent IDs between modules, so Terraform orders both
+creation and deletion. Python validates/renders inputs and manages plan approval;
+it does not download, parse or edit state files.
+
+> Local single-state refactor: existing multi-state deployments require the
+> [migration procedure](docs/state-migration.md) before using this root. The
+> deployed demo has not been migrated by this change.
 
 ## Start here
 
@@ -19,7 +26,8 @@ the configured GitHub environment. Unchanged runs need no approval.
 
 ## Working rules
 
-- Keep `subscription_key` and database/store map keys stable: they identify state.
+- Keep `subscription_key` stable: it identifies the state. Database/store map keys
+  identify module instances inside that state; renames require explicit migration.
 - Remove a managed entry from JSON to propose its deletion. Remove dependent
   agents before removing their database.
 - Use **Redis Cloud Config Destroy** for complete or selective teardown. Keep the
@@ -37,7 +45,10 @@ The JSON `customer` and `environment` fields are descriptive labels.
 ```text
 configs/<customer>/subscriptions/   Desired configuration for each subscription
 schemas/                           JSON Schema and editor validation
-stacks/                            Terraform resources, inputs and outputs
+stacks/deployment/                 Single root module and S3 backend
+stacks/subscription/               Reusable subscription module
+stacks/database/                   Reusable database/ACL module
+stacks/agent-memory/               Reusable Agent Memory/key module
 modules/terraform_state_backend/   One-time S3 and GitHub OIDC bootstrap
 scripts/rediscloud_config.py        Validate/render configuration
 scripts/rediscloud_review.py        Review and execute approved plans
@@ -61,8 +72,8 @@ terraform fmt -check -recursive
 ```
 
 The **Terraform Validate** workflow also validates every stack and tests the
-backend bootstrap with mocked AWS providers. The optional local provider contract
-test is explained in the maintenance guide. Local regression tests use simulated
+backend bootstrap with mocked AWS providers. The offline Terraform contract
+tests are explained in the maintenance guide. Local regression tests use simulated
 commands or synthetic state and do not create cloud infrastructure.
 
 ## Scope

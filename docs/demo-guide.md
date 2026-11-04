@@ -2,14 +2,16 @@
 
 Complete [customer setup](customer-setup.md) first. Use
 `configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json` throughout.
-It starts with one subscription, one database and `shopping-agent-memory`, using
+The single-state root requires migration for an existing multi-state deployment;
+see [migration](state-migration.md). For a fresh deployment, the example starts
+with one subscription, one database and `shopping-agent-memory`, using
 platform-managed models. Review the account-specific values before deployment.
 
 For each change below, commit and push the JSON, run **Redis Cloud Config Apply**
 with the same `config_path` and `operation = apply`, then review the summary.
 Keep the workflow's tested provider defaults for the rehearsal.
 The [customer guide](customer-setup.md#5-run-the-pipeline) explains approvals,
-deferred plans and replacement behavior.
+saved plans and replacement behavior.
 
 ## 1. Create
 

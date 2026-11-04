@@ -18,9 +18,6 @@ def run(*args: str, capture=False):
 
 def backend(stack, state_key):
     directory = Path("stacks") / stack
-    (directory / "backend.generated.tf").write_text(
-        'terraform {\n  backend "s3" {\n    use_lockfile = true\n  }\n}\n'
-    )
     run(
         "terraform",
         f"-chdir={directory}",
@@ -73,29 +70,6 @@ def prepare_apply_backend(bundle, item, overridden_provider):
     # init can add/remove an ignored Registry entry under dev_overrides.
     shutil.copyfile(reviewed_lock, lock)
     return directory
-
-
-def dependency_status(plan: dict, resource_type: str) -> str:
-    resources = [
-        item
-        for item in plan.get("resource_changes", [])
-        if item.get("mode", "managed") == "managed"
-        and item.get("type") == resource_type
-    ]
-    if len(resources) != 1:
-        raise ValueError(
-            f"Expected exactly one managed {resource_type} resource in the plan."
-        )
-    change = resources[0]["change"]
-    if any(action in {"create", "delete"} for action in change["actions"]):
-        return "pending"
-    before = change.get("before") or {}
-    after = change.get("after") or {}
-    if (change.get("after_unknown") or {}).get("name") or before.get(
-        "name"
-    ) != after.get("name"):
-        return "pending"
-    return "ready"
 
 
 def plan(

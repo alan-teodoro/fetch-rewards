@@ -1,0 +1,2 @@
+provider "rediscloud" {}
+provider "random" {}

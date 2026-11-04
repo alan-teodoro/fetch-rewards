@@ -15,7 +15,7 @@ locals {
   # Parent selection: database_id skips both lookups; subscription_id plus a
   # database name needs only the database lookup; names alone require both.
   # Each [0] below is used only when its matching count-created lookup exists.
-  lookup_database     = var.database_id == null
+  lookup_database     = var.lookup_database != null ? var.lookup_database : var.database_id == null
   lookup_subscription = local.lookup_database && var.subscription_id == null
   resolved_subscription_id = local.lookup_database ? (
     local.lookup_subscription ? data.rediscloud_subscription.target[0].id : var.subscription_id

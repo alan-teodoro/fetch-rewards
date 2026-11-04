@@ -101,15 +101,14 @@ Open **Redis Cloud Config Apply** from the approved branch.
 Keep `registry` selected across plan, apply and destroy. All Redis Cloud stacks
 pin provider 2.20.0, including checksums for Linux Actions runners and macOS.
 The official provider includes its SDK; no separate SDK installation is needed.
-Switching from the source build preserves the existing state paths and resource
-identities. Review a plan before applying; changing providers must not silently
-recreate existing resources. Follow [maintenance](maintenance.md) for upgrades.
+Switching provider builds alone preserves resource identity. This single-state
+layout additionally requires [migration](state-migration.md) for existing
+multi-state deployments. Review a plan before applying. Follow [maintenance](maintenance.md) for upgrades.
 
-Read the summary before approval. New or renamed parents can defer downstream
-plans; the summary identifies them. One approval covers the pinned configuration,
-including those deferred steps. It expires one hour after planning. Unchanged
-runs request no approval. Failure stops subsequent work and does not roll back
-completed changes.
+Read the complete Terraform plan before approval. Subscription, database and
+Agent Memory changes are planned together in one state. One approval applies
+that exact saved plan; it expires one hour after planning. Unchanged runs request
+no approval. Failure stops execution without rolling back completed changes.
 
 Follow the [walkthrough](demo-guide.md) for add/update/remove/teardown. Config
 Destroy requires confirmation and can target one store with `agent_memory_key`.
@@ -118,7 +117,7 @@ External resources and the backend remain outside that teardown.
 ## 6. Connect applications
 
 Agree delivery of store IDs, endpoints and runtime keys before deployment.
-Generated runtime keys are sensitive outputs in each store's state. `secret_ref`
+Generated runtime keys are sensitive outputs in the deployment state. `secret_ref`
 records a desired destination; no automatic Secrets Manager publication is
 implemented. Do not expose keys through Actions summaries or public artifacts.
 

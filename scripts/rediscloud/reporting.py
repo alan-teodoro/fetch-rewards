@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 
-from .stacks import PUBLIC_FIELDS, entries
+from .stacks import PUBLIC_FIELDS
 
 
 def output(key, value):
@@ -137,34 +136,10 @@ def describe(title, plan):
     summary("\n".join(lines))
 
 
-def describe_inventory(manifest: dict, phase: str, omitted: list) -> None:
-    if omitted:
-        summary(
-            "## Resources removed from configuration\n\nThe following previously managed states are omitted from this subscription configuration. Their deletion plans are reviewed below and require the same manual approval. Agent Memory is removed before databases; these saved deletion plans execute before creates/updates.\n\n| Stack | Removed resource |\n| --- | --- |"
-        )
-        for stack, item in omitted:
-            summary(f"| {stack} | {cell(item['name'])} |")
-    if phase == "rollout":
-        summary(
-            "## One approval for the full configuration\n\nApprove once to execute subscription, database and Agent Memory in dependency order. Existing resources are planned below. When a dependency must first be created or renamed, its dependent plan is deferred until after approval. These deferred changes are authorized by the configuration inventory below, not by a Terraform plan available now. Failure stops subsequent work; completed changes are not automatically rolled back."
-        )
-        config_path = Path(manifest["config_path"])
-        if not config_path.is_absolute():
-            summary(
-                f"[Review the exact configuration]({os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/blob/{os.environ['GITHUB_SHA']}/{config_path.as_posix()})\n"
-            )
-        summary("\n| Stack | Configured resource |\n| --- | --- |")
-        for stack, item in entries(manifest, phase):
-            summary(f"| {stack} | {cell(item['name'])} |")
-
-
 def describe_approval(review: dict, bundle_hash: str) -> None:
     environment = cell(os.environ.get("REDISCLOUD_ENVIRONMENT", "dev"))
-    execution = (
-        "The single approval authorizes the whole configuration. Reviewed plans are reused; only explicitly deferred plans are generated after dependencies become available, with the same provider and frozen inputs."
-        if review["phase"] == "rollout"
-        else "The apply job downloads the same encrypted bundle and never replans."
-    )
     summary(
-        f"\n## Approval required: {review['phase']}\n\nReview the plans above before approving the **{environment}** deployment. {execution} Approval expires one hour after planning.\n\n- Config commit: `{review['commit']}`\n- Provider: `{review['provider_ref']}`\n- Bundle SHA-256: `{bundle_hash}`\n- [Open this run's plan summaries]({os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{review['run_id']})"
+        f"## Approval required: {review['phase']}\n\nReview the complete saved Terraform plan before approving **{environment}**. "
+        "The apply job reuses this exact plan; no deferred plans or replanning. Approval expires after one hour.\n\n"
+        f"- Commit: `{review['commit']}`\n- Provider: `{review['provider_ref']}`\n- Bundle SHA-256: `{bundle_hash}`"
     )

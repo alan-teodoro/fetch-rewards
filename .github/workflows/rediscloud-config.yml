@@ -9,7 +9,7 @@ on:
         type: string
         default: configs/fetch-rewards/subscriptions/demo-ai-us-east-1.json
       operation:
-        description: Run Terraform plan only or plan and apply.
+        description: Review the full configuration, or apply its saved Terraform plan.
         required: true
         type: choice
         options:

@@ -91,7 +91,7 @@ jobs:
             exit 1
           fi
 
-  agent-memory-validate:
+  deployment-validate:
     runs-on: ${{ vars.REDISCLOUD_RUNNER || 'ubuntu-latest' }}
 
     steps:
@@ -147,11 +147,11 @@ jobs:
           terraform_wrapper: false
 
       - name: Terraform init
-        working-directory: stacks/agent-memory
+        working-directory: stacks/deployment
         run: terraform init -backend=false
 
       - name: Terraform validate
-        working-directory: stacks/agent-memory
+        working-directory: stacks/deployment
         run: terraform validate
 
       - name: Set up Python for the Terraform contract test
@@ -160,7 +160,7 @@ jobs:
           python-version: '3.12'
           cache: pip
 
-      - name: Verify current provider state can be removed through the stack
+      - name: Verify native deployment dependencies and removals
         env:
           MOCK_PROVIDER_BINARY: ${{ env.REDISCLOUD_PROVIDER_SOURCE == 'branch' && format('{0}/rediscloud-provider-dev/terraform-provider-rediscloud', runner.temp) || '' }}
           TEST_REGISTRY_PROVIDER: ${{ env.REDISCLOUD_PROVIDER_SOURCE == 'registry' && '1' || '' }}

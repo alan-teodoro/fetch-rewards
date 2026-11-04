@@ -23,7 +23,7 @@ locals {
 
   # A direct subscription ID avoids a name lookup but does not create/adopt
   # the subscription. This stack owns only its database and application ACLs.
-  lookup_subscription      = var.subscription_id == null
+  lookup_subscription      = var.lookup_subscription != null ? var.lookup_subscription : var.subscription_id == null
   resolved_subscription_id = local.lookup_subscription ? data.rediscloud_subscription.target[0].id : var.subscription_id
 
   throughput_measurement_by = "operations-per-second"

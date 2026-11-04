@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import Any
 
 from .config_common import (
@@ -18,9 +17,7 @@ from .config_common import (
     validate_env_var_name,
     validate_key,
     validate_normalized_name,
-    write_json,
 )
-from .stacks import agent_memory_state_key
 
 AGENT_MEMORY_FIELDS = {
     "short_term_ttl_seconds",
@@ -83,17 +80,20 @@ def render_model_config(
     model: dict[str, Any],
     tfvars: dict[str, Any],
     manifest_entry: dict[str, Any],
+    *,
+    require_credentials: bool = True,
 ) -> dict[str, Any]:
     credentials = model["credentials"]
     api_key_env_var = credentials["api_key_env_var"]
     api_key = os.getenv(api_key_env_var)
-    if not api_key:
+    if not api_key and require_credentials:
         raise ConfigError(
             f"{store_path}.{block_name}.credentials.api_key_env_var references {api_key_env_var!r}, "
             "but that environment variable is not set."
         )
 
-    tfvars[f"{block_name}_api_key"] = api_key
+    if api_key:
+        tfvars[f"{block_name}_api_key"] = api_key
     manifest_entry["model_credential_env_vars"][block_name] = api_key_env_var
     return {
         "provider": model["provider"],
@@ -213,7 +213,7 @@ def validate_agent_memory_databases(
             and subscription.get("public_endpoint_access") is not True
         ):
             raise ConfigError(
-                "$.subscription.public_endpoint_access must be true because Agent Memory public preview "
+                "$.subscription.public_endpoint_access must be true because Agent Memory integration "
                 "requires the backing database to have a public endpoint."
             )
         if get_mode(f"$.databases.{database_key}", database) != "managed":
@@ -239,7 +239,6 @@ def render_agent_memory(
     config: dict[str, Any],
     store_key: str,
     store: dict[str, Any],
-    out_dir: Path,
     manifest: dict[str, Any],
 ) -> None:
     mode = get_mode(f"$.agent_memory_stores.{store_key}", store)
@@ -255,7 +254,6 @@ def render_agent_memory(
             .get(store.get("database"), {})
             .get("database_id"),
         ),
-        "state_key": agent_memory_state_key(config, store_key),
         "api_key_secret_refs": {},
         "model_credential_env_vars": {},
     }
@@ -286,6 +284,10 @@ def render_agent_memory(
             store["llm"],
             tfvars,
             entry,
+            require_credentials=(
+                not config.get("_destroy", False)
+                and store_key != config.get("_selected_destroy")
+            ),
         )
         tfvars["embedding"] = render_model_config(
             f"$.agent_memory_stores.{store_key}",
@@ -293,6 +295,10 @@ def render_agent_memory(
             store["embedding"],
             tfvars,
             entry,
+            require_credentials=(
+                not config.get("_destroy", False)
+                and store_key != config.get("_selected_destroy")
+            ),
         )
 
     if "database_id" in store:
@@ -321,7 +327,5 @@ def render_agent_memory(
     if managed_api_keys:
         tfvars["api_keys"] = managed_api_keys
 
-    path = out_dir / f"agent-memory-{store_key}.auto.tfvars.json"
-    write_json(path, tfvars)
-    entry["tfvars_path"] = str(path)
+    entry["inputs"] = tfvars
     manifest["agent_memory_stores"].append(entry)

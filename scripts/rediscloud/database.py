@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from .config_common import (
@@ -15,9 +14,7 @@ from .config_common import (
     require_string,
     validate_key,
     validate_normalized_name,
-    write_json,
 )
-from .stacks import database_state_key
 
 DATABASE_FIELDS = {
     "dataset_size_in_gb",
@@ -102,7 +99,6 @@ def render_database(
     config: dict[str, Any],
     database_key: str,
     database: dict[str, Any],
-    out_dir: Path,
     manifest: dict[str, Any],
 ) -> None:
     mode = get_mode(f"$.databases.{database_key}", database)
@@ -112,7 +108,6 @@ def render_database(
         "mode": mode,
         "name": database_name,
         "database_id": database.get("database_id"),
-        "state_key": database_state_key(config, database_key),
     }
 
     if mode != "managed":
@@ -129,17 +124,5 @@ def render_database(
     if database.get("agent_memory_compatible") and "enable_default_user" not in tfvars:
         tfvars["enable_default_user"] = True
 
-    path = out_dir / f"database-{database_key}.auto.tfvars.json"
-    write_json(path, tfvars)
-    entry["tfvars_path"] = str(path)
+    entry["inputs"] = tfvars
     manifest["databases"].append(entry)
-
-
-def database_destroy_variables(name: str, subscription_id: int) -> dict:
-    # A deletion-only plan still evaluates inputs; avoid coalesce(null, null)
-    # when the original ACL password was explicit rather than generated.
-    return {
-        "database_name": name,
-        "subscription_id": subscription_id,
-        "acl_user_password_override": "unused-during-destroy",
-    }
