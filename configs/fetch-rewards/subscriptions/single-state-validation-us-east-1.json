@@ -249,6 +249,24 @@
         "environment": "validation",
         "agent": "shopping"
       }
+    },
+    "support_agent": {
+      "mode": "managed",
+      "name": "fetch-state-support-c7c462",
+      "database": "shared_agent_memory",
+      "short_term_ttl_seconds": 43200,
+      "long_term_ttl_seconds": 604800,
+      "extraction_cadence_seconds": 300,
+      "summarization": {
+        "enabled": false
+      },
+      "api_keys": {
+        "runtime": {
+          "mode": "managed",
+          "enabled": true,
+          "name": "fetch-state-support-key-c7c462"
+        }
+      }
     }
   }
 }
